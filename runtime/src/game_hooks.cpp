@@ -43,6 +43,9 @@ constexpr uint32_t MODE_MIN = 0x4ee97c, MODE_MAX = 0x4ee980, MODE_COUNT = 0x4ee9
 constexpr uint32_t MODE_TABLE = 0x5d8954, MODE_STRIDE = 36;   // r,g,b masks, w, h, bpp, area, class
 constexpr uint32_t AREA_640 = 640 * 480;
 const char *kStateFile = "recomp_state.txt";
+constexpr uint32_t TRACK_SECTIONS = 0x52c108 + 0x24;   // track sections drawn ahead (see below)
+constexpr uint32_t ORIGINAL_SECTIONS = 10;
+constexpr uint32_t DETAIL_TABLE = 0x51d1b8;
 
 struct Mode { uint32_t w, h; };
 const std::vector<Mode> kModes43 = {{320, 240},  {512, 384},   {640, 480},   {800, 600},
@@ -156,6 +159,8 @@ extern "C" void game_hook_mode_label(void) {
 namespace game {
 
 void frame_tick() {
+    if (settings::get().draw_distance > 1.f && RD32(TRACK_SECTIONS) == ORIGINAL_SECTIONS)
+        WR32(TRACK_SECTIONS, static_cast<uint32_t>(ORIGINAL_SECTIONS * settings::get().draw_distance + 0.5f));
     if (!active() || !RD32(MODE_COUNT)) return;   // before the game enumerated display modes
     load_state();
     bool wide = RD32(MODE_169) != 0;
@@ -186,3 +191,28 @@ void frame_tick() {
 }
 
 }  // namespace game
+
+// Draw distance (DrawDistance setting, 1 = original game).
+// - Track: the track object (0x52c108) draws a fixed number of sections ahead of the camera,
+//   [track + 0x24] = 10 set by its constructor (0x40c5b4) for every detail level; the visible list is
+//   built by 0x40ce60.
+// - Per-detail-level table (Options > DETAIL LEVELS 1..5 = index 0..4) at 0x51d1b8, 36 bytes per
+//   level, read from the track configuration (loader 0x428580): LenRLPlane (scales the in-front
+//   sign models' width, not a distance), LenBPlane (opponents are culled beyond 2 x LenBPlane,
+//   0x458b80 -> 0x46e8b0), FlatZ, HorizFlatZ (0), MediumZone / HightZone (ints: opponent bike model
+//   LOD distances), gouraudTexturedZ, texturedZ, gouraudZ (shading falls back beyond these).
+// Detail 5 originally: 3500, 18000, 8000, 0, 5500, 3500, 32000, 48000, 52000.
+extern "C" void game_hook_detail_loaded(void) {
+    float d = settings::get().draw_distance;
+    if (d <= 1.f) return;
+    for (uint32_t lvl = 0; lvl < 5; lvl++) {
+        uint32_t e = DETAIL_TABLE + 36 * lvl;
+        WRF32(e + 4, RDF32(e + 4) * d);                                           // LenBPlane
+        WRF32(e + 8, RDF32(e + 8) * d);                                           // FlatZ
+        for (uint32_t f : {16u, 20u})                                             // MediumZone, HightZone
+            WR32(e + f, static_cast<uint32_t>(static_cast<int32_t>(RD32(e + f)) * 2.f * d));
+        for (uint32_t f : {24u, 28u, 32u}) WRF32(e + f, RDF32(e + f) * d);        // shading distances
+    }
+    log("draw distance x%g: detail 5 LenBPlane %g, bike LOD %d/%d\n", d, RDF32(DETAIL_TABLE + 144 + 4),
+        static_cast<int32_t>(RD32(DETAIL_TABLE + 144 + 20)), static_cast<int32_t>(RD32(DETAIL_TABLE + 144 + 16)));
+}

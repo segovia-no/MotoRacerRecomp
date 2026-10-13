@@ -4,6 +4,7 @@
 - [ ] **In-game options menu** for host settings (render resolution/scale, renderer, fullscreen, filter, vsync) — an overlay drawn by the runtime, so no game code changes.
 - [x] **Navigate the main menu with a controller** — the menus only read keyboard/mouse; map d-pad/stick/A/B to arrow keys, Enter, Escape while in menus.
 - [x] **Triggers for accelerate/brake** — analog via the Y axis in the game's analog joystick mode, buttons 9/10 in JOYPAD mode (`TriggerMode=auto`).
+- [x] **Draw distance / LOD** — `DrawDistance=2`: 20 track sections ahead instead of 10, opponent bikes drawn twice as far with 4× the high/medium-detail model distances. See 14-draw-distance.md.
 - [ ] ~~Triggers as buttons for accelerate/brake~~ (superseded) — the game's control setup binds *buttons*, not an analog axis; expose RT/LT as extra joystick buttons (threshold) in addition to the Y axis.
 
 ## Features

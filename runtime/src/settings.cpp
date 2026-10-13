@@ -62,6 +62,8 @@ void load(const std::string &game_dir) {
     if (auto v = get("recomp", "renderscale")) s.render_scale = strcasecmp(v->c_str(), "auto") ? atoi(v->c_str()) : 0;
     if (const char *e = getenv("MOTORACER_RENDER_SCALE")) s.render_scale = atoi(e);
     if (auto v = get("recomp", "custommodes")) s.custom_modes = truthy(*v);
+    if (auto v = get("recomp", "drawdistance")) s.draw_distance = static_cast<float>(atof(v->c_str()));
+    if (const char *e = getenv("MOTORACER_DRAW_DISTANCE")) s.draw_distance = static_cast<float>(atof(e));   // dev override
     if (auto v = get("recomp", "hudscale")) s.hud_scale = strcasecmp(v->c_str(), "auto") ? static_cast<float>(atof(v->c_str())) : 0.f;
     if (auto v = get("recomp", "controllermenus")) s.controller_menus = truthy(*v);
     if (auto v = get("recomp", "triggermode")) {

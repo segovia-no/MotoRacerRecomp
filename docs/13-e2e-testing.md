@@ -12,6 +12,9 @@ test. Each run opens a game window for its duration.
   render-target resolution, `frame_*.bmp` every 60 software-renderer frames.
 - `MOTORACER_SNAPSHOT_EVERY=<frames>`: GPU snapshot interval (default 120); e.g. 10 to follow an
   animation such as the race-start banner.
+- `EXTRA_KEYS="5000 +UP"` (tools/e2e_race.sh) holds the throttle after the start — needs Options >
+  CONTROLLER = KEYBOARD (UP accelerates).
+- `MOTORACER_DRAW_DISTANCE=<x>` overrides DrawDistance for A/B runs.
 - `MOTORACER_MODES="1024x600,960x720"` (runtime, `ddraw.cpp`): replaces the 16-bit display modes
   above 640×480 offered to the game — for bisecting resolution bugs.
 - `MOTORACER_D3D_DEBUG=1`: triangle classification / execute-buffer statistics in the log.

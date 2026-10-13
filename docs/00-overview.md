@@ -33,6 +33,7 @@ Not yet: Linux / Steam Deck, Windows, multiplayer (stubbed by decision), GDI tex
 - [10-input-audio.md](10-input-audio.md) — phase 5: CD audio (MCI) emulation, DirectSound, keyboard/mouse
 - [11-d3d-plan.md](11-d3d-plan.md) — phase 6 plan: game uses Direct3D v1 execute buffers; Metal backend + resolution scaling
 - [12-roadmap.md](12-roadmap.md) — owner roadmap: QoL (options menu, controller menus, trigger buttons), widescreen, Linux/Steam Deck, Windows
+- [14-draw-distance.md](14-draw-distance.md) — track sections drawn ahead, per-detail-level table (bike LOD, culling), DrawDistance
 - [13-e2e-testing.md](13-e2e-testing.md) — unattended E2E runs: scripted keys, snapshots, contact sheets, menu navigation facts
 
 ## Analysis tooling

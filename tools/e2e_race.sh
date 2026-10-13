@@ -5,8 +5,10 @@
 #   tools/e2e_race.sh <name> <screen-mode-presses> [seconds] [env assignments...]
 #
 # e.g. tools/e2e_race.sh race1024 2 50 MOTORACER_D3D_DEBUG=1
-# TOGGLE_169=1 also toggles Options > 16/9 MODE.
-# TOGGLE_169=1 also toggles Options > 16/9 MODE.
+# TOGGLE_169=1 also toggles Options > 16/9 MODE. EXTRA_KEYS="..." is appended after Start
+# (e.g. "4000 +UP" holds the throttle once the countdown is over).
+# TOGGLE_169=1 also toggles Options > 16/9 MODE. EXTRA_KEYS="..." is appended after Start
+# (e.g. "4000 +UP" holds the throttle once the countdown is over).
 # Note: SCREEN MODE persists between runs (the game saves it), so count presses from the saved mode.
 set -euo pipefail
 name=$1 presses=$2 secs=${3:-50}
@@ -25,4 +27,5 @@ k="$k LEFT 500 ENTER 1500"                                  # Play Solo
 k="$k UP 300 UP 500 ENTER 1500"                             # Single Race
 k="$k UP 300 UP 300 UP 500 ENTER 1500"                      # Speed Bay -> Continue
 k="$k DOWN 300 DOWN 500 ENTER"                              # bike -> Start
+k="$k ${EXTRA_KEYS:-}"
 exec "$(dirname "$0")/e2e.sh" "$name" "$k" "$secs" "$@"

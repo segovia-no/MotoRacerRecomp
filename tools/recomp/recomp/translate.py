@@ -66,6 +66,9 @@ GAME_HOOKS = {
     # shows the 16:9 band size while 16/9 MODE is on.
     0x443BD9: "game_hook_mode_label",
     0x4447E8: "game_hook_mode_label",
+    # Track config load: the per-detail-level table at 0x51d1b8 (LenBPlane, FlatZ, LOD zones...)
+    # has just been read; the runtime extends draw and LOD distances (DrawDistance setting).
+    0x4287EA: "game_hook_detail_loaded",
 }
 
 

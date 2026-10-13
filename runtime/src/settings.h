@@ -16,6 +16,8 @@
 //                       native | 1..4 (multiplier of the game's mode)
 //   CustomModes=1       d3d only: SCREEN MODE offers larger 4:3 modes, or common 16:9 resolutions
 //                       while 16/9 MODE is on
+//   DrawDistance=2      track sections drawn ahead, opponent bike draw/LOD distances and shading
+//                       distances as a multiple of the original game's (1 = original)
 //   HudScale=auto       d3d only: enlarge the race HUD (laid out for 640 pixels) in modes above
 //                       640x480; auto = screen width / 640 | a factor such as 2 or 2.5 | 1 = off
 //   Widescreen=auto     auto: when the game's own 16/9 MODE letterboxes the picture, show
@@ -42,6 +44,7 @@ struct Settings {
     bool widescreen = true;
     bool custom_modes = true;
     float hud_scale = 0;   // 0 = auto
+    float draw_distance = 2;
     bool controller_menus = true;
     TriggerMode trigger_mode = TriggerMode::Auto;
 };
