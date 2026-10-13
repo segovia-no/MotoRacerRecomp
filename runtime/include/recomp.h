@@ -106,6 +106,10 @@ void eh_unlink(uint32_t new_head);
 void nonlocal_jump(uint32_t target);
 extern uint32_t eh_resume_va;
 
+/* ---------- game hooks ----------
+ * Called by translated code just before specific instructions (GAME_HOOKS in translate.py). */
+void game_hook_screen_mode_loaded(void);
+
 /* ---------- control transfer / traps ---------- */
 void call_indirect(uint32_t va);   /* guest VA -> recompiled fn, import shim or COM thunk */
 void x86_cpuid(void);

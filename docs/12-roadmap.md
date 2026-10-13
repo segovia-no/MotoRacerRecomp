@@ -8,6 +8,7 @@
 
 ## Features
 - [x] **Widescreen (first step)** — the game has its own **16/9 MODE** (Options menu): a letterboxed 640x360 band with a *wider* field of view and the HUD moved into the band. `Widescreen=auto` detects the pure-black bands (software: every frame on the guest frame; D3D: every 10th frame via a downscaled band readback) and presents only the band, filling a 16:9 window — at RenderScale 4 that is 2560x1440. The game keeps the D3D viewport at 640x480 and draws full-height geometry, painting the bars over it, so detection is pixel-based.
+- [x] **Custom resolutions in the game's own Options › SCREEN MODE** (D3D renderer): 800×600 up to 2048×1536, remembered across restarts. See 11-d3d-plan.md.
 - [ ] **Custom resolutions / native 16:9 rendering** — build on the above: render the band directly at the window's resolution instead of a multiple of 640x480; later, adjust the projection for arbitrary aspect ratios.
 - [x] **In-game volume sliders** — Options shows MASTER/WAVE/CD AUDIO VOLUME "Not available" because the WINMM mixer API reports no device; wire it to our music/SFX gains.
 - [ ] **Linux / Steam Deck port** — runtime is SDL3 + C/C++; needs an x86-64 stack-switch trampoline (arm64 only today), Vulkan/SPIR-V shaders for SDL_GPU (MSL only today), packaging (AppImage/Flatpak), Steam Deck controller defaults.

@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <vector>
 
+#include "game_hooks.h"
 #include "host_gpu.h"
 #include "host_video.h"
 #include "runtime.h"
@@ -49,6 +50,7 @@ void submit(int w, int h) {
     gpu::Crop crop = gpu::widescreen_vote(bars_black(w, h), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
     gpu::present_rgba(rgba.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h), crop);
     frames++;
+    game::frame_tick();
 }
 }  // namespace
 
@@ -80,7 +82,10 @@ void present_pal8(const uint8_t *px, int w, int h, int pitch, const uint32_t *pa
 }
 
 uint64_t frame_count() { return frames; }
-void count_frame() { frames++; }
+void count_frame() {
+    frames++;
+    game::frame_tick();
+}
 
 bool window_to_game(float wx, float wy, int *gx, int *gy) { return gpu::window_to_game(wx, wy, gx, gy); }
 

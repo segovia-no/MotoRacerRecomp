@@ -55,10 +55,14 @@ uint32_t render_scale(uint32_t gw, uint32_t gh) {
     SDL_GetWindowSizeInPixels(w, &pw, &ph);
     SDL_DisplayID d = SDL_GetDisplayForWindow(w);
     const SDL_DisplayMode *m = d ? SDL_GetCurrentDisplayMode(d) : nullptr;
-    float density = SDL_GetWindowPixelDensity(w);
-    int target_h = std::max(ph, m ? static_cast<int>(m->h * (density > 0 ? density : 1.f)) : ph);
+    // SDL_DisplayMode sizes are in points; pixel_density converts them to pixels.
+    float density = m && m->pixel_density > 0 ? m->pixel_density : 1.f;
+    int target_h = std::max(ph, m ? static_cast<int>(m->h * density) : ph);
     uint32_t scale = (static_cast<uint32_t>(target_h) + gh - 1) / gh;
-    return std::clamp<uint32_t>(scale, 1, std::min<uint32_t>(4, max_scale));
+    scale = std::clamp<uint32_t>(scale, 1, std::min<uint32_t>(4, max_scale));
+    log("gpu: render scale %u for %ux%u (window %dx%d px, display %dx%d x%.2f)\n", scale, gw, gh, pw, ph,
+        m ? m->w : 0, m ? m->h : 0, density);
+    return scale;
 }
 
 Crop widescreen_vote(bool bars_black, uint32_t gw, uint32_t gh) {

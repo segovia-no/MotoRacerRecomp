@@ -60,6 +60,7 @@ ControllerMenus=1    ; navigate menus with a gamepad
 TriggerMode=auto     ; analog triggers in the game's joystick mode, buttons 9/10 in joypad mode
 ```
 Debugging: `--trace` logs every Windows API call; `MOTORACER_SNAPSHOT_DIR=<dir>` saves every 60th frame as BMP.
+Unattended testing: `tools/e2e.sh` / `tools/e2e_race.sh` drive the menus with scripted keys and build a contact sheet — see [docs/13-e2e-testing.md](docs/13-e2e-testing.md).
 
 ## How it works
 1. `tools/recomp/` finds every function in `game.EXE` (recursive descent + relocations, MSVC switch/EH patterns) and translates each x86 instruction to C — integer ops with exact flags, x87 FPU, MMX, self-modifying rasterizer operand slots.

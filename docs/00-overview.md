@@ -16,8 +16,8 @@ Living index of what we know. Each topic gets its own file; this one links them.
 Game files are **not** committed (see `.gitignore`). Anyone reproducing must extract their own copy.
 
 ## Status
-**Playable on macOS (Apple Silicon)** as of 2026-10-13: intro, menus (mouse + keyboard), races (keyboard), CD music, sound effects, clean quit. Software renderer at 640×480×16.
-Not yet: gamepad/joystick, Direct3D path / higher resolutions, multiplayer (stubbed by decision), GDI text on surfaces.
+**Playable on macOS (Apple Silicon)** as of 2026-10-13: intro, menus (mouse, keyboard, gamepad), races (keyboard, gamepad with analog triggers), CD music, sound effects, volume sliders, clean quit. Direct3D path on Metal by default (render scale up to 4×), the game's 16/9 mode shown as true widescreen, and SCREEN MODE options from 800×600 to 2048×1536. Software renderer still available (`Renderer=software`).
+Not yet: Linux / Steam Deck, Windows, multiplayer (stubbed by decision), GDI text on surfaces.
 
 ## Docs index
 
@@ -33,6 +33,7 @@ Not yet: gamepad/joystick, Direct3D path / higher resolutions, multiplayer (stub
 - [10-input-audio.md](10-input-audio.md) — phase 5: CD audio (MCI) emulation, DirectSound, keyboard/mouse
 - [11-d3d-plan.md](11-d3d-plan.md) — phase 6 plan: game uses Direct3D v1 execute buffers; Metal backend + resolution scaling
 - [12-roadmap.md](12-roadmap.md) — owner roadmap: QoL (options menu, controller menus, trigger buttons), widescreen, Linux/Steam Deck, Windows
+- [13-e2e-testing.md](13-e2e-testing.md) — unattended E2E runs: scripted keys, snapshots, contact sheets, menu navigation facts
 
 ## Analysis tooling
 

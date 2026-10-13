@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <map>
 #include <string>
@@ -315,10 +316,22 @@ COM_METHOD(DD_DuplicateSurface, 2) {
 COM_METHOD(DD_EnumDisplayModes, 4) {
     // 4:3 modes. In hardware Direct3D mode the game accepts any size (callback 0x477160 only
     // caps at 640x480 otherwise), so these appear in its own Options > SCREEN MODE list.
-    static const uint32_t modes[][3] = {
+    std::vector<std::array<uint32_t, 3>> modes = {
         {320, 200, 8}, {320, 240, 8}, {320, 240, 16}, {512, 384, 8}, {512, 384, 16}, {640, 400, 8},
         {640, 480, 8}, {640, 480, 16}, {800, 600, 8}, {800, 600, 16}, {1024, 768, 8}, {1024, 768, 16},
         {1152, 864, 16}, {1280, 960, 16}, {1400, 1050, 16}, {1600, 1200, 16}, {2048, 1536, 16}};
+    // Developer aid: MOTORACER_MODES="960x720,1024x600" replaces the 16-bit modes above 640x480.
+    if (const char *e = getenv("MOTORACER_MODES")) {
+        modes.resize(8);
+        for (const char *p = e; *p;) {
+            unsigned w = 0, h = 0;
+            int n = 0;
+            if (sscanf(p, "%ux%u%n", &w, &h, &n) != 2) break;
+            modes.push_back({w, h, 16});
+            p += n;
+            if (*p == ',') p++;
+        }
+    }
     uint32_t cb = arg(4), ctx = arg(3);
     uint32_t desc = heap_alloc(108, true);
     DDraw *dd = obj<DDraw>(self);

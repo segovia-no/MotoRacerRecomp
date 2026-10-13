@@ -84,3 +84,34 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
 - Verified by log: `ddraw: game accepted 10 display modes: 320x240 512x384 640x480 800x600 1024x768 1152x864 1280x960 1400x1050 1600x1200 2048x1536`. The table's last field is a size class: area < 0x30000 → 0, == 0x30000 (512×384) → 1, larger → 2.
 - We now enumerate 4:3 modes up to 2048×1536 (800×600, 1024×768, 1152×864, 1280×960, 1400×1050, 1600×1200, 2048×1536).
 - `RenderScale=auto` is relative to the game's chosen mode (smallest multiple covering the display, ≤ 4, render target ≤ 8192 px). A game mode of 1280×960 gets 2×; 2048×1536 gets 1×.
+
+### Rendering above 480 rows: engine tables overflow (2026-10-13)
+- With 1024×768 unlocked, races showed only the HUD gauges: the game submitted **no 3D triangles**
+  (`MOTORACER_D3D_DEBUG`: only flat HUD/backdrop quads). Bisected with E2E runs
+  (docs/13-e2e-testing.md, `MOTORACER_MODES`): 3D target heights 449 (1024×600 16/9) and 480 work;
+  539 (1024×720 16/9), 576 (1024×768 16/9) and 600 (800×600 full) fail — width is irrelevant.
+- Cause: two static per-row tables sized for 480 rows, filled for every viewport row:
+  - `0x62e468` row → framebuffer offset (`y*pitch`), 480 dwords, filled at `0x499e84`, `0x499f44`,
+    `0x49aed7`, `0x49b096`; read by the rasterizers as `[y*4 + 0x62e460..0x62e474]` (rows y-2..y+3).
+    Row 480 overwrites `0x62ebe8`, row 481 the pitch `0x62ebec`, then the object array at `0x62ebf0`.
+  - `0x623bd8` row → span-list head (span buffer), 480 dwords, filled at `0x49a291` from the span pool
+    at `0x60d3d0` (8000 × 8 bytes); read by the span inserters (`lea ecx, [eax + 0x623bd8]`) and the
+    fill at `0x49b0e0`. Row 480 overwrites `0x624358`.
+  - (`0x6d1070` / `0x65e1d8`, 480 × 8 bytes, are only touched by no-op constructor loops.)
+- Fix (translator, `RELOCATED_TABLES` in `translate.py`): every absolute operand inside a table
+  (and indexed operands up to 4/8 bytes below its start) is rewritten to a 4096-row copy in the
+  unused guest range `EXT_LO..EXT_HI` = `0x00800000..0x01000000` (`runtime.h`). The neighbouring
+  globals (`0x62e460` byte, `0x624358`, `0x62ebe8`...) keep their addresses. Verified by E2E races
+  at 1024×768 (16/9), 1600×1200 (16/9) and the software renderer at 640×480.
+
+### SCREEN MODE persistence (2026-10-13)
+- The options loader reads `"ScreenMode"` (`0x4e7fb8`, at `0x42af41`) as the **size class** only
+  (0/1/2) and maps it to an area (`0x12c00`/`0x30000`/`0x4b000`) at `0x4dc0cc`; the race start
+  (`0x459370` → `0x474cf0`) looks the mode up by that area. So any mode above 640×480 came back as
+  640×480 after a restart.
+- Fix: translator hook `GAME_HOOKS` (`translate.py`) calls `game_hook_screen_mode_loaded()` right
+  before `0x42b0a3` (after the class → area mapping). `runtime/src/game_hooks.cpp` restores the mode
+  remembered in `<game dir>/recomp_state.txt` (`ScreenMode=1024x768`) when the class is 2 and the
+  mode is in the table, and a per-frame tick saves the selected area whenever it changes.
+- `RenderScale=auto` uses the display mode's own pixel density now and logs its inputs
+  (`gpu: render scale ...`). On the owner's 2560×1440 pt @2× display a 900-row band gets 4×.

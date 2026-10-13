@@ -34,6 +34,37 @@ PREFIXES = {0x26, 0x2E, 0x36, 0x3E, 0x64, 0x65, 0x66, 0x67, 0xF0, 0xF2, 0xF3, 0x
 NONLOCAL_JUMPS = {0x4B283C, 0x4B2AFF}
 
 
+# Static tables the 3D engine sizes for at most 480 screen rows; taller viewports overflow them
+# into neighbouring globals (row 481 of the row-offset table overwrites the frame pitch at
+# 0x62ebec) and every 3D triangle is culled. References are relocated to larger buffers in an
+# unused part of the guest address space (runtime.h: EXT_LO). Entries: (lo, hi, new_lo, slack):
+# an absolute address in [lo, hi) becomes new_lo + (addr - lo); an indexed operand ([reg + disp])
+# may also start up to `slack` bytes below lo (the rasterizer reads rows y-1 and y-2 that way,
+# while e.g. [0x62e460] on its own is an unrelated byte global). See docs/11-d3d-plan.md.
+MAX_ROWS = 4096
+RELOCATED_TABLES = [
+    # per-row span-list heads: 480 dwords at 0x623bd8 (0x624358 is the next global)
+    (0x623BD8, 0x624358, 0x00800010, 4),
+    # per-row framebuffer offsets (y * pitch): 480 dwords at 0x62e468 (0x62ebe8 is the next global)
+    (0x62E468, 0x62EBE8, 0x00800010 + 4 * MAX_ROWS + 16, 8),
+]
+
+
+def relocate(value, indexed=False):
+    for lo, hi, new, slack in RELOCATED_TABLES:
+        if (lo - slack if indexed else lo) <= value < hi:
+            return (new + value - lo) & 0xFFFFFFFF
+    return value
+
+
+# Runtime callbacks run just before the instruction at a VA (runtime/src/game_hooks.cpp).
+GAME_HOOKS = {
+    # Options load: "ScreenMode" (only the size class 0..2) has just been mapped to a mode area
+    # at 0x4dc0cc. The runtime restores a remembered mode above 640x480 here.
+    0x42B0A3: "game_hook_screen_mode_loaded",
+}
+
+
 def is_fs0(op):
     kind, val, _ = op
     return kind == "mem" and val[4] == "fs" and val[0] is None and val[1] is None and val[3] == 0
@@ -84,6 +115,8 @@ class FunctionTranslator:
             if isz == size:
                 return f"RD{BITS[isz]}(0x{slot:x}u)"
             return f"(({CTYPE[size]})({STYPE[isz]})RD{BITS[isz]}(0x{slot:x}u))"
+        if size == 4:
+            value = relocate(value & 0xFFFFFFFF)
         return f"0x{value & ((1 << (8 * size)) - 1):x}u"
 
     def addr(self, insn, mem):
@@ -99,7 +132,7 @@ class FunctionTranslator:
             self.tr.smc_uses += 1
             parts.append(f"RD32(0x{slot:x}u)" if dsz == 4 else f"(uint32_t)(int8_t)RD8(0x{slot:x}u)")
         elif disp or not parts:
-            parts.append(f"0x{disp:x}u")
+            parts.append(f"0x{relocate(disp & 0xFFFFFFFF, bool(base or index)):x}u")
         if seg == "fs":
             parts.insert(0, "R.fs_base")
         elif seg not in (None, "es", "ds", "ss", "cs"):
@@ -180,6 +213,8 @@ class FunctionTranslator:
             nxt = self.body[i + 1] if i + 1 < len(self.body) else None
             self.out.append(f"__LABEL_{va:08x}__")
             self.out.append(f"    /* {va:08x}: {insn.mnem} {insn.op_str} */")
+            if va in GAME_HOOKS:
+                self.emit(f"{GAME_HOOKS[va]}();")
             try:
                 falls = self.insn(insn)
             except Unsupported as e:

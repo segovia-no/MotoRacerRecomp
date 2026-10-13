@@ -2,6 +2,9 @@
 // keyboard translation into WM_KEY* messages and GetKeyState.
 #include <SDL3/SDL.h>
 
+#include <cctype>
+#include <string>
+
 #include "runtime.h"
 #include "settings.h"
 #include "user32.h"
@@ -208,8 +211,45 @@ void controller_event(const SDL_Event &e) {
     }
 }
 
+// Developer aid for unattended testing: MOTORACER_AUTOKEYS="3000 ENTER 500 DOWN +UP 2000 -UP"
+// waits (numbers, ms) and taps / presses (+) / releases (-) keys: ENTER ESC UP DOWN LEFT RIGHT
+// SPACE or a single letter/digit. Taps are held for 80 ms.
+namespace {
+void autokeys_tick() {
+    static const char *spec = getenv("MOTORACER_AUTOKEYS");
+    static size_t pos = 0;
+    static uint64_t next = 0;
+    static uint32_t tapped = 0;
+    if (!spec || !main_window) return;
+    uint64_t now = SDL_GetTicks();
+    if (!next) next = now;
+    if (now < next) return;
+    if (tapped) { inject_key(tapped, nav_scancode(tapped), false); tapped = 0; }
+    while (spec[pos] == ' ') pos++;
+    if (!spec[pos]) return;
+    size_t end = pos;
+    while (spec[end] && spec[end] != ' ') end++;
+    std::string tok(spec + pos, end - pos);
+    pos = end;
+    if (isdigit(static_cast<unsigned char>(tok[0]))) { next = now + strtoull(tok.c_str(), nullptr, 10); return; }
+    char mode = 0;
+    if (tok[0] == '+' || tok[0] == '-') { mode = tok[0]; tok.erase(0, 1); }
+    static const std::pair<const char *, uint32_t> names[] = {
+        {"ENTER", VK_RETURN_}, {"ESC", VK_ESCAPE_}, {"UP", VK_UP_}, {"DOWN", VK_DOWN_},
+        {"LEFT", VK_LEFT_},    {"RIGHT", VK_RIGHT_}, {"SPACE", 0x20}};
+    uint32_t vk = tok.size() == 1 ? static_cast<uint32_t>(toupper(tok[0])) : 0;
+    for (auto &[n, v] : names) if (tok == n) vk = v;
+    if (!vk) { log("autokeys: unknown key '%s'\n", tok.c_str()); return; }
+    log("autokeys: %c%s\n", mode ? mode : ' ', tok.c_str());
+    inject_key(vk, nav_scancode(vk), mode != '-');
+    if (!mode) tapped = vk;
+    next = now + 80;
+}
+}  // namespace
+
 // Auto-repeat for a held direction (like keyboard typematic): 400 ms delay, then every 120 ms.
 void controller_tick() {
+    autokeys_tick();
     if (!held_vk || !nav_down[held_vk]) return;
     uint64_t now = SDL_GetTicks();
     if (now - held_since > 400 && now - last_repeat > 120) {
