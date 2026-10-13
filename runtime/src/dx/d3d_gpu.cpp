@@ -298,6 +298,13 @@ void surface_to_rgba(const Surface &s, std::vector<uint32_t> &out) {
 
 CachedTexture *texture_for(Surface *s, SDL_GPUCopyPass *copy, std::vector<SDL_GPUTransferBuffer *> &garbage,
                            std::vector<uint32_t> &scratch) {
+    if (!s->w || !s->h || s->w > 8192 || s->h > 8192 || !s->mem || (s->bpp != 8 && s->bpp != 16)) {
+        static int warned = 0;
+        if (warned++ < 8)
+            log("d3d gpu: texture surface %ux%u %ubpp caps %08x not usable (drawn untextured)\n", s->w, s->h, s->bpp,
+                s->caps);
+        return nullptr;
+    }
     CachedTexture &c = textures[s];
     uint32_t pal_version = s->palette ? s->palette->version : 0;
     if (c.tex && c.w == s->w && c.h == s->h && c.version == s->version && c.pal_version == pal_version) return &c;
@@ -339,8 +346,10 @@ void flush(bool download) {
     }
     std::map<Surface *, SDL_GPUTexture *> bound;
     for (auto &c : frame_cmds)
-        if (c.kind == Cmd::Draw && c.texture && !bound.count(c.texture))
-            bound[c.texture] = texture_for(c.texture, copy, garbage, scratch)->tex;
+        if (c.kind == Cmd::Draw && c.texture && !bound.count(c.texture)) {
+            CachedTexture *t = texture_for(c.texture, copy, garbage, scratch);
+            bound[c.texture] = t ? t->tex : white;
+        }
     SDL_GPUBuffer *vbuf = nullptr, *ibuf = nullptr;
     if (!frame_vertices.empty()) {
         uint32_t vbytes = static_cast<uint32_t>(frame_vertices.size() * sizeof(GpuVertex));

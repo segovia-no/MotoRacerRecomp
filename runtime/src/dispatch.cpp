@@ -220,6 +220,8 @@ static void on_segv(int sig, siginfo_t *si, void *) {
     uintptr_t base = reinterpret_cast<uintptr_t>(M);
     if (a >= base && a < base + (1ull << 32))
         out("FATAL: guest memory fault at guest address 0x%08lx (signal %d)\n", (unsigned long)(a - base), sig);
+    else if (sig == SIGABRT)
+        out("FATAL: host abort (signal %d) - see backtrace (Metal/SDL validation, assertion)\n", sig);
     else
         out("FATAL: host fault at %p (signal %d)\n", si->si_addr, sig);
     dump_state();
@@ -237,6 +239,9 @@ void install_crash_handlers() {
     sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
     sigaction(SIGSEGV, &sa, nullptr);
     sigaction(SIGBUS, &sa, nullptr);
+    sigaction(SIGABRT, &sa, nullptr);   // Metal/SDL assertions, C++ aborts
+    sigaction(SIGILL, &sa, nullptr);
+    sigaction(SIGFPE, &sa, nullptr);
 }
 
 }  // namespace rt
