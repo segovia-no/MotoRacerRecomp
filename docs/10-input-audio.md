@@ -41,3 +41,9 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
 - It classifies a stick as **digital** if its resting X/Y read exactly `0`, `0x8000` or `0xFFFF`; we report centre `0x7FFF` so pads are analog.
 - Mapping: X = left stick X; Y = left stick Y − right trigger + left trigger (RT = up/accelerate, LT = down/brake); buttons 1–8 = A, B, X, Y, LB, RB, Back, Start; POV = d-pad. 4000 dead zone on sticks.
 - Any SDL-recognised controller (Xbox, PlayStation, Switch Pro, 8BitDo…), hot-plug supported; connected pads take ids 0..n.
+
+## Mixer volumes, triggers, controller menus (2026-10-13)
+- **Volumes:** `winmm_mixer.cpp` exposes one mixer: Speakers/Master (control 1 → SDL device gain), Wave (2 → DirectSound mix), CD Audio (3 → music samples). The game reads the controls at startup, then restores its saved levels via `mixerSetControlDetails` (`0x470d22`: `MulDiv(vol, max-min, scaleMax) + min`). Configs saved while the mixer reported "Not available" contain 0 for all three → silence until raised in Options (seen once during development).
+- **Audio drives animation timing:** with the device gain at 0 the 3D menu animations ran much too fast — the game paces some animations from audio progress. Keep this in mind when touching audio.
+- **Triggers:** buttons 9 (RT) / 10 (LT) past half travel; the pad reports 10 buttons. They no longer affect the Y axis. D-pad steers.
+- **Controller menus:** D-pad/left stick → arrow keys (auto-repeat 400/120 ms), A → Enter, B → Escape, Start → Escape always; suppressed while the game polled the joystick in the last 300 ms (races). `ControllerMenus=0` disables it.

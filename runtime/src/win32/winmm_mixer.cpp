@@ -28,11 +28,7 @@ const Line lines[3] = {
     {0x00001001, 0, 1, COMPONENT_SRC_COMPACTDISC, 3, "CD Audio", "CD Audio Volume"},
 };
 uint32_t volume[4] = {0, 0xFFFF, 0xFFFF, 0xFFFF};   // by control id, 0..65535
-// While the mixer reported "Not available" the game saved 0 for all three volumes, and it
-// restores them at startup. Zeros that arrive before the Options page has ever read the
-// controls are held back; they only take effect if one of the three is non-zero.
-bool options_read = false;
-uint32_t pending[4] = {0, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF};
+
 
 void apply(uint32_t control) {
     float g = static_cast<float>(volume[control]) / 65535.f;
@@ -131,7 +127,6 @@ STDCALL(WINMM, mixerGetLineControlsA, 3) {
 STDCALL(WINMM, mixerGetControlDetailsA, 3) {
     uint32_t p = arg(1), id = RD32(p + 4), ch = RD32(p + 8) ? RD32(p + 8) : 1, details = RD32(p + 20);
     if (id < 1 || id > 3) return MIXERR_INVALCONTROL;
-    options_read = true;
     for (uint32_t c = 0; c < ch && c < 2; c++) WR32(details + 4 * c, volume[id]);
     return MMSYSERR_NOERROR;
 }
@@ -141,16 +136,6 @@ STDCALL(WINMM, mixerSetControlDetails, 3) {
     if (id < 1 || id > 3) return MIXERR_INVALCONTROL;
     uint32_t v = RD32(details) & 0xFFFF;
     trace("mixerSetControlDetails", id, v);
-    if (!options_read && v == 0) {
-        pending[id] = 0;
-        bool all_zero = pending[1] == 0 && pending[2] == 0 && pending[3] == 0;
-        if (all_zero) log("mixer: ignoring saved all-zero volumes (left over from 'Not available')\n");
-        return MMSYSERR_NOERROR;
-    }
-    if (!options_read) {   // a real saved volume: apply any held-back zeros too
-        for (uint32_t c = 1; c <= 3; c++)
-            if (pending[c] == 0) { volume[c] = 0; apply(c); pending[c] = 0xFFFFFFFF; }
-    }
     volume[id] = v;
     apply(id);
     return MMSYSERR_NOERROR;
