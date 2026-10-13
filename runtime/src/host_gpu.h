@@ -33,7 +33,8 @@ void set_game_size(uint32_t w, uint32_t h);   // game frame size behind a scaled
 // Window coordinates -> game frame coordinates (0..game_w-1), using the last letterbox.
 bool window_to_game(float wx, float wy, int *gx, int *gy);
 
-// Render scale for Direct3D (from settings, or derived from the window size for "auto").
-uint32_t render_scale();
+// Render scale for Direct3D for a game frame of `game_h` rows (from settings, or for "auto" the
+// smallest multiple whose height covers the display, capped so the target stays <= 8192).
+uint32_t render_scale(uint32_t game_w, uint32_t game_h);
 
 }  // namespace host::gpu

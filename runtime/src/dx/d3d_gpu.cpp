@@ -705,7 +705,7 @@ void set_target(Surface *s) {
     if (target == s && rt && g_w == s->w && g_h == s->h) return;
     if (target && target != s && !frame_cmds.empty()) flush(After::Download);
     target = s;
-    uint32_t scale = host::gpu::render_scale();
+    uint32_t scale = host::gpu::render_scale(s->w, s->h);
     if (rt && (g_w != s->w || g_h != s->h || rt_w != s->w * scale || rt_h != s->h * scale)) {
         SDL_ReleaseGPUTexture(dev, rt);
         SDL_ReleaseGPUTexture(dev, depth);

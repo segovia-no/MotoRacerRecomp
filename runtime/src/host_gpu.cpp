@@ -43,17 +43,22 @@ SDL_GPUDevice *device() {
     return dev;
 }
 
-uint32_t render_scale() {
+uint32_t render_scale(uint32_t gw, uint32_t gh) {
     const auto &cfg = settings::get();
-    if (cfg.render_scale > 0) return static_cast<uint32_t>(std::clamp(cfg.render_scale, 1, 8));
+    gw = gw ? gw : 640;
+    gh = gh ? gh : 480;
+    uint32_t max_scale = std::max<uint32_t>(1, 8192 / std::max(gw, gh));
+    if (cfg.render_scale > 0) return std::clamp<uint32_t>(static_cast<uint32_t>(cfg.render_scale), 1, max_scale);
+    // "auto": smallest scale whose image covers the display height (in pixels)
+    SDL_Window *w = ensure_window();
     int pw = 0, ph = 0;
-    SDL_GetWindowSizeInPixels(ensure_window(), &pw, &ph);
-    // "auto": smallest scale whose 4:3 image covers the window height
-    SDL_DisplayID d = SDL_GetDisplayForWindow(ensure_window());
+    SDL_GetWindowSizeInPixels(w, &pw, &ph);
+    SDL_DisplayID d = SDL_GetDisplayForWindow(w);
     const SDL_DisplayMode *m = d ? SDL_GetCurrentDisplayMode(d) : nullptr;
-    float density = SDL_GetWindowPixelDensity(ensure_window());
+    float density = SDL_GetWindowPixelDensity(w);
     int target_h = std::max(ph, m ? static_cast<int>(m->h * (density > 0 ? density : 1.f)) : ph);
-    return static_cast<uint32_t>(std::clamp((target_h + 479) / 480, 1, 4));
+    uint32_t scale = (static_cast<uint32_t>(target_h) + gh - 1) / gh;
+    return std::clamp<uint32_t>(scale, 1, std::min<uint32_t>(4, max_scale));
 }
 
 Crop widescreen_vote(bool bars_black, uint32_t gw, uint32_t gh) {

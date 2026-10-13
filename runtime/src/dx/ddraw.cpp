@@ -312,9 +312,12 @@ COM_METHOD(DD_DuplicateSurface, 2) {
 }
 
 COM_METHOD(DD_EnumDisplayModes, 4) {
-    static const uint32_t modes[][3] = {{320, 200, 8}, {320, 240, 8}, {320, 240, 16}, {512, 384, 8},
-                                        {512, 384, 16}, {640, 400, 8}, {640, 480, 8}, {640, 480, 16},
-                                        {800, 600, 8}, {800, 600, 16}, {1024, 768, 8}, {1024, 768, 16}};
+    // 4:3 modes. In hardware Direct3D mode the game accepts any size (callback 0x477160 only
+    // caps at 640x480 otherwise), so these appear in its own Options > SCREEN MODE list.
+    static const uint32_t modes[][3] = {
+        {320, 200, 8}, {320, 240, 8}, {320, 240, 16}, {512, 384, 8}, {512, 384, 16}, {640, 400, 8},
+        {640, 480, 8}, {640, 480, 16}, {800, 600, 8}, {800, 600, 16}, {1024, 768, 8}, {1024, 768, 16},
+        {1152, 864, 16}, {1280, 960, 16}, {1400, 1050, 16}, {1600, 1200, 16}, {2048, 1536, 16}};
     uint32_t cb = arg(4), ctx = arg(3);
     uint32_t desc = heap_alloc(108, true);
     DDraw *dd = obj<DDraw>(self);
