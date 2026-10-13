@@ -1,0 +1,12 @@
+# Original game assets (copyrighted, large) — never commit
+*.exe
+*.EXE
+extracted/
+/game/
+# Build output
+build/
+*.o
+.DS_Store
+# REA / analysis scratch
+*.rea-snapshot
+.venv/
