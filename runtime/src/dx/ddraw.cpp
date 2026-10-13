@@ -196,6 +196,23 @@ void blit(Surface &d, BltRect dr, Surface &s, BltRect sr, bool key, uint32_t klo
     if (src == &tmp) { heap_free(tmp.mem); tmp.mem = 0; }
 }
 
+// A full-screen Blt into the primary is the frame's "flip" when the game does not use a flip chain
+// (the software main menu copies its offscreen frame to the primary every loop). Real hardware
+// would show it at the display rate; here the Blt returned at once and the menu looped thousands
+// of times per second, so its per-loop animations (the checker background) ran far too fast.
+// Present such a frame right away and pace the loop to 60 Hz.
+void pace_frame() {
+    static uint64_t next = 0;
+    const uint64_t period = 1000000000ull / 60;
+    uint64_t now = SDL_GetTicksNS();
+    if (next > now) {
+        SDL_DelayPrecise(next - now);
+        next += period;
+    } else {
+        next = now + period;   // first frame, or the game is slower than 60 Hz
+    }
+}
+
 void touched(Surface *d) {
     if (d && d->primary() && (d->caps & DDSCAPS_FRONTBUFFER)) front_dirty = true;
 }
@@ -533,6 +550,11 @@ COM_METHOD(S_Blt, 5) {
     d->version++;
     gpu::cpu_wrote(d);
     touched(d);
+    if (s && d->primary() && (d->caps & DDSCAPS_FRONTBUFFER) && !(flags & DDBLT_COLORFILL) && dr.l == 0 &&
+        dr.t == 0 && static_cast<uint32_t>(dr.r) == d->w && static_cast<uint32_t>(dr.b) == d->h) {
+        present(d);
+        pace_frame();
+    }
     return S_OK;
 }
 

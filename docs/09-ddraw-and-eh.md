@@ -49,3 +49,12 @@ EH unwind funclets like `0x4731da` (`lea ecx,[ebp-0x36c]; jmp 0x4263d0`) own the
 - CD music: `mciSendCommandA(MCI_OPEN)` fails → no music (GOG ships tracks as `02.wav`–`13.wav`).
 - DirectInput: `LoadLibrary("DINPUT.DLL")` + `GetProcAddress("DirectInputCreateA")` returns 0.
 - `GetDC` text rendering on surfaces; Direct3D path; windowed/fullscreen toggles.
+
+## Frame pacing of Blt-presented frames (2026-10-14)
+The software renderer's main menu does not flip: each loop it Blts its 640×480 offscreen frame to the
+primary (D3D debug Blt summary: ~62k full-screen Blts per 15 s). Real hardware would only show it at
+the display rate; our Blt returned immediately, so the menu looped ~4000×/s and its checker
+background animation (advanced once per loop) raced. A full-screen copy Blt into the primary front
+buffer now presents the frame and waits for the next 1/60 s tick (`pace_frame`, `SDL_DelayPrecise`,
+resynchronising when the game is slower). Races are unaffected: they flip (or Blt a partial 16:9 band)
+and the game caps them itself (`-FrameRateMax60`).

@@ -8,7 +8,7 @@
 - [ ] ~~Triggers as buttons for accelerate/brake~~ (superseded) — the game's control setup binds *buttons*, not an analog axis; expose RT/LT as extra joystick buttons (threshold) in addition to the Y axis.
 
 ## Known issues
-- [ ] **Software renderer: background animation too fast** (owner, 2026-10-14) — not investigated yet.
+- [x] **Software renderer: main-menu background animation too fast** (owner, 2026-10-14) — the software main menu presents with a full-screen Blt offscreen → primary every loop instead of a Flip; the Blt returned at once, so the loop (and its per-loop checker animation) ran ~4000 times/s. Full-screen Blts to the primary now present immediately and are paced to 60 Hz (`pace_frame` in ddraw.cpp). Measured 897 per 15 s; owner-confirmed.
 
 ## Features
 - [x] **Widescreen (first step)** — the game has its own **16/9 MODE** (Options menu): a letterboxed 640x360 band with a *wider* field of view and the HUD moved into the band. `Widescreen=auto` detects the pure-black bands (software: every frame on the guest frame; D3D: every 10th frame via a downscaled band readback) and presents only the band, filling a 16:9 window — at RenderScale 4 that is 2560x1440. The game keeps the D3D viewport at 640x480 and draws full-height geometry, painting the bars over it, so detection is pixel-based.
