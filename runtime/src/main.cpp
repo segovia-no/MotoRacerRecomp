@@ -67,6 +67,7 @@ std::string find_game_dir(const std::string &explicit_dir) {
 }  // namespace
 
 int main(int argc, char **argv) {
+    open_log_file();
     std::string game_dir_arg, game_args;
     bool explicit_args = false;
     for (int i = 1; i < argc; i++) {

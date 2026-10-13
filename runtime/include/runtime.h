@@ -81,6 +81,7 @@ uint32_t get_last_error();
 #define STDCALL(DLL, NAME, NARGS)                                                        \
     static uint32_t impl_##DLL##_##NAME();                                               \
     extern "C" void imp_##DLL##_##NAME(void) {                                          \
+        rt::note_call(#DLL, #NAME);                                                     \
         if (rt::trace_imports) rt::trace_call(#DLL, #NAME, NARGS);                      \
         uint32_t r_ = impl_##DLL##_##NAME();                                             \
         R.eax = r_;                                                                     \
@@ -92,6 +93,7 @@ uint32_t get_last_error();
 #define CDECL(DLL, NAME)                                                                 \
     static uint32_t impl_##DLL##_##NAME();                                               \
     extern "C" void imp_##DLL##_##NAME(void) {                                          \
+        rt::note_call(#DLL, #NAME);                                                     \
         if (rt::trace_imports) rt::trace_call(#DLL, #NAME, 4);                          \
         uint32_t r_ = impl_##DLL##_##NAME();                                             \
         R.eax = r_;                                                                     \
@@ -101,4 +103,7 @@ uint32_t get_last_error();
 
 namespace rt {
 void trace_call(const char *dll, const char *name, int nargs);
+void note_call(const char *dll, const char *name);   // always-on flight recorder
+void open_log_file();
+const std::string &log_file_path();
 }

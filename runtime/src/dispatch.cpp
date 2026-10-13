@@ -3,8 +3,12 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include <SDL3/SDL.h>
+#include <sys/stat.h>
+
 #include <algorithm>
 #include <cstdio>
+#include <string>
 #include <cstdlib>
 #include <vector>
 
@@ -20,40 +24,104 @@ namespace rt {
 
 bool trace_imports = false;
 
+// ---------- log file + flight recorder ----------
+namespace {
+FILE *log_file = nullptr;
+std::string log_path;
+
+struct CallRecord { const char *dll, *name; uint32_t ret, a0, a1, a2; };
+constexpr int RING = 256;
+CallRecord ring[RING];
+uint32_t ring_pos = 0;
+
+void vout(const char *fmt, va_list ap) {
+    va_list ap2;
+    va_copy(ap2, ap);
+    vfprintf(stderr, fmt, ap);
+    if (log_file) vfprintf(log_file, fmt, ap2);
+    va_end(ap2);
+}
+
+void out(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void out(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    vout(fmt, ap);
+    va_end(ap);
+}
+}  // namespace
+
+// ~/Library/Logs/MotoRacerRecomp/motoracer.log (previous run kept as .log.1).
+void open_log_file() {
+    const char *home = getenv("HOME");
+    if (!home) return;
+    std::string dir = std::string(home) + "/Library/Logs/MotoRacerRecomp";
+    mkdir(dir.c_str(), 0755);
+    log_path = dir + "/motoracer.log";
+    rename(log_path.c_str(), (log_path + ".1").c_str());
+    log_file = fopen(log_path.c_str(), "w");
+    if (log_file) setvbuf(log_file, nullptr, _IOLBF, 1 << 16);
+}
+
+const std::string &log_file_path() { return log_path; }
+
+void note_call(const char *dll, const char *name) {
+    CallRecord &r = ring[ring_pos++ % RING];
+    r.dll = dll;
+    r.name = name;
+    r.ret = RD32(R.esp);
+    r.a0 = RD32(R.esp + 4);
+    r.a1 = RD32(R.esp + 8);
+    r.a2 = RD32(R.esp + 12);
+}
+
 void log(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
+    vout(fmt, ap);
     va_end(ap);
 }
 
 void dump_state() {
-    fprintf(stderr, "  eax=%08x ecx=%08x edx=%08x ebx=%08x\n  esp=%08x ebp=%08x esi=%08x edi=%08x\n",
-            R.eax, R.ecx, R.edx, R.ebx, R.esp, R.ebp, R.esi, R.edi);
-    fprintf(stderr, "  guest stack:");
+    out("  eax=%08x ecx=%08x edx=%08x ebx=%08x\n  esp=%08x ebp=%08x esi=%08x edi=%08x\n",
+        R.eax, R.ecx, R.edx, R.ebx, R.esp, R.ebp, R.esi, R.edi);
+    out("  guest stack:");
     for (int i = 0; i < 12; i++)
-        if (R.esp + 4 * i < STACK_HI) fprintf(stderr, " %08x", RD32(R.esp + 4 * i));
-    fprintf(stderr, "\n  host backtrace (f_XXXXXXXX = guest function VA):\n");
+        if (R.esp + 4 * i < STACK_HI) out(" %08x", RD32(R.esp + 4 * i));
+    out("\n  last Win32/COM calls (oldest first):\n");
+    uint32_t n = ring_pos < RING ? ring_pos : RING;
+    for (uint32_t i = ring_pos - n; i != ring_pos; i++) {
+        const CallRecord &r = ring[i % RING];
+        out("    [%08x] %s!%s(%x, %x, %x, ...)\n", r.ret, r.dll, r.name, r.a0, r.a1, r.a2);
+    }
+    out("  host backtrace (f_XXXXXXXX = guest function VA):\n");
     void *frames[48];
-    int n = backtrace(frames, 48);
-    backtrace_symbols_fd(frames, n, 2);
+    int fn = backtrace(frames, 48);
+    backtrace_symbols_fd(frames, fn, 2);
+    if (log_file) {
+        fflush(log_file);
+        backtrace_symbols_fd(frames, fn, fileno(log_file));
+        fflush(log_file);
+    }
 }
 
 void fatal(const char *fmt, ...) {
+    char msg[1024];
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, "FATAL: ");
-    vfprintf(stderr, fmt, ap);
-    fprintf(stderr, "\n");
+    vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
+    out("FATAL: %s\n", msg);
     dump_state();
+    std::string box = std::string(msg) + "\n\nDetails were written to:\n" + log_path;
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Moto Racer crashed", box.c_str(), nullptr);
     _exit(1);
 }
 
 void trace_call(const char *dll, const char *name, int nargs) {
-    fprintf(stderr, "[%08x] %s!%s(", RD32(R.esp), dll, name);
-    for (int i = 0; i < nargs; i++) fprintf(stderr, i ? ", %x" : "%x", arg(i));
-    fprintf(stderr, ")\n");
+    out("[%08x] %s!%s(", RD32(R.esp), dll, name);
+    for (int i = 0; i < nargs; i++) out(i ? ", %x" : "%x", arg(i));
+    out(")\n");
 }
 
 // ---------- thunks: fake guest code addresses that land in host functions ----------
@@ -151,10 +219,9 @@ static void on_segv(int sig, siginfo_t *si, void *) {
     uintptr_t a = reinterpret_cast<uintptr_t>(si->si_addr);
     uintptr_t base = reinterpret_cast<uintptr_t>(M);
     if (a >= base && a < base + (1ull << 32))
-        fprintf(stderr, "FATAL: guest memory fault at guest address 0x%08lx (signal %d)\n",
-                (unsigned long)(a - base), sig);
+        out("FATAL: guest memory fault at guest address 0x%08lx (signal %d)\n", (unsigned long)(a - base), sig);
     else
-        fprintf(stderr, "FATAL: host fault at %p (signal %d)\n", si->si_addr, sig);
+        out("FATAL: host fault at %p (signal %d)\n", si->si_addr, sig);
     dump_state();
     _exit(2);
 }
