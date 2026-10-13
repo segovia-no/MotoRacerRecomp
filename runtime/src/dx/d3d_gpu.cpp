@@ -186,6 +186,7 @@ std::map<Surface *, CachedTexture> textures;
 std::vector<GpuVertex> frame_vertices;
 struct HudQuad {
     float x0, y0, x1, y1;          // bounding box, guest pixels
+    bool screen;                   // all vertices have rhw = 1 (a 2D sprite, not a projected model)
     std::vector<uint32_t> verts;   // frame vertex indices
     size_t cmd;                    // index into frame_cmds
 };
@@ -762,10 +763,12 @@ uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
 
 // ---------- race HUD scaling ----------
 // The race HUD (text, digits, gauges) is laid out for a 640-pixel-wide screen and drawn as
-// screen-space quads at depth exactly 0 (text) or 1/65536 (gauges), each glyph its own draw; rhw is
-// 1, except on the gauge needles where it is left over from the 3D projection. In larger modes the
-// quads of a frame are grouped into elements (glyphs of a word, a gauge with its needle) and each
-// element is enlarged by k:
+// screen-space quads at depth exactly 0 (text) or 1/65536 (gauges) with rhw = 1, each glyph its own
+// draw. Small 3D models are also drawn at those depths with perspective rhw: the gauge needles, and
+// trackside markers/signs in the world. The quads of a frame are grouped into elements (glyphs of a
+// word, a gauge with its needle); an element is HUD only if it has at least one rhw = 1 sprite, so
+// needles go with their dial and world models are left alone. In larger modes each HUD element is
+// enlarged by k:
 //  - in the left/right third of the screen about that edge, and vertically about the top edge,
 //    centre or bottom edge of the third it sits in, so corner HUD stays in its corner;
 //  - in the middle third its centre is moved by hud_map (continuous, k times the distance from the
@@ -793,12 +796,13 @@ float hud_map(float v, float L, float k) {
 
 // Records the draw as a HUD quad if all its vertices are screen-space HUD vertices.
 bool hud_record(uint32_t base, uint32_t nverts, const uint16_t *indices, uint32_t ntri, size_t cmd) {
-    HudQuad q{1e9f, 1e9f, -1e9f, -1e9f, {}, cmd};
+    HudQuad q{1e9f, 1e9f, -1e9f, -1e9f, true, {}, cmd};
     for (uint32_t t = 0; t < ntri * 3; t++) {
         uint32_t vi = base + (indices[t] < nverts ? indices[t] : 0);
         const GpuVertex &v = frame_vertices[vi];
         float z = v.z / v.w;
         if (z != 0.f && std::fabs(z - 1.f / 65536.f) > 1e-9f) return false;
+        if (std::fabs(v.w - 1.f) > 1e-6f) q.screen = false;
         float x = (v.x / v.w + 1) * 0.5f * g_w, y = (1 - v.y / v.w) * 0.5f * g_h;
         q.x0 = std::min(q.x0, x); q.x1 = std::max(q.x1, x); q.y0 = std::min(q.y0, y); q.y1 = std::max(q.y1, y);
         if (std::find(q.verts.begin(), q.verts.end(), vi) == q.verts.end()) q.verts.push_back(vi);
@@ -824,6 +828,8 @@ void hud_apply() {
             if (a.x0 - e <= b.x1 && b.x0 - e <= a.x1 && a.y0 - e <= b.y1 && b.y0 - e <= a.y1) parent[root(i)] = root(j);
         }
     std::map<size_t, std::array<float, 4>> boxes;
+    std::map<size_t, bool> has_sprite;
+    for (size_t i = 0; i < n; i++) has_sprite[root(i)] = has_sprite[root(i)] || hud_quads[i].screen;
     for (size_t i = 0; i < n; i++) {
         auto [it, fresh] = boxes.try_emplace(root(i), std::array<float, 4>{1e9f, 1e9f, -1e9f, -1e9f});
         auto &b = it->second;
@@ -833,6 +839,7 @@ void hud_apply() {
     std::vector<uint8_t> done(frame_vertices.size(), 0);
     float W = static_cast<float>(g_w), H = static_cast<float>(g_h);
     for (size_t i = 0; i < n; i++) {
+        if (!has_sprite[root(i)]) continue;   // a model in the world, drawn in front
         const auto &b = boxes[root(i)];
         float cx = (b[0] + b[2]) * 0.5f, cy = (b[1] + b[3]) * 0.5f, ax, ay, sx = 0, sy = 0;
         if (cx < W / 3.f || cx > W * 2.f / 3.f) {   // side columns: anchored to the screen edges
@@ -861,6 +868,7 @@ void hud_apply() {
         }
         // texel snapping on the enlarged grid: guest pixel p lands at origin + k * p
         Cmd &c = frame_cmds[hud_quads[i].cmd];
+        c.voffset[0] = c.voffset[1] = 0;   // on the original pixel grid, like flat overlays
         c.uniforms.snap[0] = c.texture ? 1.f : 0.f;
         c.uniforms.snap[1] = rt_scale * k;
         c.uniforms.snap[2] = (ax * (1.f - k) + sx) * rt_scale;
@@ -913,7 +921,6 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
         }
     }
     bool hud = hud_factor() > 1.f && hud_record(base, nverts, indices, ntri, frame_cmds.size());
-    if (hud) flat = true;
     c.hud = hud;
     c.uniforms.snap[0] = flat && texture && rt_w != g_w ? 1.f : 0.f;
     if (!flat) {

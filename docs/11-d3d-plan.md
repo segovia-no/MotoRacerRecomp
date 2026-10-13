@@ -175,4 +175,8 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
     within L/(8k) of the edges, gentler in between. Centred messages keep their layout no matter how
     they are grouped ("03" stays above "GET READY" while GET READY blinks), and a moving element
     crosses the screen once. Elements that were fully on screen are kept on screen.
+- Bug (owner): trackside markers/signs filled the screen. They are small 3D models drawn at the HUD
+  depth 1/65536 (always in front) with perspective rhw (100+ vertices, w 500..3300); so are the
+  gauge needles. Real HUD sprites have rhw = 1. Now an element is scaled only if it contains at
+  least one rhw = 1 quad: needles go with their dial, world models are left alone.
 - `MOTORACER_SNAPSHOT_EVERY=<frames>` sets the GPU snapshot interval (default 120) for animations.
