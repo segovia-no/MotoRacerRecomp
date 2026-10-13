@@ -15,4 +15,4 @@
 
 ## In progress
 - [x] Direct3D stage 3: high-resolution 3D (see `11-d3d-plan.md`).
-- [ ] Sharp pause screen (keep a GPU-side high-res copy of surfaces copied from the render target).
+
