@@ -199,9 +199,12 @@ void frame_tick() {
 // - Per-detail-level table (Options > DETAIL LEVELS 1..5 = index 0..4) at 0x51d1b8, 36 bytes per
 //   level, read from the track configuration (loader 0x428580): LenRLPlane (scales the in-front
 //   sign models' width, not a distance), LenBPlane (opponents are culled beyond 2 x LenBPlane,
-//   0x458b80 -> 0x46e8b0), FlatZ, HorizFlatZ (0), MediumZone / HightZone (ints: opponent bike model
-//   LOD distances), gouraudTexturedZ, texturedZ, gouraudZ (shading falls back beyond these).
-// Detail 5 originally: 3500, 18000, 8000, 0, 5500, 3500, 32000, 48000, 52000.
+//   0x458b80 -> 0x46e8b0), FlatZ, HorizFlatZ (0), MediumZone / HightZone (ints, copied into the
+//   camera object; camera logic, not bike LOD), gouraudTexturedZ, texturedZ, gouraudZ (shading
+//   falls back beyond these). Detail 5 originally: 3500, 18000, 8000, 0, 5500, 3500, 32000, 48000,
+//   52000.
+// - Opponent bike models: 0x45f160 picks the model from d = distance / FOV with hardcoded
+//   thresholds: < 1000 full model, < 2500 / < 3000 reduced models, beyond 3000 a sprite.
 extern "C" void game_hook_detail_loaded(void) {
     float d = settings::get().draw_distance;
     if (d <= 1.f) return;
@@ -209,10 +212,16 @@ extern "C" void game_hook_detail_loaded(void) {
         uint32_t e = DETAIL_TABLE + 36 * lvl;
         WRF32(e + 4, RDF32(e + 4) * d);                                           // LenBPlane
         WRF32(e + 8, RDF32(e + 8) * d);                                           // FlatZ
-        for (uint32_t f : {16u, 20u})                                             // MediumZone, HightZone
-            WR32(e + f, static_cast<uint32_t>(static_cast<int32_t>(RD32(e + f)) * 2.f * d));
         for (uint32_t f : {24u, 28u, 32u}) WRF32(e + f, RDF32(e + f) * d);        // shading distances
     }
-    log("draw distance x%g: detail 5 LenBPlane %g, bike LOD %d/%d\n", d, RDF32(DETAIL_TABLE + 144 + 4),
-        static_cast<int32_t>(RD32(DETAIL_TABLE + 144 + 20)), static_cast<int32_t>(RD32(DETAIL_TABLE + 144 + 16)));
+    log("draw distance x%g: detail 5 LenBPlane %g, FlatZ %g, bike models x%g\n", d, RDF32(DETAIL_TABLE + 144 + 4),
+        RDF32(DETAIL_TABLE + 144 + 8), 3.f * d);
+}
+
+// Before the bike LOD comparisons: shrink the distance so every threshold moves 3 x DrawDistance
+// further out (at 2: full model to 6000, sprites from 18000). The value is also stored at
+// [bike + 0x634] and read by a 900..1000 blend next to the full-model threshold, which stays matched.
+extern "C" void game_hook_bike_lod(void) {
+    float d = settings::get().draw_distance;
+    if (d > 1.f) ST(0) /= 3.0 * d;
 }
