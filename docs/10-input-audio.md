@@ -47,3 +47,8 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
 - **Audio drives animation timing:** with the device gain at 0 the 3D menu animations ran much too fast — the game paces some animations from audio progress. Keep this in mind when touching audio.
 - **Triggers:** buttons 9 (RT) / 10 (LT) past half travel; the pad reports 10 buttons. They no longer affect the Y axis. D-pad steers.
 - **Controller menus:** D-pad/left stick → arrow keys (auto-repeat 400/120 ms), A → Enter, B → Escape, Start → Escape always; suppressed while the game polled the joystick in the last 300 ms (races). `ControllerMenus=0` disables it.
+
+### How the game reads the joystick in a race (`0x411b30`)
+- `0x431190(n)` returns the action bound to input `n`: `-4/-5` = X directions, `-2/-3` = Y directions, `0..k` = buttons. Actions set bits in a control mask (1, 2, 4, 8, 0x10, 0x20) and some invert the axis value (`0xFFFF - v`) so the analog strength always points the same way.
+- If the global `0x4dc11c == 2` (analog joystick mode) X/Y stay analog (X clamped per steering state); otherwise both are forced to centre `0x8000` (digital JOYPAD mode).
+- Therefore analog throttle/brake = triggers on the Y axis, bound in the game's config to "Y up"/"Y down". `TriggerAxis=1` (default) adds `LT − RT` to the stick's Y.

@@ -4,14 +4,18 @@
 // whether a stick is digital: resting axes of exactly 0, 0x8000 or 0xFFFF mean digital. We centre
 // at 0x7FFF so pads are treated as analog.
 //   X = left stick X (steering), D-pad left/right = full deflection
-//   Y = left stick Y, D-pad up/down = full deflection
+//   Y = left stick Y + left trigger - right trigger (TriggerAxis=1, default): in the game's
+//       analog JOYSTICK mode the Y directions are bindable actions with analog strength, so
+//       right/left trigger give analog accelerate/brake (bind "up"/"down" in the game's config).
+//       D-pad up/down = full deflection.
 //   buttons 1-8 = A, B, X, Y, LB, RB, Back, Start; 9 = right trigger, 10 = left trigger (past
-//   halfway) — the game's control setup binds accelerate/brake to buttons, not to an axis.
+//       halfway) — for the digital JOYPAD mode, where actions are bound to buttons.
 #include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <vector>
 
+#include "settings.h"
 #include "win32.h"
 
 using namespace rt;
@@ -99,6 +103,8 @@ STDCALL(WINMM, joyGetPosEx, 2) {
     last_poll_ms = SDL_GetTicks();
     int x = dz(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTX));
     int y = dz(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTY));
+    if (settings::get().trigger_axis)
+        y += SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) - SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
     if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_LEFT)) x = -32768;
     if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) x = 32767;
     if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_UP)) y = -32768;
