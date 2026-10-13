@@ -37,6 +37,7 @@ namespace {
 constexpr uint32_t MODE_AREA = 0x4dc0cc;      // width*height of the selected mode
 constexpr uint32_t MODE_INDEX = 0x4dc0d0;     // table index of the selected mode
 constexpr uint32_t MODE_169 = 0x504e80;       // Options > 16/9 MODE (menu copy of 0x4dc0d4)
+constexpr uint32_t D3D_OFF = 0x4dc070;        // Options > D3D: 1 = OFF (software renderer)
 constexpr uint32_t OPTIONS_CLASS = 0x504bc4;  // menu copy of the mode class 0x4dc0c8
 constexpr uint32_t MODE_LABEL = 0x53f3c0;     // "%d*%d" text of the Options page
 constexpr uint32_t MODE_MIN = 0x4ee97c, MODE_MAX = 0x4ee980, MODE_COUNT = 0x4ee984;
@@ -52,11 +53,13 @@ const std::vector<Mode> kModes43 = {{320, 240},  {512, 384},   {640, 480},   {80
                                     {1024, 768}, {1280, 960},  {1600, 1200}, {1920, 1440}};
 const std::vector<Mode> kModes169 = {{320, 240},  {512, 384},   {640, 480},  {1280, 960},
                                      {1920, 1440}, {2560, 1920}, {3840, 2880}};
+const std::vector<Mode> kModesOriginal = {{320, 240}, {512, 384}, {640, 480}};
 const Mode kDefault169 = {1920, 1440};   // 1920x1080 band
+enum List { LIST_43 = 0, LIST_169 = 1, LIST_ORIGINAL = 2 };
 
 Mode remembered[2];       // [0] 4:3, [1] 16:9 (internal display mode)
 bool state_loaded = false;
-int table_wide = -1;      // which list is in the game's table (-1: not built yet)
+int table_list = -1;      // which List is in the game's table (-1: not built yet)
 bool reselect = false;    // pick the remembered mode on the next tick (after an options load)
 uint32_t last_area = 0;
 
@@ -103,8 +106,16 @@ void write_label(Mode m, bool wide) {
     for (size_t i = 0; i <= strlen(text); i++) WR8(MODE_LABEL + static_cast<uint32_t>(i), static_cast<uint8_t>(text[i]));
 }
 
-void write_table(bool wide) {
-    const auto &list = wide ? kModes169 : kModes43;
+// Options > D3D: OFF (0x4dc070 = 1) is the game's software renderer. The original game offers
+// modes above 640x480 only with Direct3D, and the software HUD cannot be scaled, so OFF shows the
+// game's own modes.
+List current_list() {
+    if (RD32(D3D_OFF)) return LIST_ORIGINAL;
+    return RD32(MODE_169) ? LIST_169 : LIST_43;
+}
+
+void write_table(List which) {
+    const auto &list = which == LIST_169 ? kModes169 : which == LIST_43 ? kModes43 : kModesOriginal;
     for (uint32_t i = 0; i < list.size(); i++) {
         uint32_t e = MODE_TABLE + MODE_STRIDE * i, area = list[i].w * list[i].h;
         WR32(e + 0, 0xF800);
@@ -119,7 +130,7 @@ void write_table(bool wide) {
     WR32(MODE_COUNT, static_cast<uint32_t>(list.size()));
     WR32(MODE_MIN, 0);
     WR32(MODE_MAX, static_cast<uint32_t>(list.size() - 1));
-    table_wide = wide ? 1 : 0;
+    table_list = which;
 }
 
 void select(Mode m, bool wide) {
@@ -133,9 +144,14 @@ void select(Mode m, bool wide) {
     last_area = area;
 }
 
-// Mode to use for an orientation: the remembered one, else the current one if the list has it,
-// else 1920x1080 for 16:9 or 640x480 for 4:3.
-void select_for(bool wide) {
+// Mode to use for a list: the remembered one, else the current one if the list has it, else
+// 1920x1080 for 16:9 or 640x480.
+void select_for(List which) {
+    bool wide = which == LIST_169;
+    if (which == LIST_ORIGINAL) {
+        int cur = find_mode(RD32(MODE_AREA));
+        return select(cur >= 0 ? mode_at(cur) : Mode{640, 480}, false);
+    }
     const Mode &r = remembered[wide ? 1 : 0];
     if (r.w && find_mode(r.w * r.h) >= 0) return select(r, wide);
     int cur = find_mode(RD32(MODE_AREA));
@@ -152,7 +168,7 @@ extern "C" void game_hook_screen_mode_loaded(void) {
 
 // Before sprintf(label, "%d*%d", w, h) on the Options page: in 16/9 mode show the band.
 extern "C" void game_hook_mode_label(void) {
-    if (!active() || !RD32(MODE_169)) return;
+    if (!active() || !RD32(MODE_169) || RD32(D3D_OFF)) return;
     WR32(R.esp + 12, RD32(R.esp + 8) * 9 / 16);
 }
 
@@ -163,20 +179,23 @@ void frame_tick() {
         WR32(TRACK_SECTIONS, static_cast<uint32_t>(ORIGINAL_SECTIONS * settings::get().draw_distance + 0.5f));
     if (!active() || !RD32(MODE_COUNT)) return;   // before the game enumerated display modes
     load_state();
-    bool wide = RD32(MODE_169) != 0;
-    if (table_wide != (wide ? 1 : 0)) {
-        write_table(wide);
-        select_for(wide);
-        log("screen mode: %s list, %ux%u\n", wide ? "16:9" : "4:3", mode_at(static_cast<int>(RD32(MODE_INDEX))).w,
+    List which = current_list();
+    if (table_list != which) {
+        write_table(which);
+        select_for(which);
+        static const char *names[3] = {"4:3", "16:9", "original (D3D off)"};
+        log("screen mode: %s list, %ux%u\n", names[which], mode_at(static_cast<int>(RD32(MODE_INDEX))).w,
             mode_at(static_cast<int>(RD32(MODE_INDEX))).h);
         reselect = false;
         return;
     }
     if (reselect) {
         reselect = false;
-        select_for(wide);
+        select_for(which);
         return;
     }
+    if (which == LIST_ORIGINAL) return;   // the game saves its own modes; keep the D3D choices
+    bool wide = which == LIST_169;
     uint32_t area = RD32(MODE_AREA);
     if (area == last_area) return;
     last_area = area;

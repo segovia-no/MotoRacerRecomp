@@ -52,7 +52,7 @@ WindowHeight=960
 Filter=linear        ; or nearest
 IntegerScale=0       ; 1 = whole-number scaling only
 VSync=1
-Renderer=d3d         ; d3d (default, GPU, high resolution) or software (original renderer)
+Renderer=d3d         ; d3d (default). In game, Options > D3D: OFF = original software renderer, ON / FILTERED = GPU
 RenderScale=auto     ; auto: original modes upscaled to the display, larger modes native; or 1..4
 CustomModes=1        ; d3d: SCREEN MODE offers 800x600..1920x1440, or 1280x720..3840x2160 with 16/9 MODE on
 DrawDistance=2       ; track and opponent draw distance / bike detail, multiple of the original (1 = original)

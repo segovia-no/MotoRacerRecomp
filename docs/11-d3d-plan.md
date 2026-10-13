@@ -185,3 +185,18 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   box lies inside the element's sprite box (gauge needles inside their dial), otherwise it is left
   alone. Owner-confirmed at the end of a lap.
 - `MOTORACER_SNAPSHOT_EVERY=<frames>` sets the GPU snapshot interval (default 120) for animations.
+
+### Options > D3D is the native renderer switch (2026-10-14)
+- The game's own D3D row cycles ON → FILTERED → OFF (handler around `0x444646`): `0x4dc070` = 1 is
+  OFF, `0x53be0c` = 1 is FILTERED; the config key at `0x4e7e8c` loads `0x4dc070` (value 2 = FILTERED,
+  `0x42b415`).
+- OFF = the game's CPU (software) rasterizer, even while our `Renderer=d3d` passed `-D3D`: a race at
+  1920×1080 with D3D OFF was rendered by the CPU into the offscreen target (the race HUD then is
+  CPU-drawn, so it cannot be scaled — the owner saw a tiny HUD). ON / FILTERED map to point /
+  bilinear texture sampling (`D3DRENDERSTATE_TEXTUREMAG/MIN`), which the GPU backend honours.
+- The original mode filter allows modes above 640×480 only with D3D (`!0x4dc070`). The runtime now
+  matches that: with D3D OFF, SCREEN MODE shows the game's original 320×240 / 512×384 / 640×480
+  (a larger selection falls back to 640×480; the D3D choices stay remembered and come back with ON
+  or FILTERED). Verified by E2E (log: "original (D3D off) list" → "16:9 list, 1920x1440").
+- So `Renderer=software` in motoracer.ini is only needed for a fully software menu/intro path;
+  in-game, D3D OFF already gives the original renderer.

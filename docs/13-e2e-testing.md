@@ -42,6 +42,10 @@ test. Each run opens a game window for its duration.
 - SCREEN MODE persists between runs (the game saves its size class, the runtime the exact mode —
   see 11-d3d-plan.md), so count SCREEN MODE presses from the saved mode. With `MOTORACER_MODES`
   set to a list without the saved mode, the game starts from 640×480.
+- Options rows: DIFFICULTY, CONTROLLER, DETAIL LEVELS, OPPONENTS, D3D (5 × `DOWN`; `ENTER` cycles
+  ON → FILTERED → OFF), VOICES, SOUNDS, MUSIC, SCREEN MODE, 16/9 MODE, … From D3D, 11 × `DOWN`
+  reaches Accept. Changes made in a run that is then killed may not be saved by the game — check
+  with a read-only run that only opens Options.
 - Option values changed by a run stay changed — check DIFFICULTY / CONTROLLER / SOUNDS afterwards.
 
 ## Example
