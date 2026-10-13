@@ -55,6 +55,7 @@ VSync=1
 Renderer=d3d         ; d3d (default, GPU, high resolution) or software (original renderer)
 RenderScale=auto     ; auto: original modes upscaled to the display, larger modes native; or 1..4
 CustomModes=1        ; d3d: SCREEN MODE offers 800x600..1920x1440, or 1280x720..3840x2160 with 16/9 MODE on
+HudScale=auto        ; race HUD size in large modes: auto (width/640), a factor like 2, or 1 (off)
 Widescreen=auto      ; show the game's own 16/9 MODE band at 16:9; off to disable
 ControllerMenus=1    ; navigate menus with a gamepad
 TriggerMode=auto     ; analog triggers in the game's joystick mode, buttons 9/10 in joypad mode

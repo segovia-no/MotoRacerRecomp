@@ -63,7 +63,7 @@ struct FragUniforms {
     float4 fog_color;
     float4 mode;     // x: textured, y: TEXTUREMAPBLEND, z: fog, w: specular
     float4 alpha;    // x: alpha test on, y: ref (0..1), z: colour key on, w: texture format has alpha
-    float4 snap;     // x: sample at the original 640x480 pixel centre, y: render scale
+    float4 snap;     // x: sample at the original pixel centre, y: magnification, zw: grid origin (px)
 };
 
 fragment float4 fs_main(VOut in [[stage_in]], constant FragUniforms &u [[buffer(0)]],
@@ -75,7 +75,7 @@ fragment float4 fs_main(VOut in [[stage_in]], constant FragUniforms &u [[buffer(
             // Flat 2D element (HUD/text): use the texture coordinate the original 640x480 frame
             // sampled for this pixel, so glyph atlases don't bleed at high resolution.
             // Unshifted geometry: D3D's sample point for original pixel i is edge coordinate i.
-            float2 gpos = in.pos.xy / u.snap.y;
+            float2 gpos = (in.pos.xy - u.snap.zw) / u.snap.y;
             float2 d = (floor(gpos) - gpos) * u.snap.y;
             uv += dfdx(in.uv) * d.x + dfdy(in.uv) * d.y;
         }
@@ -180,6 +180,7 @@ std::map<PipelineKey, SDL_GPUGraphicsPipeline *> pipelines;
 std::map<uint32_t, SDL_GPUSampler *> samplers;
 std::map<Surface *, CachedTexture> textures;
 std::vector<GpuVertex> frame_vertices;
+std::vector<uint8_t> hud_done;       // per frame vertex: HUD scaling already applied
 std::vector<uint32_t> frame_indices;
 std::vector<Cmd> frame_cmds;
 bool failed = false;
@@ -642,6 +643,7 @@ void flush(After after) {
     if (ibuf) SDL_ReleaseGPUBuffer(dev, ibuf);
     frame_vertices.clear();
     frame_indices.clear();
+    hud_done.clear();
     frame_cmds.clear();
 }
 
@@ -747,6 +749,50 @@ uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
     return base;
 }
 
+// ---------- race HUD scaling ----------
+// The race HUD (text, digits, gauges) is laid out for a 640-pixel-wide screen and drawn as
+// screen-space quads at depth exactly 0 (text) or 1/65536 (gauges), each glyph its own draw; rhw is
+// 1, except on the gauge needles where it is left over from the 3D projection. In larger modes it is
+// enlarged by k about the screen edge it belongs to: a quad in the left/right third scales away from
+// that edge, one in the middle third about the centre (same for top/bottom), so corner elements stay
+// in their corners and centred messages stay centred.
+float hud_factor() {
+    if (g_w <= 640) return 1.f;
+    float k = settings::get().hud_scale > 0 ? settings::get().hud_scale : static_cast<float>(g_w) / 640.f;
+    return std::max(k, 1.f);
+}
+
+// Scales the quad's vertices if it is a HUD element; returns the snapped-grid origin in guest pixels.
+bool hud_scale_quad(uint32_t base, uint32_t nverts, const uint16_t *indices, uint32_t ntri, float k, float origin[2]) {
+    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+    for (uint32_t t = 0; t < ntri * 3; t++) {
+        const GpuVertex &v = frame_vertices[base + (indices[t] < nverts ? indices[t] : 0)];
+        float z = v.z / v.w;
+        if (z != 0.f && std::fabs(z - 1.f / 65536.f) > 1e-9f) return false;
+        float x = (v.x / v.w + 1) * 0.5f * g_w, y = (1 - v.y / v.w) * 0.5f * g_h;
+        x0 = std::min(x0, x); x1 = std::max(x1, x); y0 = std::min(y0, y); y1 = std::max(y1, y);
+    }
+    if (x1 - x0 > g_w * 0.5f || y1 - y0 > g_h * 0.5f) return false;   // fades, backdrops
+    float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
+    float ax = cx < g_w / 3.f ? 0.f : cx > g_w * 2.f / 3.f ? static_cast<float>(g_w) : g_w * 0.5f;
+    float ay = cy < g_h / 3.f ? 0.f : cy > g_h * 2.f / 3.f ? static_cast<float>(g_h) : g_h * 0.5f;
+    origin[0] = ax * (1.f - k);
+    origin[1] = ay * (1.f - k);
+    if (hud_done.size() < frame_vertices.size()) hud_done.resize(frame_vertices.size(), 0);
+    for (uint32_t t = 0; t < ntri * 3; t++) {
+        uint32_t vi = base + (indices[t] < nverts ? indices[t] : 0);
+        if (hud_done[vi]) continue;
+        hud_done[vi] = 1;
+        GpuVertex &v = frame_vertices[vi];
+        float x = (v.x / v.w + 1) * 0.5f * g_w, y = (1 - v.y / v.w) * 0.5f * g_h;
+        x = ax + (x - ax) * k;
+        y = ay + (y - ay) * k;
+        v.x = (x / g_w * 2.f - 1.f) * v.w;
+        v.y = (1.f - y / g_h * 2.f) * v.w;
+    }
+    return true;
+}
+
 void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, const uint16_t *indices,
           uint32_t ntri) {
     if (!dev || !rt || !ntri) return;
@@ -791,7 +837,11 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             else if (std::fabs(v.w - w0) > 1e-4f * std::fabs(w0) || std::fabs(z - z0) > 1e-5f) flat = false;
         }
     }
-    c.uniforms.snap[0] = flat && texture ? 1.f : 0.f;
+    float hud_k = hud_factor(), hud_origin[2] = {0, 0};
+    bool hud = hud_k > 1.f && hud_scale_quad(base, nverts, indices, ntri, hud_k, hud_origin);
+    if (hud) flat = true;
+    float rt_scale = static_cast<float>(rt_w) / static_cast<float>(g_w ? g_w : 1);
+    c.uniforms.snap[0] = flat && texture && (hud || rt_w != g_w) ? 1.f : 0.f;
     if (!flat) {
         for (uint32_t t = 0; t < ntri * 3; t++) {
             const GpuVertex &v = frame_vertices[base + (indices[t] < nverts ? indices[t] : 0)];
@@ -826,7 +876,9 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             dbg_tri.clear();
         }
     }
-    c.uniforms.snap[1] = static_cast<float>(rt_w) / static_cast<float>(g_w ? g_w : 1);
+    c.uniforms.snap[1] = rt_scale * (hud ? hud_k : 1.f);
+    c.uniforms.snap[2] = hud_origin[0] * rt_scale;
+    c.uniforms.snap[3] = hud_origin[1] * rt_scale;
     // D3D samples at integer pixel coordinates, Metal at half-integers: shift by half an
     // original pixel. Flat 2D overlays stay on the original pixel grid instead, so they cover
     // exactly the pixels they covered at 640x480 (their sampling is snapped in the shader).

@@ -145,3 +145,22 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
 - Verified by E2E: label cycling in both lists; races at 1920×1080 (render target 1920×1080, 1×) and
   3840×2160 (3840×2880 mode, 3840×2160 target), ~60 fps on an M3 Pro. The HUD keeps the original
   sprite pixel sizes, so it is small at 1080p and tiny at 4K.
+
+### HUD scaling (2026-10-13)
+- Problem: in modes above 640×480 the race HUD keeps its 640-pixel layout (sprites at original size,
+  positioned against the screen edges), so it is 1/3 size at 1920×1080 and 1/6 at 3840×2160.
+- Facts (one-frame dumps of screen-space draws at 1920×1080, 16/9):
+  - Every glyph/digit is its own D3D draw: one quad (2 triangles) from a shared ~610-vertex buffer.
+  - Text and digits: screen z = 0, rhw = 1. Gauge dials: two full quads at z = 1/65536, rhw = 1.
+    Gauge needles: z = 1/65536 but rhw holds leftover projection values (500..9000).
+  - No CPU-drawn pixels during races (the changed-pixel overlay is only active in the menus).
+  - Centre elements ("GET READY", countdown, "4 LAPS") are screen-centred text, not 3D-anchored.
+- Implementation (`d3d_gpu.cpp`, `hud_scale_quad`): a draw whose vertices all have screen z exactly
+  0 or 1/65536 and whose bounding box is under half the screen is a HUD quad. It is scaled by
+  k = `HudScale` (auto = target width / 640; 1 at the game's own modes) about an anchor chosen from
+  its centre: left/middle/right third → x anchor 0, W/2, W (same vertically). Vertices are scaled
+  once per frame. Textured HUD quads use the flat-element texel snapping with magnification
+  (render scale × k) and a per-zone grid origin (anchor·(1 − k)), so they look like the original HUD
+  pixel-doubled, not blurred.
+- Verified by E2E at 1920×1080 (k = 3): lap time / best lap / time / position / gauges with needles
+  in place and crisp; owner-confirmed.
