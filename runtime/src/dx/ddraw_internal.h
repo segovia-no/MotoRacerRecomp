@@ -1,5 +1,6 @@
 // DirectDraw objects shared with the Direct3D implementation.
 #pragma once
+#include <memory>
 #include <vector>
 
 #include "com.h"
@@ -24,8 +25,13 @@ constexpr uint32_t DDBLTFX_MIRRORLEFTRIGHT = 0x2, DDBLTFX_MIRRORUPDOWN = 0x4;
 constexpr uint32_t DDBLTFAST_SRCCOLORKEY = 0x1;
 constexpr uint32_t DDCKEY_SRCBLT = 0x8;
 
+struct Surface;
+// Called from ~Surface so the Direct3D backend can drop GPU resources.
+inline void (*on_destroy)(Surface *) = nullptr;
+
 struct Palette : ComObj {
     uint32_t entries[256] = {};   // PALETTEENTRY as stored by the guest (R, G, B, flags)
+    uint32_t version = 0;         // bumped on SetEntries (GPU texture cache invalidation)
 };
 
 struct Clipper : ComObj {
@@ -37,7 +43,9 @@ struct DDraw;
 struct Surface : ComObj {
     DDraw *dd = nullptr;
     uint32_t w = 0, h = 0, pitch = 0, bpp = 16, caps = 0, mem = 0;
-    uint32_t rmask = 0xF800, gmask = 0x07E0, bmask = 0x001F, pf_flags = DDPF_RGB;
+    uint32_t rmask = 0xF800, gmask = 0x07E0, bmask = 0x001F, amask = 0, pf_flags = DDPF_RGB;
+    uint32_t version = 0;         // bumped whenever the CPU may have changed the pixels
+    std::shared_ptr<uint32_t> storage;   // owns the guest allocation; shared by DuplicateSurface
     bool ckey_src = false;
     uint32_t ckey_lo = 0, ckey_hi = 0;
     std::vector<Surface *> attached;   // flip chain back buffers / z-buffer
@@ -46,9 +54,10 @@ struct Surface : ComObj {
     bool primary() const { return caps & DDSCAPS_PRIMARYSURFACE; }
     uint32_t bytes() const { return bpp / 8; }
     ~Surface() override {
+        if (on_destroy) on_destroy(this);
         for (Surface *a : attached)
             if (a->refs <= 1) delete a; else a->refs--;
-        if (mem) rt::heap_free(mem);
+        // pixel memory is released by `storage` when its last owner goes away
     }
 };
 

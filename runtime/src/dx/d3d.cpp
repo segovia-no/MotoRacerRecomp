@@ -4,9 +4,11 @@
 // Enabled with [Recomp] Renderer=d3d (adds -D3D -ZBuffer to the game command line).
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <map>
 #include <vector>
 
+#include "d3d_gpu.h"
 #include "ddraw_internal.h"
 #include "settings.h"
 
@@ -57,6 +59,24 @@ struct ExecuteBuffer : ComObj {
 
 struct Device : ComObj {
     Surface *target = nullptr;
+    uint32_t rs[256] = {};                    // D3DRENDERSTATETYPE -> value
+    std::vector<gpu::TLVertex> processed;     // vertices after PROCESSVERTICES (COPY)
+    Device() {
+        rs[3] = 1;    // TEXTUREADDRESS = WRAP
+        rs[4] = 1;    // TEXTUREPERSPECTIVE
+        rs[7] = 1;    // ZENABLE
+        rs[8] = 3;    // FILLMODE = SOLID
+        rs[9] = 2;    // SHADEMODE = GOURAUD
+        rs[14] = 1;   // ZWRITEENABLE
+        rs[17] = 1;   // TEXTUREMAG = NEAREST
+        rs[18] = 1;   // TEXTUREMIN = NEAREST
+        rs[19] = 2;   // SRCBLEND = ONE
+        rs[20] = 1;   // DESTBLEND = ZERO
+        rs[21] = 2;   // TEXTUREMAPBLEND = MODULATE
+        rs[22] = 3;   // CULLMODE = CCW
+        rs[23] = 4;   // ZFUNC = LESSEQUAL
+        rs[25] = 8;   // ALPHAFUNC = ALWAYS
+    }
     std::vector<Viewport *> viewports;
     std::map<uint32_t, std::vector<uint8_t>> matrices;
     uint32_t next_matrix = 1;
@@ -104,8 +124,18 @@ void report_stats() {
     for (auto &[st, n] : stats.transform_states) log("  TRANSFORMSTATE %u x%llu\n", st, (unsigned long long)n);
 }
 
-void parse_execute(ExecuteBuffer *eb) {
+Surface *texture_from_handle(uint32_t h) {
+    auto it = texture_handles.find(h);
+    return it == texture_handles.end() ? nullptr : it->second;
+}
+
+void parse_execute(ExecuteBuffer *eb, Device *dev) {
     stats.executes++;
+    gpu::set_target(dev->target);
+    uint32_t vtx_off;
+    memcpy(&vtx_off, eb->exec_data + 4, 4);
+    uint32_t base = 0, nverts = 0;
+    std::vector<uint16_t> idx;
     uint32_t ed = 0;
     memcpy(&ed, eb->exec_data + 8, 4);   // dwVertexCount
     stats.vertices += ed;
@@ -136,9 +166,24 @@ void parse_execute(ExecuteBuffer *eb) {
         }
         if (op == 14 && count) status = RD32(data + 4);   // D3DOP_SETSTATUS
         switch (op) {
-        case 3: stats.triangles += count; break;   // D3DOP_TRIANGLE
+        case 3: {                                 // D3DOP_TRIANGLE: D3DTRIANGLE {v1, v2, v3, flags}
+            stats.triangles += count;
+            idx.resize(3u * count);
+            for (uint16_t i = 0; i < count; i++) {
+                uint32_t t = data + static_cast<uint32_t>(sz) * i;
+                idx[3 * i] = RD16(t);
+                idx[3 * i + 1] = RD16(t + 2);
+                idx[3 * i + 2] = RD16(t + 4);
+            }
+            gpu::draw(dev->rs, dev->rs[1] ? texture_from_handle(dev->rs[1]) : nullptr, base, nverts, idx.data(), count);
+            break;
+        }
         case 8:                                   // D3DOP_STATERENDER: {type, value}
-            for (uint16_t i = 0; i < count; i++) stats.render_states[RD32(data + 8 * i)][RD32(data + 8 * i + 4)]++;
+            for (uint16_t i = 0; i < count; i++) {
+                uint32_t type = RD32(data + 8 * i), value = RD32(data + 8 * i + 4);
+                stats.render_states[type][value]++;
+                if (type < 256) dev->rs[type] = value;
+            }
             break;
         case 7:
             for (uint16_t i = 0; i < count; i++) stats.light_states[RD32(data + 8 * i)]++;
@@ -146,8 +191,21 @@ void parse_execute(ExecuteBuffer *eb) {
         case 6:
             for (uint16_t i = 0; i < count; i++) stats.transform_states[RD32(data + 8 * i)]++;
             break;
-        case 9:                                   // D3DOP_PROCESSVERTICES: D3DPROCESSVERTICES
-            for (uint16_t i = 0; i < count; i++) stats.process_ops[RD32(data + 16 * i)]++;
+        case 9:                                   // D3DOP_PROCESSVERTICES: {flags, wStart, wDest, dwCount}
+            for (uint16_t i = 0; i < count; i++) {
+                uint32_t pv = data + 16 * i;
+                uint32_t flags = RD32(pv), start = RD16(pv + 4), dest = RD16(pv + 6), n = RD32(pv + 8);
+                stats.process_ops[flags]++;
+                if ((flags & 3) != 2) {           // only D3DPROCESSVERTICES_COPY (TLVERTEX) is used by the game
+                    static bool warned = false;
+                    if (!warned) { warned = true; log("D3D: PROCESSVERTICES flags %x not supported\n", flags); }
+                    continue;
+                }
+                if (dev->processed.size() < dest + n) dev->processed.resize(dest + n);
+                memcpy(&dev->processed[dest], M + eb->mem + vtx_off + 32 * start, 32ull * n);
+            }
+            nverts = static_cast<uint32_t>(dev->processed.size());
+            base = gpu::add_vertices(dev->processed.data(), nverts);
             break;
         default: break;
         }
@@ -295,7 +353,7 @@ COM_METHOD(Dev_GetStats, 1) {
 COM_METHOD(Dev_Execute, 3) {
     auto *eb = dynamic_cast<ExecuteBuffer *>(lookup(arg(1)));
     if (!eb) return D3DERR_INVALIDPARAMS;
-    parse_execute(eb);
+    parse_execute(eb, obj<Device>(self));
     return D3D_OK;
 }
 
@@ -428,7 +486,19 @@ COM_METHOD(VP_GetBackground, 2) {
 }
 COM_METHOD(VP_SetBackgroundDepth, 1) { return D3D_OK; }
 COM_METHOD(VP_GetBackgroundDepth, 2) { WR32(arg(1), 0); if (arg(2)) WR32(arg(2), 0); return D3D_OK; }
-COM_METHOD(VP_Clear, 3) { return D3D_OK; }
+COM_METHOD(VP_Clear, 3) {
+    Viewport *v = obj<Viewport>(self);
+    uint32_t argb = 0;
+    auto it = material_handles.find(v->background);
+    if (it != material_handles.end()) {   // background = material diffuse colour (D3DCOLORVALUE floats)
+        float c[4];
+        memcpy(c, it->second->data + 4, 16);
+        auto b = [](float f) { return static_cast<uint32_t>(std::clamp(f, 0.f, 1.f) * 255.f + 0.5f); };
+        argb = 0xFF000000u | b(c[0]) << 16 | b(c[1]) << 8 | b(c[2]);
+    }
+    gpu::clear(arg(3), argb, 1.f);
+    return D3D_OK;
+}
 COM_METHOD(VP_AddLight, 1) {
     if (auto *l = dynamic_cast<Light *>(lookup(arg(1)))) { l->refs++; obj<Viewport>(self)->lights.push_back(l); }
     return D3D_OK;
@@ -484,6 +554,8 @@ COM_METHOD(Tex_Load, 1) {
     uint32_t rows = std::min(dst->h, src->h), bytes = std::min(dst->pitch, src->pitch);
     for (uint32_t y = 0; y < rows; y++) memcpy(M + dst->mem + y * dst->pitch, M + src->mem + y * src->pitch, bytes);
     if (src->palette) dst->palette = src->palette;
+    if (src->ckey_src) { dst->ckey_src = true; dst->ckey_lo = src->ckey_lo; dst->ckey_hi = src->ckey_hi; }
+    dst->version++;
     return D3D_OK;
 }
 COM_METHOD(Tex_Unload, 0) { return D3D_OK; }
@@ -549,6 +621,13 @@ bool d3d_query_surface(Surface *s, const Guid &g, uint32_t *out, uint32_t *hr) {
     if (is_device_guid(g)) {
         auto *dev = new Device;
         dev->target = s;
+        on_destroy = [](Surface *gone) {
+            gpu::surface_destroyed(gone);
+            for (auto it = texture_handles.begin(); it != texture_handles.end();)
+                it = it->second == gone ? texture_handles.erase(it) : std::next(it);
+            surface_texture_handle.erase(gone);
+        };
+        gpu::set_target(s);
         *out = expose(dev, "IDirect3DDevice", vt_dev);
         *hr = D3D_OK;
         log("Surface(%ux%u)::QueryInterface(%s) -> Direct3D device 0x%08x\n", s->w, s->h, guid_str(g).c_str(), *out);

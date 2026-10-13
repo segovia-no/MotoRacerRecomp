@@ -63,6 +63,8 @@ void load(const std::string &game_dir) {
         // GOG's launcher adds these when its D3D / ZBuffer options are on.
         if (s.game_args.find("-D3D") == std::string::npos) s.game_args += " -D3D";
         if (s.game_args.find("-ZBuffer") == std::string::npos) s.game_args += " -ZBuffer";
+        // The game's own readme: without -Alpha the name-entry letters vanish in D3D mode.
+        if (s.game_args.find("-Alpha") == std::string::npos) s.game_args += " -Alpha";
     }
 }
 

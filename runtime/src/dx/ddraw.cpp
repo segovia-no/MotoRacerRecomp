@@ -10,6 +10,7 @@
 
 #include "com.h"
 #include "ddraw.h"
+#include "d3d_gpu.h"
 #include "ddraw_internal.h"
 #include "host_video.h"
 #include "win32.h"
@@ -95,6 +96,10 @@ Surface *new_surface(DDraw *dd, uint32_t w, uint32_t h, uint32_t bpp, uint32_t c
     if (bpp == 8) { s->pf_flags = DDPF_PALETTEINDEXED8 | DDPF_RGB; s->rmask = s->gmask = s->bmask = 0; }
     s->pitch = (w * (bpp / 8) + 3) & ~3u;
     s->mem = heap_alloc(s->pitch * h + 16, true);
+    s->storage = std::shared_ptr<uint32_t>(new uint32_t(s->mem), [](uint32_t *va) {
+        heap_free(*va);
+        delete va;
+    });
     return s;
 }
 
@@ -272,6 +277,7 @@ COM_METHOD(DD_CreateSurface, 3) {
             s->rmask = RD32(d + 72 + 16);
             s->gmask = RD32(d + 72 + 20);
             s->bmask = RD32(d + 72 + 24);
+            s->amask = (RD32(d + 72 + 4) & 0x1) ? RD32(d + 72 + 28) : 0;   // DDPF_ALPHAPIXELS
         }
         if (caps & DDSCAPS_ZBUFFER) s->pf_flags = DDPF_ZBUFFER;
         if (flags & DDSD_CKSRCBLT) { s->ckey_src = true; s->ckey_lo = RD32(d + 64); s->ckey_hi = RD32(d + 68); }
@@ -279,6 +285,26 @@ COM_METHOD(DD_CreateSurface, 3) {
     log("CreateSurface %ux%u %ubpp caps %08x%s -> pitch %u\n", s->w, s->h, s->bpp, s->caps,
         s->attached.empty() ? "" : " +backbuffer", s->pitch);
     WR32(arg(2), expose(s, "IDirectDrawSurface", vt_surf));
+    return S_OK;
+}
+
+// A duplicate is a separate surface object sharing the original's pixel memory.
+COM_METHOD(DD_DuplicateSurface, 2) {
+    Surface *src = surface_arg(arg(1));
+    if (!src) return DDERR_INVALIDPARAMS;
+    auto *d = new Surface;
+    d->dd = src->dd;
+    d->w = src->w; d->h = src->h; d->pitch = src->pitch; d->bpp = src->bpp;
+    d->caps = src->caps & ~(DDSCAPS_PRIMARYSURFACE | DDSCAPS_FRONTBUFFER | DDSCAPS_BACKBUFFER);
+    d->mem = src->mem;
+    d->storage = src->storage;
+    d->rmask = src->rmask; d->gmask = src->gmask; d->bmask = src->bmask; d->amask = src->amask;
+    d->pf_flags = src->pf_flags;
+    d->ckey_src = src->ckey_src; d->ckey_lo = src->ckey_lo; d->ckey_hi = src->ckey_hi;
+    d->palette = src->palette;
+    if (d->palette) d->palette->refs++;
+    d->version = src->version;
+    WR32(arg(2), expose(d, "IDirectDrawSurface", vt_surf));
     return S_OK;
 }
 
@@ -423,6 +449,12 @@ COM_METHOD(S_Blt, 5) {
     Surface *d = obj<Surface>(self);
     Surface *s = surface_arg(arg(2));
     uint32_t flags = arg(4), fx = arg(5);
+    if (flags & 0x02000000) {   // DDBLT_DEPTHFILL on the Z-buffer
+        gpu::clear(2, 0, fx ? static_cast<float>(RD32(fx + 80) & 0xFFFF) / 65535.f : 1.f);
+        return S_OK;
+    }
+    gpu::sync_to_cpu(d);
+    if (s) gpu::sync_to_cpu(s);
     BltRect dr = read_rect(arg(1), *d);
     if (flags & DDBLT_COLORFILL) {
         fill(*d, dr, fx ? RD32(fx + 80) : 0);
@@ -438,6 +470,8 @@ COM_METHOD(S_Blt, 5) {
         log("Blt: unsupported flags %x without source\n", flags);
         return DDERR_UNSUPPORTED;
     }
+    d->version++;
+    gpu::cpu_wrote(d);
     touched(d);
     return S_OK;
 }
@@ -445,11 +479,15 @@ COM_METHOD(S_Blt, 5) {
 COM_METHOD(S_BltFast, 5) {
     Surface *d = obj<Surface>(self), *s = surface_arg(arg(3));
     if (!s) return DDERR_INVALIDPARAMS;
+    gpu::sync_to_cpu(d);
+    gpu::sync_to_cpu(s);
     BltRect sr = read_rect(arg(4), *s);
     int32_t x = static_cast<int32_t>(arg(1)), y = static_cast<int32_t>(arg(2));
     BltRect dr{x, y, x + (sr.r - sr.l), y + (sr.b - sr.t)};
     bool key = (arg(5) & DDBLTFAST_SRCCOLORKEY) && s->ckey_src;
     blit(*d, dr, *s, sr, key, s->ckey_lo, s->ckey_hi, 0);
+    d->version++;
+    gpu::cpu_wrote(d);
     touched(d);
     return S_OK;
 }
@@ -474,12 +512,14 @@ COM_METHOD(S_Flip, 2) {
     Surface *s = obj<Surface>(self);
     std::vector<Surface *> chain;
     for (Surface *a : s->attached) if (a->caps & (DDSCAPS_BACKBUFFER | DDSCAPS_FLIP)) chain.push_back(a);
+    for (Surface *a : chain) gpu::sync_to_cpu(a);
     if (!chain.empty()) {
         // front <- back[0] <- back[1] ... : rotate buffer memory through the chain
         uint32_t front_mem = s->mem;
         s->mem = chain[0]->mem;
         for (size_t i = 0; i + 1 < chain.size(); i++) chain[i]->mem = chain[i + 1]->mem;
         chain.back()->mem = front_mem;
+        for (Surface *a : chain) { a->version++; gpu::cpu_wrote(a); }
     }
     present(s);
     return S_OK;
@@ -516,6 +556,7 @@ COM_METHOD(S_GetColorKey, 2) {
     return S_OK;
 }
 COM_METHOD(S_GetDC, 1) {
+    gpu::sync_to_cpu(obj<Surface>(self));
     if (!gdc_warned) { log("IDirectDrawSurface::GetDC: GDI drawing on surfaces is not rendered\n"); gdc_warned = true; }
     WR32(arg(1), 0x0F7F0000u);
     return S_OK;
@@ -535,6 +576,7 @@ COM_METHOD(S_IsLost, 0) { return S_OK; }
 
 COM_METHOD(S_Lock, 4) {
     Surface *s = obj<Surface>(self);
+    gpu::sync_to_cpu(s);
     uint32_t ptr = s->mem;
     if (arg(1)) ptr += RD32(arg(1) + 4) * s->pitch + RD32(arg(1)) * s->bytes();
     write_desc(arg(2), *s, ptr);
@@ -561,10 +603,17 @@ COM_METHOD(S_SetPalette, 1) {
     Surface *s = obj<Surface>(self);
     s->palette = arg(1) ? dynamic_cast<Palette *>(lookup(arg(1))) : nullptr;
     if (s->palette) s->palette->refs++;
+    s->version++;
     touched(s);
     return S_OK;
 }
-COM_METHOD(S_Unlock, 1) { touched(obj<Surface>(self)); return S_OK; }
+COM_METHOD(S_Unlock, 1) {
+    Surface *s = obj<Surface>(self);
+    s->version++;
+    gpu::cpu_wrote(s);
+    touched(s);
+    return S_OK;
+}
 COM_METHOD(S_GetDDInterface, 1) {
     Surface *s = obj<Surface>(self);
     s->dd->refs++;
@@ -590,6 +639,7 @@ COM_METHOD(P_Initialize, 3) { return S_OK; }
 COM_METHOD(P_SetEntries, 4) {
     Palette *p = obj<Palette>(self);
     for (uint32_t i = 0; i < arg(3) && arg(2) + i < 256; i++) p->entries[arg(2) + i] = RD32(arg(4) + 4 * i);
+    p->version++;
     if (current_front && current_front->palette == p) front_dirty = true;
     return S_OK;
 }
@@ -607,13 +657,13 @@ COM_METHOD(C_SetHWnd, 2) { obj<Clipper>(self)->hwnd = arg(2); return S_OK; }
 void init_vtables() {
     if (vt_dd1) return;
     vt_dd1 = make_vtable("IDirectDraw", {DD_QueryInterface, DD_AddRef, DD_Release, DD_Compact, DD_CreateClipper,
-                                         DD_CreatePalette, DD_CreateSurface, nullptr, DD_EnumDisplayModes, nullptr,
+                                         DD_CreatePalette, DD_CreateSurface, DD_DuplicateSurface, DD_EnumDisplayModes, nullptr,
                                          DD_FlipToGDISurface, DD_GetCaps, DD_GetDisplayMode, DD_GetFourCCCodes,
                                          DD_GetGDISurface, DD_GetMonitorFrequency, DD_GetScanLine,
                                          DD_GetVerticalBlankStatus, DD_Initialize, DD_RestoreDisplayMode,
                                          DD_SetCooperativeLevel, DD_SetDisplayMode1, DD_WaitForVerticalBlank}, 23);
     vt_dd2 = make_vtable("IDirectDraw2", {DD_QueryInterface, DD_AddRef, DD_Release, DD_Compact, DD_CreateClipper,
-                                          DD_CreatePalette, DD_CreateSurface, nullptr, DD_EnumDisplayModes, nullptr,
+                                          DD_CreatePalette, DD_CreateSurface, DD_DuplicateSurface, DD_EnumDisplayModes, nullptr,
                                           DD_FlipToGDISurface, DD_GetCaps, DD_GetDisplayMode, DD_GetFourCCCodes,
                                           DD_GetGDISurface, DD_GetMonitorFrequency, DD_GetScanLine,
                                           DD_GetVerticalBlankStatus, DD_Initialize, DD_RestoreDisplayMode,
