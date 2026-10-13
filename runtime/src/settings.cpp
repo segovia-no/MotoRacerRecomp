@@ -62,7 +62,10 @@ void load(const std::string &game_dir) {
     if (auto v = get("recomp", "renderscale")) s.render_scale = strcasecmp(v->c_str(), "auto") ? atoi(v->c_str()) : 0;
     if (const char *e = getenv("MOTORACER_RENDER_SCALE")) s.render_scale = atoi(e);
     if (auto v = get("recomp", "controllermenus")) s.controller_menus = truthy(*v);
-    if (auto v = get("recomp", "triggeraxis")) s.trigger_axis = truthy(*v);
+    if (auto v = get("recomp", "triggermode")) {
+        if (!strcasecmp(v->c_str(), "axis")) s.trigger_mode = TriggerMode::Axis;
+        else if (!strcasecmp(v->c_str(), "buttons")) s.trigger_mode = TriggerMode::Buttons;
+    }
     if (auto v = get("recomp", "widescreen")) s.widescreen = strcasecmp(v->c_str(), "off") && strcasecmp(v->c_str(), "0");
     if (s.d3d) {
         // GOG's launcher adds these when its D3D / ZBuffer options are on.

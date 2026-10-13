@@ -60,6 +60,25 @@ SDL_Gamepad *pad(uint32_t id) {
     return id < pads.size() ? pads[id] : nullptr;
 }
 
+// The game's controller mode global (race code 0x411e06: value 2 keeps the axes analog, any other
+// value centres them).
+constexpr uint32_t GAME_JOY_MODE = 0x4dc11c;
+
+bool triggers_as_axis() {
+    switch (settings::get().trigger_mode) {
+    case settings::TriggerMode::Axis: return true;
+    case settings::TriggerMode::Buttons: return false;
+    default: break;
+    }
+    static uint32_t last = 0xFFFFFFFF;
+    uint32_t mode = RD32(GAME_JOY_MODE);
+    if (mode != last) {
+        last = mode;
+        log("joystick: game controller mode %u -> triggers as %s\n", mode, mode == 2 ? "Y axis (analog)" : "buttons 9/10");
+    }
+    return mode == 2;
+}
+
 int dz(int v) { return std::abs(v) < DEADZONE ? 0 : v; }
 
 uint32_t to_axis(int v) {   // SDL -32768..32767 -> WINMM 0..65535, centre 0x7FFF
@@ -103,7 +122,10 @@ STDCALL(WINMM, joyGetPosEx, 2) {
     last_poll_ms = SDL_GetTicks();
     int x = dz(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTX));
     int y = dz(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTY));
-    if (settings::get().trigger_axis)
+    // Triggers go either to the Y axis (analog mode) or to buttons 9/10 (digital mode), never
+    // both: the game's control setup takes whichever input it notices first.
+    bool trig_axis = triggers_as_axis();
+    if (trig_axis)
         y += SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) - SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
     if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_LEFT)) x = -32768;
     if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) x = 32767;
@@ -116,8 +138,8 @@ STDCALL(WINMM, joyGetPosEx, 2) {
     uint32_t buttons = 0, count = 0;
     for (int i = 0; i < 8; i++)
         if (SDL_GetGamepadButton(g, order[i])) { buttons |= 1u << i; count++; }
-    if (SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > TRIGGER_PRESSED) { buttons |= 1u << 8; count++; }
-    if (SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > TRIGGER_PRESSED) { buttons |= 1u << 9; count++; }
+    if (!trig_axis && SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > TRIGGER_PRESSED) { buttons |= 1u << 8; count++; }
+    if (!trig_axis && SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > TRIGGER_PRESSED) { buttons |= 1u << 9; count++; }
     uint32_t pov = 0xFFFF;   // JOY_POVCENTERED
     if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_UP)) pov = 0;
     else if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) pov = 9000;

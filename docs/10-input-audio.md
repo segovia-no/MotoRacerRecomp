@@ -51,4 +51,5 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
 ### How the game reads the joystick in a race (`0x411b30`)
 - `0x431190(n)` returns the action bound to input `n`: `-4/-5` = X directions, `-2/-3` = Y directions, `0..k` = buttons. Actions set bits in a control mask (1, 2, 4, 8, 0x10, 0x20) and some invert the axis value (`0xFFFF - v`) so the analog strength always points the same way.
 - If the global `0x4dc11c == 2` (analog joystick mode) X/Y stay analog (X clamped per steering state); otherwise both are forced to centre `0x8000` (digital JOYPAD mode).
-- Therefore analog throttle/brake = triggers on the Y axis, bound in the game's config to "Y up"/"Y down". `TriggerAxis=1` (default) adds `LT − RT` to the stick's Y.
+- Therefore analog throttle/brake = triggers on the Y axis, bound in the game's config to "Y up"/"Y down".
+- The config screen takes whichever input it notices first, so triggers must not be buttons *and* axis at once. `TriggerMode=auto` (default) reads the mode global: 2 → triggers add `LT − RT` to Y; otherwise → buttons 9/10. `axis` / `buttons` force one.

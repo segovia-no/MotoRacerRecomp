@@ -15,12 +15,14 @@
 //   Widescreen=auto     auto: when the game's own 16/9 MODE letterboxes the picture, show
 //                       only the 16:9 band so it fills a widescreen window | off
 //   ControllerMenus=1   gamepad navigates the menus (D-pad/stick = arrows, A = Enter, B/Start = Esc)
-//   TriggerAxis=1       triggers also drive the joystick Y axis (analog accelerate/brake in the
-//                       game's JOYSTICK mode); they are always buttons 9/10 as well
+//   TriggerMode=auto    auto: in the game's analog JOYSTICK mode the triggers drive the Y axis
+//                       (analog accelerate/brake), otherwise they are buttons 9/10 | axis | buttons
 #pragma once
 #include <string>
 
 namespace settings {
+
+enum class TriggerMode { Auto, Axis, Buttons };
 
 struct Settings {
     std::string game_args;
@@ -33,7 +35,7 @@ struct Settings {
     int render_scale = 0;   // 0 = auto
     bool widescreen = true;
     bool controller_menus = true;
-    bool trigger_axis = true;
+    TriggerMode trigger_mode = TriggerMode::Auto;
 };
 
 // Loads <game_dir>/motoracer.ini; missing keys keep their defaults.
