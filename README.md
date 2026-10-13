@@ -21,7 +21,7 @@ This is a *static recompilation*: the original Windows game executable from your
    - [Homebrew](https://brew.sh)
 2. **Get the code and run the setup** with the path to your GOG installer:
    ```sh
-   git clone https://github.com/<owner>/MotoRacerRecomp.git
+   git clone https://github.com/segovia-no/MotoRacerRecomp.git
    cd MotoRacerRecomp
    ./setup.sh ~/Downloads/setup_moto_racer_2.1.0.11.exe
    ```
@@ -108,5 +108,7 @@ See [docs/12-roadmap.md](docs/12-roadmap.md): Linux / Steam Deck and Windows por
 
 ## Distribution and legal
 Only this source repository may be shared. Everything a build produces — the generated C in `build/cmake/gen/`, the `motoracer` binary and `MotoRacer.app` — contains code translated from your `game.EXE` and must **not** be redistributed. There are no prebuilt releases: every player builds from their own GOG copy.
+
+The recompiler, runtime and documentation are released under the [MIT License](LICENSE); the license does not cover Moto Racer itself or anything generated from it.
 
 This is an unofficial fan project for preservation and interoperability. It is not affiliated with or endorsed by Delphine Software, the current rights holders of Moto Racer, or GOG. "Moto Racer" and related names are trademarks of their respective owners.
