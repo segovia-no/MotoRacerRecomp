@@ -23,7 +23,8 @@ def full_reg(name):
 
 
 class Insn:
-    __slots__ = ("va", "size", "mnem", "op_str", "groups", "ops", "raw")
+    __slots__ = ("va", "size", "mnem", "op_str", "groups", "ops", "raw",
+                 "imm_off", "imm_size", "disp_off", "disp_size")
 
     def __init__(self, ci):
         self.va = ci.address
@@ -32,6 +33,8 @@ class Insn:
         self.op_str = ci.op_str
         self.groups = set(ci.groups)
         self.raw = bytes(ci.bytes)
+        self.imm_off, self.imm_size = ci.imm_offset, ci.imm_size
+        self.disp_off, self.disp_size = ci.disp_offset, ci.disp_size
         self.ops = []
         for op in ci.operands:
             if op.type == x86.X86_OP_IMM:
@@ -119,7 +122,7 @@ class Discovery:
                 self.bad.append((va, "undecodable or outside .text"))
                 return
             m = insn.mnem
-            if m == "int3" or m == "hlt":
+            if m in ("int3", "hlt", "int"):
                 if va == start:
                     self.bad.append((va, f"control reached {m}"))
                 return
@@ -273,7 +276,7 @@ class Discovery:
     # ---------- partitioning ----------
     def successors(self, insn):
         m = insn.mnem
-        if m in ("ret", "retf", "iretd", "int3", "hlt"):
+        if m in ("ret", "retf", "iretd", "int3", "hlt", "int"):
             return []
         if insn.va in self.noreturn_calls:
             return []

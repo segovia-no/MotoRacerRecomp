@@ -23,6 +23,7 @@ Game files are **not** committed (see `.gitignore`). Anyone reproducing must ext
 - [04-strategy.md](04-strategy.md) — recompilation strategy, decisions, architecture, phases
 - [05-self-modifying-code.md](05-self-modifying-code.md) — SMC in rasterizer span loops and how recomp handles it
 - [06-function-discovery.md](06-function-discovery.md) — phase 1: our own function/jump-table discovery, coverage, MSVC patterns
+- [07-translator.md](07-translator.md) — phase 2: x86→C execution model, differential tester vs Unicorn, known gaps
 
 ## Analysis tooling
 

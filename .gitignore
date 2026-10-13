@@ -10,3 +10,5 @@ build/
 # REA / analysis scratch
 *.rea-snapshot
 .venv/
+__pycache__/
+*.pyc
