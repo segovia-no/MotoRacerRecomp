@@ -53,3 +53,5 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
 - If the global `0x4dc11c == 2` (analog joystick mode) X/Y stay analog (X clamped per steering state); otherwise both are forced to centre `0x8000` (digital JOYPAD mode).
 - Therefore analog throttle/brake = triggers on the Y axis, bound in the game's config to "Y up"/"Y down".
 - The config screen takes whichever input it notices first, so triggers must not be buttons *and* axis at once. `TriggerMode=auto` (default) reads the mode global: 2 → triggers add `LT − RT` to Y; otherwise → buttons 9/10. `axis` / `buttons` force one.
+
+**Confirmed in play (2026-10-13):** `0x4dc11c` = 1 for the digital JOYPAD mode, 2 for the analog joystick mode. In mode 2 the game's control setup registers the triggers as "Y up"/"Y down" and races get analog throttle/brake (owner-confirmed).
