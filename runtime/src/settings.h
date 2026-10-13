@@ -12,7 +12,8 @@
 //   VSync=1
 //   Renderer=d3d        d3d (default: the game's Direct3D path on the GPU, high resolution) |
 //                       software (the game's original software renderer)
-//   RenderScale=auto    d3d only: 3D resolution multiplier of 640x480 (auto | 1..4)
+//   RenderScale=auto    d3d only: extra 3D resolution multiplier of the game's mode (auto | 1..4)
+//   CustomModes=1       d3d only: offer 4:3 modes above 640x480 in the game's SCREEN MODE option
 //   Widescreen=auto     auto: when the game's own 16/9 MODE letterboxes the picture, show
 //                       only the 16:9 band so it fills a widescreen window | off
 //   ControllerMenus=1   gamepad navigates the menus (D-pad/stick = arrows, A = Enter, B/Start = Esc)
@@ -35,6 +36,7 @@ struct Settings {
     bool d3d = true;
     int render_scale = 0;   // 0 = auto
     bool widescreen = true;
+    bool custom_modes = true;
     bool controller_menus = true;
     TriggerMode trigger_mode = TriggerMode::Auto;
 };

@@ -16,6 +16,7 @@
 #include "d3d_gpu.h"
 #include "ddraw_internal.h"
 #include "host_video.h"
+#include "settings.h"
 #include "win32.h"
 
 using namespace rt;
@@ -321,6 +322,14 @@ COM_METHOD(DD_EnumDisplayModes, 4) {
     uint32_t cb = arg(4), ctx = arg(3);
     uint32_t desc = heap_alloc(108, true);
     DDraw *dd = obj<DDraw>(self);
+    // The game's mode callback (0x477160) caps modes at 640x480 unless a developer switch
+    // (0x4dc174, never set in the shipped game) and "hardware D3D present" (0x4dc06c) are set and
+    // 0x4dc070 is clear. It runs during the first DirectDraw probe, before D3D is initialised, so
+    // with CustomModes on (D3D renderer) the three are set only for the duration of this call.
+    constexpr uint32_t DEV_SWITCH = 0x4dc174, HW_D3D = 0x4dc06c, CAP_FLAG = 0x4dc070;
+    bool unlock = settings::get().d3d && settings::get().custom_modes;
+    uint32_t saved[3] = {RD32(DEV_SWITCH), RD32(HW_D3D), RD32(CAP_FLAG)};
+    if (unlock) { WR32(DEV_SWITCH, 1); WR32(HW_D3D, 1); WR32(CAP_FLAG, 0); }
     for (auto &m : modes) {
         Surface tmp;
         tmp.dd = dd; tmp.w = m[0]; tmp.h = m[1]; tmp.bpp = m[2]; tmp.pitch = m[0] * m[2] / 8;
@@ -331,6 +340,13 @@ COM_METHOD(DD_EnumDisplayModes, 4) {
         WR32(desc + 4, RD32(desc + 4) | DDSD_REFRESHRATE);
         WR32(desc + 24, 60);
         if (!guest_call_stdcall(cb, {desc, ctx})) break;
+    }
+    if (unlock) { WR32(DEV_SWITCH, saved[0]); WR32(HW_D3D, saved[1]); WR32(CAP_FLAG, saved[2]); }
+    if (cb == 0x477160) {   // game's mode table: count at 0x4ee984, 36-byte entries at 0x5d8954
+        uint32_t n = RD32(0x4ee984);
+        log("ddraw: game accepted %u display modes:", n);
+        for (uint32_t i = 0; i < n && i < 50; i++) log(" %ux%u", RD32(0x5d8960 + 36 * i), RD32(0x5d8964 + 36 * i));
+        log("\n");
     }
     heap_free(desc);
     return S_OK;

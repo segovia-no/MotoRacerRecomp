@@ -53,7 +53,8 @@ Filter=linear        ; or nearest
 IntegerScale=0       ; 1 = whole-number scaling only
 VSync=1
 Renderer=d3d         ; d3d (default, GPU, high resolution) or software (original renderer)
-RenderScale=auto     ; 3D resolution as a multiple of 640x480: auto or 1..4
+RenderScale=auto     ; extra 3D resolution multiple of the game's mode: auto or 1..4
+CustomModes=1        ; d3d: list 800x600 .. 2048x1536 in the game's Options > SCREEN MODE
 Widescreen=auto      ; show the game's own 16/9 MODE band at 16:9; off to disable
 ControllerMenus=1    ; navigate menus with a gamepad
 TriggerMode=auto     ; analog triggers in the game's joystick mode, buttons 9/10 in joypad mode

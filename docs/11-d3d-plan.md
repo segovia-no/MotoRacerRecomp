@@ -76,6 +76,11 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
 - Debug aids: `MOTORACER_D3D_DEBUG=1` (flat-triangle classes, overlay/full-upload counts, Blt summaries), `MOTORACER_SNAPSHOT_DIR` now also dumps GPU frames at full resolution.
 
 ## Custom resolutions through the game's own SCREEN MODE option (2026-10-13)
-- `EnumDisplayModes` callback `0x477160` keeps up to 50 modes (16-bit RGB only, stored at `0x5d8954 + 36·i`: masks, bpp, width, height, area, size class). It caps width/height at 640×480 **unless** `[0x4dc174] && [0x4dc06c] && ![0x4dc070]` — the hardware-Direct3D case. So in D3D mode the engine accepts larger modes natively and lists them in Options → SCREEN MODE.
+- `EnumDisplayModes` callback `0x477160` keeps up to 50 modes (16-bit RGB only, stored at `0x5d8954 + 36·i`: masks, bpp, width, height, area, size class). It caps width/height at 640×480 **unless** `[0x4dc174] && [0x4dc06c] && ![0x4dc070]`.
+- First attempt assumed this is satisfied in D3D mode — wrong, the user saw nothing above 640×480. Reasons:
+  - `0x4dc174` has **no writer** anywhere in the binary (only this read) — a dead developer switch, always 0 in the shipped game.
+  - The enumeration runs in the first DirectDraw probe (`0x475150`), *before* D3D init (`0x41e8f0`) sets `0x4dc06c` ("hardware D3D device present"; also set at `0x41f2bf`).
+- Fix (`DD_EnumDisplayModes`): when the callback is invoked with `Renderer=d3d` and `CustomModes=1`, the runtime sets `0x4dc174=1`, `0x4dc06c=1`, `0x4dc070=0` for the duration of the enumeration and restores them afterwards. Nothing else reads `0x4dc174`, so the patch is local to the mode filter.
+- Verified by log: `ddraw: game accepted 10 display modes: 320x240 512x384 640x480 800x600 1024x768 1152x864 1280x960 1400x1050 1600x1200 2048x1536`. The table's last field is a size class: area < 0x30000 → 0, == 0x30000 (512×384) → 1, larger → 2.
 - We now enumerate 4:3 modes up to 2048×1536 (800×600, 1024×768, 1152×864, 1280×960, 1400×1050, 1600×1200, 2048×1536).
 - `RenderScale=auto` is relative to the game's chosen mode (smallest multiple covering the display, ≤ 4, render target ≤ 8192 px). A game mode of 1280×960 gets 2×; 2048×1536 gets 1×.
