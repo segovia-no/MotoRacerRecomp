@@ -27,3 +27,26 @@
 
 ## Method
 Implement interfaces with the per-slot trap vtables (every unimplemented method names itself), run with `-D3D`, and fill in what the game actually calls — the same loop that brought up DirectDraw/DirectSound.
+
+## Stage 1 results (2026-10-13) — `runtime/src/dx/d3d.cpp`
+Enable with `[Recomp] Renderer=d3d` (or `MOTORACER_RENDERER=d3d` for development); the game then gets `-D3D -ZBuffer`.
+Nothing is rasterised yet; the software path is unaffected when D3D is off.
+
+**Bring-up sequence observed:** `DD->QI(IID_IDirect3D)` → `EnumDevices` (we offer one HAL device, DX5-size 204-byte `D3DDEVICEDESC`) → 640×480 16-bit Z-buffer surface → `BackBuffer->QI(IID_IDirect3DHALDevice)` = device → `EnumTextureFormats` (we offer RGB565, ARGB1555, ARGB4444, PAL8) → `CreateViewport` + `SetViewport(0,0,640,480)` → one 47 104-byte execute buffer. Textures: 8-bit palettized system-memory textures `Load`ed into video-memory copies, plus 16-bit ones (256×128, 256×256, 128×128, 32×32).
+
+**PowerVR probe:** the game creates a 2×2 surface with `DDPF_FOURCC 'PVRC'` to detect PowerVR cards. Accepting it would select the PowerVR path; we now reject FOURCC surfaces with `DDERR_INVALIDPIXELFORMAT` like ordinary cards.
+
+**Execute buffer layout (every execute):**
+```
+[0 .. N*32)            N D3DTLVERTEX (pre-transformed, lit; x/y in 640x480 pixels)
+instructions:
+  PROCESSVERTICES  COPY (flags 2), start 0, dest 0, count N
+  BRANCHFORWARD    mask 0, value 0 -> always taken; offset measured from the branch
+                   instruction start, lands on a fixed block at 0x4ca8
+  ... STATERENDER x1, STATERENDER x13, TRIANGLE xK ... EXIT
+```
+No matrices, lights or transform states are used — the game does all T&L itself.
+
+**Render states seen (intro + menu):** TEXTUREHANDLE (0 or a handle), TEXTUREADDRESS=CLAMP, TEXTUREPERSPECTIVE=1, ZENABLE=1, ZWRITEENABLE=1, ZFUNC=LESSEQUAL, FILLMODE=SOLID, SHADEMODE=GOURAUD, TEXTUREMAG/MIN=NEAREST|LINEAR, TEXTUREMAPBLEND=MODULATE, ALPHABLEND/ALPHATEST/DITHER/SPECULAR/STIPPLEDALPHA=0. Races may add more (alpha blending for shadows/smoke, fog) — the stats report every 10 s lists them.
+
+**Stage 2 therefore needs:** TLVERTEX triangles with perspective-correct texturing (modulate by vertex colour), Gouraud shading, 16-bit depth test LESSEQUAL with write, nearest/linear filtering, clamp addressing; palettized (PAL8) and 16-bit textures uploaded from guest surfaces (re-upload on Lock/Unlock or Load); viewport Clear with the background material colour.

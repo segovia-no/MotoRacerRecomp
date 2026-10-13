@@ -57,6 +57,13 @@ void load(const std::string &game_dir) {
     if (auto v = get("recomp", "filter")) s.nearest = !strcasecmp(v->c_str(), "nearest");
     if (auto v = get("recomp", "integerscale")) s.integer_scale = truthy(*v);
     if (auto v = get("recomp", "vsync")) s.vsync = truthy(*v);
+    if (auto v = get("recomp", "renderer")) s.d3d = !strcasecmp(v->c_str(), "d3d");
+    if (const char *e = getenv("MOTORACER_RENDERER")) s.d3d = !strcasecmp(e, "d3d");   // dev override
+    if (s.d3d) {
+        // GOG's launcher adds these when its D3D / ZBuffer options are on.
+        if (s.game_args.find("-D3D") == std::string::npos) s.game_args += " -D3D";
+        if (s.game_args.find("-ZBuffer") == std::string::npos) s.game_args += " -ZBuffer";
+    }
 }
 
 const Settings &get() { return s; }

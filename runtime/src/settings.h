@@ -10,6 +10,7 @@
 //   Filter=linear       linear | nearest  (scaling filter)
 //   IntegerScale=0      1 = only scale by whole multiples (sharp pixels, may add borders)
 //   VSync=1
+//   Renderer=software   software | d3d  (d3d: game's Direct3D path on the GPU; work in progress)
 #pragma once
 #include <string>
 
@@ -22,6 +23,7 @@ struct Settings {
     bool nearest = false;
     bool integer_scale = false;
     bool vsync = true;
+    bool d3d = false;
 };
 
 // Loads <game_dir>/motoracer.ini; missing keys keep their defaults.

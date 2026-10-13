@@ -10,6 +10,7 @@
 
 #include "com.h"
 #include "ddraw.h"
+#include "ddraw_internal.h"
 #include "host_video.h"
 #include "win32.h"
 
@@ -25,23 +26,6 @@ constexpr uint32_t DDERR_NOTFOUND = 0x887600FF;
 constexpr uint32_t DDERR_NOPALETTEATTACHED = 0x88760237;
 constexpr uint32_t DDERR_NOCLIPPERATTACHED = 0x88760226;
 
-constexpr uint32_t DDSD_CAPS = 0x1, DDSD_HEIGHT = 0x2, DDSD_WIDTH = 0x4, DDSD_PITCH = 0x8,
-                   DDSD_BACKBUFFERCOUNT = 0x20, DDSD_ZBUFFERBITDEPTH = 0x40, DDSD_LPSURFACE = 0x800,
-                   DDSD_PIXELFORMAT = 0x1000, DDSD_CKSRCBLT = 0x10000, DDSD_REFRESHRATE = 0x40000;
-
-constexpr uint32_t DDSCAPS_BACKBUFFER = 0x4, DDSCAPS_COMPLEX = 0x8, DDSCAPS_FLIP = 0x10,
-                   DDSCAPS_FRONTBUFFER = 0x20, DDSCAPS_OFFSCREENPLAIN = 0x40, DDSCAPS_PALETTE = 0x100,
-                   DDSCAPS_PRIMARYSURFACE = 0x200, DDSCAPS_SYSTEMMEMORY = 0x800, DDSCAPS_TEXTURE = 0x1000,
-                   DDSCAPS_3DDEVICE = 0x2000, DDSCAPS_VIDEOMEMORY = 0x4000, DDSCAPS_VISIBLE = 0x8000,
-                   DDSCAPS_ZBUFFER = 0x20000, DDSCAPS_LOCALVIDMEM = 0x10000000;
-
-constexpr uint32_t DDPF_PALETTEINDEXED8 = 0x20, DDPF_RGB = 0x40, DDPF_ZBUFFER = 0x400;
-
-constexpr uint32_t DDBLT_COLORFILL = 0x400, DDBLT_DDFX = 0x800, DDBLT_KEYSRC = 0x8000,
-                   DDBLT_KEYSRCOVERRIDE = 0x10000;
-constexpr uint32_t DDBLTFX_MIRRORLEFTRIGHT = 0x2, DDBLTFX_MIRRORUPDOWN = 0x4;
-constexpr uint32_t DDBLTFAST_SRCCOLORKEY = 0x1;
-constexpr uint32_t DDCKEY_SRCBLT = 0x8;
 
 const char *IID_IDirectDraw = "6C14DB80-A733-11CE-A521-0020AF0BE560";
 const char *IID_IDirectDraw2 = "B3A6F3E0-2B43-11CF-A2DE-00AA00B93356";
@@ -50,39 +34,6 @@ const char *IID_IDirectDrawSurface2 = "57805885-6EEC-11CF-9441-A82303C10E27";
 const char *IID_IDirectDrawSurface3 = "DA044E00-69B2-11D0-A1D5-00AA00B8DFBB";
 
 // ---------- objects ----------
-struct Palette : ComObj {
-    uint32_t entries[256] = {};   // PALETTEENTRY as stored by the guest (R, G, B, flags)
-};
-
-struct Clipper : ComObj {
-    uint32_t hwnd = 0;
-};
-
-struct DDraw;
-
-struct Surface : ComObj {
-    DDraw *dd = nullptr;
-    uint32_t w = 0, h = 0, pitch = 0, bpp = 16, caps = 0, mem = 0;
-    uint32_t rmask = 0xF800, gmask = 0x07E0, bmask = 0x001F, pf_flags = DDPF_RGB;
-    bool ckey_src = false;
-    uint32_t ckey_lo = 0, ckey_hi = 0;
-    std::vector<Surface *> attached;   // flip chain back buffers / z-buffer
-    Palette *palette = nullptr;
-    Clipper *clipper = nullptr;
-    bool primary() const { return caps & DDSCAPS_PRIMARYSURFACE; }
-    uint32_t bytes() const { return bpp / 8; }
-    ~Surface() override {
-        for (Surface *a : attached)
-            if (a->refs <= 1) delete a; else a->refs--;
-        if (mem) heap_free(mem);
-    }
-};
-
-struct DDraw : ComObj {
-    uint32_t hwnd = 0, coop = 0;
-    uint32_t mode_w = 640, mode_h = 480, mode_bpp = 16;
-    Surface *front = nullptr;
-};
 
 uint32_t vt_dd1, vt_dd2, vt_surf, vt_surf2, vt_surf3, vt_pal, vt_clip;
 Surface *current_front = nullptr;
@@ -248,6 +199,11 @@ COM_METHOD(DD_QueryInterface, 2) {
     uint32_t out = 0;
     if (guid_eq(g, IID_IDirectDraw)) out = expose(dd, "IDirectDraw", vt_dd1);
     else if (guid_eq(g, IID_IDirectDraw2)) out = expose(dd, "IDirectDraw2", vt_dd2);
+    uint32_t hr;
+    if (!out && d3d_query_ddraw(dd, g, &out, &hr)) {
+        WR32(arg(2), out);
+        return hr;
+    }
     if (!out) {
         log("IDirectDraw::QueryInterface(%s) -> E_NOINTERFACE\n", guid_str(g).c_str());
         WR32(arg(2), 0);
@@ -296,7 +252,18 @@ COM_METHOD(DD_CreateSurface, 3) {
         uint32_t w = (flags & DDSD_WIDTH) ? RD32(d + 12) : dd->mode_w;
         uint32_t h = (flags & DDSD_HEIGHT) ? RD32(d + 8) : dd->mode_h;
         uint32_t bpp = dd->mode_bpp;
-        if (flags & DDSD_PIXELFORMAT) bpp = RD32(d + 72 + 12);
+        if (flags & DDSD_PIXELFORMAT) {
+            bpp = RD32(d + 72 + 12);
+            uint32_t pff = RD32(d + 72 + 4);
+            if (pff & 0x4) {   // DDPF_FOURCC (e.g. the game's 'PVRC' PowerVR probe): unsupported, like non-PowerVR cards
+                log("CreateSurface: FOURCC %08x rejected (DDERR_INVALIDPIXELFORMAT)\n", RD32(d + 72 + 8));
+                WR32(arg(2), 0);
+                return 0x88760091;   // DDERR_INVALIDPIXELFORMAT
+            }
+            if (!bpp || (bpp != 8 && bpp != 16))
+                log("CreateSurface: pixel format flags %08x bitcount %u fourcc %08x masks %08x %08x %08x %08x\n", pff,
+                    bpp, RD32(d + 72 + 8), RD32(d + 72 + 16), RD32(d + 72 + 20), RD32(d + 72 + 24), RD32(d + 72 + 28));
+        }
         if (caps & DDSCAPS_ZBUFFER) bpp = (flags & DDSD_ZBUFFERBITDEPTH) ? RD32(d + 24) : 16;
         if (!(caps & DDSCAPS_SYSTEMMEMORY)) caps |= DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM;
         if (!(caps & (DDSCAPS_TEXTURE | DDSCAPS_ZBUFFER | DDSCAPS_3DDEVICE))) caps |= DDSCAPS_OFFSCREENPLAIN;
@@ -344,15 +311,18 @@ void fill_caps(uint32_t p) {
     uint32_t size = RD32(p);
     if (size < 4 || size > 380) size = 380;
     memset(M + p + 4, 0, size - 4);
-    WR32(p + 4, 0x40 | 0x200 | 0x400000 | 0x04000000 | 0x80000000u);   // BLT, BLTSTRETCH, COLORKEY, BLTCOLORFILL, CANBLTSYSMEM
+    WR32(p + 4, 0x40 | 0x200 | 0x400000 | 0x04000000 | 0x80000000u |   // BLT, BLTSTRETCH, COLORKEY, BLTCOLORFILL, CANBLTSYSMEM
+                    (d3d_enabled() ? 0x1u : 0u));                      // DDCAPS_3D
     WR32(p + 12, 0x200);                                                 // CKEYCAPS_SRCBLT
     WR32(p + 24, 0x4);                                                   // PALCAPS_8BIT
+    if (d3d_enabled()) WR32(p + 56, 0x400);                              // dwZBufferBitDepths: DDBD_16
     WR32(p + 60, 16u << 20);                                             // dwVidMemTotal
     WR32(p + 64, 16u << 20);                                             // dwVidMemFree
     if (size >= 136)
         WR32(p + 132, DDSCAPS_BACKBUFFER | DDSCAPS_COMPLEX | DDSCAPS_FLIP | DDSCAPS_FRONTBUFFER |
                           DDSCAPS_OFFSCREENPLAIN | DDSCAPS_PALETTE | DDSCAPS_PRIMARYSURFACE |
-                          DDSCAPS_SYSTEMMEMORY | DDSCAPS_VIDEOMEMORY | DDSCAPS_VISIBLE);
+                          DDSCAPS_SYSTEMMEMORY | DDSCAPS_VIDEOMEMORY | DDSCAPS_VISIBLE |
+                          (d3d_enabled() ? DDSCAPS_3DDEVICE | DDSCAPS_TEXTURE | DDSCAPS_ZBUFFER : 0));
 }
 
 COM_METHOD(DD_GetCaps, 2) {
@@ -420,6 +390,11 @@ COM_METHOD(S_QueryInterface, 2) {
     if (guid_eq(g, IID_IDirectDrawSurface)) out = expose(s, "IDirectDrawSurface", vt_surf);
     else if (guid_eq(g, IID_IDirectDrawSurface2)) out = expose(s, "IDirectDrawSurface2", vt_surf2);
     else if (guid_eq(g, IID_IDirectDrawSurface3)) out = expose(s, "IDirectDrawSurface3", vt_surf3);
+    uint32_t hr;
+    if (!out && d3d_query_surface(s, g, &out, &hr)) {
+        WR32(arg(2), out);
+        return hr;
+    }
     if (!out) {
         log("IDirectDrawSurface::QueryInterface(%s) -> E_NOINTERFACE\n", guid_str(g).c_str());
         WR32(arg(2), 0);
@@ -662,6 +637,8 @@ void init_vtables() {
 }  // namespace
 
 namespace dx {
+
+uint32_t ddraw_surface_face(Surface *s, const char *iface) { return surface_face(s, iface); }
 
 // Called from the message pump: shows writes made directly to a front buffer (no Flip).
 void ddraw_tick() {
