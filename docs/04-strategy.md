@@ -46,7 +46,7 @@ runtime/ (C++)                              ▼
 ## Phases
 1. **Loader + function discovery** — ✅ done (see `06-function-discovery.md`): 4,106 functions, 97.1 % of .text, remaining gaps verified dead.
 2. **Translator** — ✅ done (see `07-translator.md`): 4,106 fns, 0 unsupported insns, clean clang build, 0 mismatches vs Unicorn over 2,405 forms.
-3. **Runtime boot** — CRT startup → `WinMain` reaches window creation with KERNEL32/USER32 shims.
+3. **Runtime boot** — ✅ done (see `08-runtime.md`): CRT + MFC InitInstance run, main window + SDL window + status dialog created; stops at DirectDrawEnumerateA.
 4. **DirectDraw software path** — first frame on screen via SDL3.
 5. **Input + timing + DSound + CD audio (WAV)** — playable.
 6. **D3D5 path** on Metal/SDL_GPU, resolution upgrades.
