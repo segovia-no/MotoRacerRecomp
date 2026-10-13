@@ -35,3 +35,9 @@ One SDL3 playback device (44.1 kHz S16 stereo requested). Each sound source is a
 
 ## Validation session (2026-10-13)
 Owner played through menus (mouse + keyboard) and a race (keyboard): sound effects, music and visuals correct. Session log: 0 `FATAL`, 0 unimplemented imports, clean exit (code 0). Only repeated events were the per-screen DirectDraw re-initialisation (`SetDisplayMode(640,480,16)` + refused `IDirect3D` QI).
+
+## Gamepad (WINMM joystick API) — `runtime/src/win32/winmm_joy.cpp`
+- The game polls `joyGetPosEx` with flags `0x483` (X, Y, buttons, centered) for ids 0..7, after `joyGetDevCapsA`. Code at `0x418a3f`.
+- It classifies a stick as **digital** if its resting X/Y read exactly `0`, `0x8000` or `0xFFFF`; we report centre `0x7FFF` so pads are analog.
+- Mapping: X = left stick X; Y = left stick Y − right trigger + left trigger (RT = up/accelerate, LT = down/brake); buttons 1–8 = A, B, X, Y, LB, RB, Back, Start; POV = d-pad. 4000 dead zone on sticks.
+- Any SDL-recognised controller (Xbox, PlayStation, Switch Pro, 8BitDo…), hot-plug supported; connected pads take ids 0..n.

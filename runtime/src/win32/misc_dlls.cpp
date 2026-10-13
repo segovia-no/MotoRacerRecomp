@@ -50,9 +50,6 @@ CDECL(USER32, wsprintfA) {
 // ---------- WINMM ----------
 STDCALL(WINMM, timeGetTime, 0) { return static_cast<uint32_t>(SDL_GetTicks()); }
 
-STDCALL(WINMM, joyGetNumDevs, 0) { return 16; }
-STDCALL(WINMM, joyGetDevCapsA, 3) { return 167; }   // JOYERR_UNPLUGGED (no joystick yet)
-STDCALL(WINMM, joyGetPosEx, 2) { return 167; }
 
 STDCALL(WINMM, mixerGetNumDevs, 0) { return 0; }
 STDCALL(WINMM, mixerOpen, 5) { return 2; }           // MMSYSERR_BADDEVICEID
