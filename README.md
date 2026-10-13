@@ -1,81 +1,112 @@
 # Moto Racer Recomp
 
-A static recompilation of **Moto Racer** (Delphine Software, 1997; "Polygons 3.22" build from the GOG release) that runs natively on macOS (Apple Silicon). The original Win32 x86 executable is translated to C at build time and linked against a small runtime that re-implements the Windows, DirectDraw, DirectSound and CD-audio APIs the game uses on top of SDL3.
+Play **Moto Racer** (Delphine Software, 1997) natively on modern Macs — in widescreen, at up to 4K, with a gamepad.
 
-**Status:** playable — intro, menus (mouse, keyboard, gamepad), races (keyboard, gamepad with analog triggers), CD music, sound effects and volume sliders. The game's Direct3D path renders on the GPU (Metal); the game's own Options › SCREEN MODE offers resolutions up to 3840×2160 with true widescreen from its 16/9 mode, the race HUD is scaled to match, and draw distance / opponent detail are extended. See [docs/00-overview.md](docs/00-overview.md).
+This is a *static recompilation*: the original Windows game executable from your GOG copy is translated to C on your machine and linked against a small runtime that re-implements the Windows, DirectDraw/Direct3D, DirectSound and CD-audio parts the game needs. No emulator, no Wine — the game runs as a native Apple Silicon app.
 
-> This repository contains **no game code or assets**. You need your own copy of Moto Racer from [GOG](https://www.gog.com/game/moto_racer). The C code is generated locally from your `game.EXE` and never committed.
+> **You need your own copy of the game.** Buy *Moto Racer* on [GOG](https://www.gog.com/game/moto_racer) and download the offline installer (`setup_moto_racer_2.1.0.11.exe`). This repository contains no game code or assets; everything is generated from your installer on your Mac.
 
-## Requirements
-- macOS 12+ on Apple Silicon (arm64)
-- Homebrew: `brew install cmake sdl3 innoextract`
-- Python 3 (for the recompiler; Pillow is only needed for the E2E contact sheets)
-- The GOG installer `setup_moto_racer_2.1.0.11.exe`
+## Features
+- Native macOS app (Apple Silicon), built locally from your GOG installer with one command.
+- The game's Direct3D renderer on the GPU (Metal) — or its original software renderer (Options › D3D: OFF).
+- **True widescreen**: the game's own 16/9 mode at native 1280×720, 1920×1080, 2560×1440 or 3840×2160, chosen in the game's Options › SCREEN MODE.
+- Race HUD scaled to the resolution, longer draw distance and smoother opponent level of detail.
+- **Gamepads** (Xbox, PlayStation, Switch Pro, 8BitDo, …): analog throttle/brake on the triggers, menu navigation with the d-pad/stick, a ready-made layout.
+- CD music from the GOG audio tracks, sound effects, working volume sliders.
+- Good defaults on first start: fullscreen, 16/9 mode at a native resolution for your display.
 
-## Setup
+## Quick start
+1. **Prerequisites** (once): an Apple Silicon Mac with macOS 12 or later,
+   - Xcode Command Line Tools: `xcode-select --install`
+   - [Homebrew](https://brew.sh)
+2. **Get the code and run the setup** with the path to your GOG installer:
+   ```sh
+   git clone https://github.com/<owner>/MotoRacerRecomp.git
+   cd MotoRacerRecomp
+   ./setup.sh ~/Downloads/setup_moto_racer_2.1.0.11.exe
+   ```
+   The script installs the missing tools (`cmake`, `sdl3`, `innoextract`) with Homebrew, unpacks the installer to `~/Library/Application Support/MotoRacerRecomp/game`, builds the game (about a minute the first time) and puts **MotoRacer.app** in `~/Applications`.
+3. **Play**: open *MotoRacer* from Launchpad or Spotlight, or `open ~/Applications/MotoRacer.app`.
+
+To update after a `git pull`, run `./setup.sh` again (no argument needed); your game files, saves and settings are kept.
+
+## Controls
+**Keyboard** (as in the original; change them in Options › CONTROLLER › config): arrows to steer, accelerate and brake, **A**/**Z** gear up/down, **Space** turbo/stunts, **Esc** pause.
+
+**Gamepad** (Xbox 360 layout; PlayStation and Switch pads map by button position):
+
+| Action | Button |
+|---|---|
+| Accelerate / brake (analog) | **RT** / **LT** |
+| Steer | left stick |
+| Gear up / down | **RB** / **LB** |
+| Turbo / stunts / wheelie | **A** |
+| Pause | **Start** |
+| Menus | d-pad or left stick, **A** select, **B** back |
+
+A gamepad connected on first start sets the game's CONTROLLER option to JOYSTICK with this layout. Plugged in later? Choose Options › CONTROLLER › JOYSTICK and the layout is applied (it never overwrites bindings you made yourself).
+
+**Window**: **Cmd+F** or **Alt+Enter** toggles fullscreen, **Cmd+Q** quits.
+
+## Settings
+Most settings are the game's own, in **Options**:
+- **SCREEN MODE** — with 16/9 MODE on: 1280×720 … 3840×2160 (rendered natively); off: 4:3 modes up to 1920×1440.
+- **16/9 MODE** — widescreen.
+- **D3D** — OFF (original software renderer, original resolutions), ON, FILTERED (smooth textures).
+- **DETAIL LEVELS**, opponents, volumes, controller.
+
+Port options live in the `[Recomp]` section of `motoracer.ini` in the game folder (`~/Library/Application Support/MotoRacerRecomp/game`):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `Fullscreen` | `1` (from setup) | start in fullscreen |
+| `WindowWidth`, `WindowHeight` | `1280`, `960` | initial window size |
+| `VSync` | `1` | sync to the display |
+| `Filter` | `linear` | scaling filter for the picture: `linear` or `nearest` |
+| `IntegerScale` | `0` | `1` = only whole-number scaling (sharp pixels, may add borders) |
+| `DrawDistance` | `2` | track sections drawn ahead, opponent draw distance and detail, as a multiple of the original (`1` = original) |
+| `HudScale` | `auto` | race HUD size in large modes: `auto` (width ÷ 640), a factor such as `2`, or `1` (off) |
+| `Widescreen` | `auto` | show the game's 16/9 band as a true 16:9 picture; `off` keeps the letterbox |
+| `CustomModes` | `1` | offer the extra resolutions in SCREEN MODE |
+| `RenderScale` | `auto` | Direct3D supersampling: `auto` upscales the game's original modes to the display, larger modes render natively; or `1`…`4` |
+| `ControllerPreset` | `1` | apply the Xbox layout described above |
+| `ControllerMenus` | `1` | navigate the menus with a gamepad |
+| `TriggerMode` | `auto` | triggers as analog throttle/brake in JOYSTICK mode, as buttons 9/10 otherwise; or `axis` / `buttons` |
+| `Renderer` | `d3d` | `software` forces the original renderer everywhere (the in-game D3D option is usually enough) |
+
+## Troubleshooting
+- **Log**: `~/Library/Logs/MotoRacerRecomp/motoracer.log` (the previous run is kept as `motoracer.log.1`). Please attach it to bug reports.
+- **Reinstall the game files**: `./setup.sh path/to/installer.exe` again.
+- **Reset settings**: delete the `[Recomp]` section of `motoracer.ini` and `recomp_state.txt` in the game folder; the game's own options are in `data/CONFIG.BPT`.
+- **Uninstall**: delete `~/Applications/MotoRacer.app` and `~/Library/Application Support/MotoRacerRecomp`.
+- The build only accepts the GOG `game.EXE` (checked by hash), because the recompiler's analysis is specific to that binary.
+
+## Building by hand
 ```sh
-# 1. Python tools for the recompiler
-python3 -m venv .venv && .venv/bin/pip install pefile capstone unicorn
-
-# 2. Game files -> ~/Library/Application Support/MotoRacerRecomp/game
-tools/install_game.sh /path/to/setup_moto_racer_2.1.0.11.exe
-
-# 3. Build (recompiles game.EXE to C, then compiles everything)
+brew install cmake sdl3 innoextract
+python3 -m venv .venv && .venv/bin/pip install pefile capstone   # + unicorn for the tests
+tools/install_game.sh ~/Downloads/setup_moto_racer_2.1.0.11.exe
 cmake -S . -B build/cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_ASM_COMPILER=clang \
       -DGAME_EXE="$HOME/Library/Application Support/MotoRacerRecomp/game/game.EXE"
 cmake --build build/cmake -j
-
-# 4a. Run directly
-build/cmake/motoracer
-# 4b. or build a double-clickable app
-cmake --build build/cmake --target app      # -> build/cmake/MotoRacer.app
+build/cmake/motoracer                          # run directly, or:
+cmake --build build/cmake --target app         # -> build/cmake/MotoRacer.app
 ```
-The build only accepts the GOG `game.EXE` (checked by hash/timestamp) because the recompiler's analysis is specific to that binary.
-
 Game files are found in this order: `--game-dir DIR`, `$MOTORACER_GAME_DIR`, `~/Library/Application Support/MotoRacerRecomp/game`, `./extracted/app`.
 
-## Controls
-- Keyboard and mouse as in the original game.
-- Gamepads (Xbox, PlayStation, Switch Pro, 8BitDo, …) appear as an analog joystick: left stick steers, right trigger accelerates, left trigger brakes, face/shoulder buttons are joystick buttons 1–8. Configure them in the game's control options.
-- **Cmd+F** or **Alt+Enter**: toggle fullscreen. **Cmd+Q**: quit.
-
-## Options
-`motoracer.ini` in the game folder (the same file GOG's launcher uses):
-```ini
-[Settings]
-Params=-DoRealLock ... -FrameRateMax60   ; game command line (GOG default)
-
-[Recomp]
-Fullscreen=0
-WindowWidth=1280
-WindowHeight=960
-Filter=linear        ; or nearest
-IntegerScale=0       ; 1 = whole-number scaling only
-VSync=1
-Renderer=d3d         ; d3d (default). In game, Options > D3D: OFF = original software renderer, ON / FILTERED = GPU
-RenderScale=auto     ; auto: original modes upscaled to the display, larger modes native; or 1..4
-CustomModes=1        ; d3d: SCREEN MODE offers 800x600..1920x1440, or 1280x720..3840x2160 with 16/9 MODE on
-DrawDistance=2       ; track and opponent draw distance / bike detail, multiple of the original (1 = original)
-HudScale=auto        ; race HUD size in large modes: auto (width/640), a factor like 2, or 1 (off)
-Widescreen=auto      ; show the game's own 16/9 MODE band at 16:9; off to disable
-ControllerMenus=1    ; navigate menus with a gamepad
-TriggerMode=auto     ; analog triggers in the game's joystick mode, buttons 9/10 in joypad mode
-```
-Debugging: `--trace` logs every Windows API call; the log is `~/Library/Logs/MotoRacerRecomp/motoracer.log`. Environment overrides for development: `MOTORACER_SNAPSHOT_DIR=<dir>` (save frames as BMP, `MOTORACER_SNAPSHOT_EVERY=<n>`), `MOTORACER_RENDERER=software|d3d`, `MOTORACER_RENDER_SCALE=<n>`, `MOTORACER_DRAW_DISTANCE=<x>`, `MOTORACER_D3D_DEBUG=1`, `MOTORACER_GAME_DIR=<dir>`.
-Unattended testing: `tools/e2e.sh` / `tools/e2e_race.sh` drive the menus with scripted keys and build a contact sheet — see [docs/13-e2e-testing.md](docs/13-e2e-testing.md).
+Developer aids: `--trace` logs every Windows API call; environment overrides `MOTORACER_SNAPSHOT_DIR` / `MOTORACER_SNAPSHOT_EVERY` (save frames as BMP), `MOTORACER_RENDERER`, `MOTORACER_RENDER_SCALE`, `MOTORACER_DRAW_DISTANCE`, `MOTORACER_D3D_DEBUG=1`, `MOTORACER_GAME_DIR`. Unattended end-to-end tests drive the menus with scripted keys: `tools/e2e.sh`, `tools/e2e_race.sh` ([docs/13-e2e-testing.md](docs/13-e2e-testing.md)). The translator is checked instruction by instruction against the Unicorn emulator: `.venv/bin/python tools/recomp/tests/difftest.py <game.EXE> <work dir>`.
 
 ## How it works
-1. `tools/recomp/` finds every function in `game.EXE` (recursive descent + relocations, MSVC switch/EH patterns) and translates each x86 instruction to C — integer ops with exact flags, x87 FPU, MMX, self-modifying rasterizer operand slots.
-2. The translation is checked instruction-by-instruction against the Unicorn emulator (`tools/recomp/tests/difftest.py`).
-3. `runtime/` provides the guest address space, Win32 (KERNEL32/USER32 with MFC-compatible window management, GDI, registry, files), C++/SEH exceptions, DirectDraw, DirectSound, an emulated CD-audio drive backed by the GOG WAV tracks, joysticks, and SDL3/Metal presentation.
+1. `tools/recomp/` finds every function in `game.EXE` (recursive descent, relocations, MSVC switch tables and exception-handling patterns) and translates each x86 instruction to C — integer operations with exact flags, the x87 FPU, MMX and the software rasterizer's self-modifying code.
+2. `runtime/` provides the guest address space, Win32 (KERNEL32/USER32 with MFC-compatible window management, GDI, registry, files), C++/SEH exceptions, DirectDraw, Direct3D (execute buffers → SDL_GPU/Metal), DirectSound, an emulated CD-audio drive backed by the GOG audio tracks, joysticks via SDL gamepads, and presentation.
+3. A few game-specific fixes are applied at translation time or through small hooks — e.g. relocating the 3D engine's 480-row tables so it can render above 480 lines, the widescreen mode list, HUD scaling and draw distance.
 
-Design notes and reverse-engineering findings live in [docs/](docs/).
-
-## Distribution
-Only this source repository may be shared. Everything produced by a build — `build/cmake/gen/*.c`, the `motoracer` binary and `MotoRacer.app` — contains code translated from your `game.EXE` and must **not** be redistributed (no prebuilt releases). Each player installs their own GOG copy and builds locally.
-
-## Legal
-This is an unofficial fan project for preservation and interoperability. It is not affiliated with or endorsed by Delphine Software, the current rights holders of Moto Racer, or GOG. "Moto Racer" and related names are trademarks of their respective owners. The repository contains no code, data or assets from the game; you must own a legitimate copy to build and play.
+The reverse-engineering notes and design decisions are in [docs/](docs/00-overview.md).
 
 ## Roadmap
-See [docs/12-roadmap.md](docs/12-roadmap.md). Next up: Linux / Steam Deck and Windows ports, other aspect ratios (21:9, 16:10), and hand-decompiling game modules into readable C++ (hybrid approach).
+See [docs/12-roadmap.md](docs/12-roadmap.md): Linux / Steam Deck and Windows ports, other aspect ratios (21:9, 16:10), and hand-decompiling game modules into readable C++.
+
+## Distribution and legal
+Only this source repository may be shared. Everything a build produces — the generated C in `build/cmake/gen/`, the `motoracer` binary and `MotoRacer.app` — contains code translated from your `game.EXE` and must **not** be redistributed. There are no prebuilt releases: every player builds from their own GOG copy.
+
+This is an unofficial fan project for preservation and interoperability. It is not affiliated with or endorsed by Delphine Software, the current rights holders of Moto Racer, or GOG. "Moto Racer" and related names are trademarks of their respective owners.

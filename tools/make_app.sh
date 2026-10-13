@@ -24,8 +24,9 @@ if [ -n "$SDL" ]; then
     [ -f "$REAL" ] || REAL=$SDL
     cp -L "$REAL" "$APP/Contents/Frameworks/libSDL3.0.dylib"
     chmod u+w "$APP/Contents/Frameworks/libSDL3.0.dylib"
-    install_name_tool -id @rpath/libSDL3.0.dylib "$APP/Contents/Frameworks/libSDL3.0.dylib"
-    install_name_tool -change "$SDL" @rpath/libSDL3.0.dylib "$APP/Contents/MacOS/motoracer"
+    # (the "invalidates the code signature" warnings are expected: the bundle is re-signed below)
+    install_name_tool -id @rpath/libSDL3.0.dylib "$APP/Contents/Frameworks/libSDL3.0.dylib" 2>/dev/null
+    install_name_tool -change "$SDL" @rpath/libSDL3.0.dylib "$APP/Contents/MacOS/motoracer" 2>/dev/null
     install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/motoracer" 2>/dev/null || true
 fi
 
