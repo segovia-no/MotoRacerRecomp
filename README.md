@@ -2,7 +2,7 @@
 
 A static recompilation of **Moto Racer** (Delphine Software, 1997; "Polygons 3.22" build from the GOG release) that runs natively on macOS (Apple Silicon). The original Win32 x86 executable is translated to C at build time and linked against a small runtime that re-implements the Windows, DirectDraw, DirectSound and CD-audio APIs the game uses on top of SDL3.
 
-**Status:** playable — intro, menus (mouse/keyboard), races (keyboard/gamepad), CD music and sound effects, at the original 640×480 software-rendered resolution. See [docs/00-overview.md](docs/00-overview.md).
+**Status:** playable — intro, menus (mouse/keyboard), races (keyboard/gamepad), CD music and sound effects, rendered by the game's Direct3D path on the GPU at up to 4× resolution, with true widescreen from the game's 16/9 mode. See [docs/00-overview.md](docs/00-overview.md).
 
 > This repository contains **no game code or assets**. You need your own copy of Moto Racer from [GOG](https://www.gog.com/game/moto_racer). The C code is generated locally from your `game.EXE` and never committed.
 
@@ -52,6 +52,11 @@ WindowHeight=960
 Filter=linear        ; or nearest
 IntegerScale=0       ; 1 = whole-number scaling only
 VSync=1
+Renderer=d3d         ; d3d (default, GPU, high resolution) or software (original renderer)
+RenderScale=auto     ; 3D resolution as a multiple of 640x480: auto or 1..4
+Widescreen=auto      ; show the game's own 16/9 MODE band at 16:9; off to disable
+ControllerMenus=1    ; navigate menus with a gamepad
+TriggerMode=auto     ; analog triggers in the game's joystick mode, buttons 9/10 in joypad mode
 ```
 Debugging: `--trace` logs every Windows API call; `MOTORACER_SNAPSHOT_DIR=<dir>` saves every 60th frame as BMP.
 

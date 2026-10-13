@@ -57,8 +57,8 @@ void load(const std::string &game_dir) {
     if (auto v = get("recomp", "filter")) s.nearest = !strcasecmp(v->c_str(), "nearest");
     if (auto v = get("recomp", "integerscale")) s.integer_scale = truthy(*v);
     if (auto v = get("recomp", "vsync")) s.vsync = truthy(*v);
-    if (auto v = get("recomp", "renderer")) s.d3d = !strcasecmp(v->c_str(), "d3d");
-    if (const char *e = getenv("MOTORACER_RENDERER")) s.d3d = !strcasecmp(e, "d3d");   // dev override
+    if (auto v = get("recomp", "renderer")) s.d3d = strcasecmp(v->c_str(), "software") != 0;
+    if (const char *e = getenv("MOTORACER_RENDERER")) s.d3d = strcasecmp(e, "software") != 0;   // dev override
     if (auto v = get("recomp", "renderscale")) s.render_scale = strcasecmp(v->c_str(), "auto") ? atoi(v->c_str()) : 0;
     if (const char *e = getenv("MOTORACER_RENDER_SCALE")) s.render_scale = atoi(e);
     if (auto v = get("recomp", "controllermenus")) s.controller_menus = truthy(*v);

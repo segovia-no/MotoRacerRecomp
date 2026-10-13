@@ -10,7 +10,8 @@
 //   Filter=linear       linear | nearest  (scaling filter)
 //   IntegerScale=0      1 = only scale by whole multiples (sharp pixels, may add borders)
 //   VSync=1
-//   Renderer=software   software | d3d  (d3d: game's Direct3D path on the GPU)
+//   Renderer=d3d        d3d (default: the game's Direct3D path on the GPU, high resolution) |
+//                       software (the game's original software renderer)
 //   RenderScale=auto    d3d only: 3D resolution multiplier of 640x480 (auto | 1..4)
 //   Widescreen=auto     auto: when the game's own 16/9 MODE letterboxes the picture, show
 //                       only the 16:9 band so it fills a widescreen window | off
@@ -31,7 +32,7 @@ struct Settings {
     bool nearest = false;
     bool integer_scale = false;
     bool vsync = true;
-    bool d3d = false;
+    bool d3d = true;
     int render_scale = 0;   // 0 = auto
     bool widescreen = true;
     bool controller_menus = true;
