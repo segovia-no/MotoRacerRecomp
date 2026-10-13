@@ -8,6 +8,7 @@
 | D3 | Multiplayer | **Stubbed** (DirectPlay returns "no providers"); revisit later |
 | D4 | Repo policy | **Public**. No game code/assets/generated code in git. User supplies `game.EXE`; C is generated at build time |
 | D5 | Host | macOS arm64 first (Apple M3 Pro dev box) |
+| D6 | Baseline binary | **GOG release only** (`setup_moto_racer_2.1.0.11.exe` → `game.EXE` SHA-256 `b2f92109…cb2187`). Purchasable today; original CD effectively lost. Build verifies this hash and refuses others. |
 
 ## Defaults chosen (not yet challenged)
 - Recompiler: **Python 3 + capstone**, emits C. (845 KB code, Python fast enough; easy to iterate.)
@@ -43,7 +44,7 @@ runtime/ (C++)                              ▼
 - **MFC/CRT**: translated like everything else at first; replace with native versions later where cheaper.
 
 ## Phases
-1. **Loader + function discovery** — map PE, enumerate functions, jump tables, report coverage. ✅ = every reachable instruction assigned to a function.
+1. **Loader + function discovery** — ✅ done (see `06-function-discovery.md`): 4,106 functions, 97.1 % of .text, remaining gaps verified dead.
 2. **Translator** — x86 → C for integer ISA, x87, MMX; compile all of `.text` cleanly.
 3. **Runtime boot** — CRT startup → `WinMain` reaches window creation with KERNEL32/USER32 shims.
 4. **DirectDraw software path** — first frame on screen via SDL3.
