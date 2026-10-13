@@ -2,8 +2,11 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <map>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -44,9 +47,12 @@ struct VOut {
     float2 uv;
 };
 
-vertex VOut vs_main(VIn in [[stage_in]]) {
+struct VertUniforms { float4 offset; };   // xy: clip-space shift per unit w
+
+vertex VOut vs_main(VIn in [[stage_in]], constant VertUniforms &vu [[buffer(0)]]) {
     VOut o;
     o.pos = in.pos;
+    o.pos.xy += vu.offset.xy * in.pos.w;
     o.color = in.color.zyxw;
     o.spec = in.spec.zyxw;
     o.uv = in.uv;
@@ -68,8 +74,9 @@ fragment float4 fs_main(VOut in [[stage_in]], constant FragUniforms &u [[buffer(
         if (u.snap.x > 0.5) {
             // Flat 2D element (HUD/text): use the texture coordinate the original 640x480 frame
             // sampled for this pixel, so glyph atlases don't bleed at high resolution.
+            // Unshifted geometry: D3D's sample point for original pixel i is edge coordinate i.
             float2 gpos = in.pos.xy / u.snap.y;
-            float2 d = (floor(gpos) + 0.5 - gpos) * u.snap.y;
+            float2 d = (floor(gpos) - gpos) * u.snap.y;
             uv += dfdx(in.uv) * d.x + dfdy(in.uv) * d.y;
         }
         float4 t = tex.sample(smp, uv);
@@ -133,6 +140,7 @@ struct Cmd {
     Surface *texture = nullptr;
     uint32_t sampler_key = 0;
     FragUniforms uniforms{};
+    float voffset[4] = {};
     uint32_t first_index = 0, index_count = 0;
     float vp[4] = {};
     // clear
@@ -159,6 +167,10 @@ bool depth_initialised = false;
 bool rt_valid = false;               // RT holds this back buffer's picture (plus queued work)
 bool cpu_dirty = false;              // guest pixels changed since `baseline` was taken
 bool gpu_frame_used = false;         // 3D was drawn since the last Flip
+// MOTORACER_D3D_DEBUG=1: classification statistics for flat (screen-aligned) triangles.
+bool dbg = getenv("MOTORACER_D3D_DEBUG") != nullptr;
+std::map<std::string, uint64_t> dbg_tri;
+uint64_t dbg_overlay_px = 0, dbg_overlay_flushes = 0, dbg_full_uploads = 0, dbg_last = 0;
 std::vector<uint16_t> baseline;      // guest pixels as of the last upload/readback
 std::map<PipelineKey, SDL_GPUGraphicsPipeline *> pipelines;
 std::map<uint32_t, SDL_GPUSampler *> samplers;
@@ -386,6 +398,37 @@ void blit(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *src, uint32_t sw, uint32_t 
 
 enum class After { Nothing, Download, Present };
 
+// Debug: MOTORACER_SNAPSHOT_DIR also captures GPU frames (full render-target resolution).
+void snapshot_rt() {
+    static const char *dir = getenv("MOTORACER_SNAPSHOT_DIR");
+    static uint64_t n = 0;
+    if (!dir || (n++ % 120)) return;
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
+    SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, rt_w * rt_h * 4, 0};
+    SDL_GPUTransferBuffer *down = SDL_CreateGPUTransferBuffer(dev, &tci);
+    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
+    SDL_GPUTextureRegion src{};
+    src.texture = rt;
+    src.w = rt_w;
+    src.h = rt_h;
+    src.d = 1;
+    SDL_GPUTextureTransferInfo dst{down, 0, rt_w, rt_h};
+    SDL_DownloadFromGPUTexture(cp, &src, &dst);
+    SDL_EndGPUCopyPass(cp);
+    SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+    SDL_WaitForGPUFences(dev, true, &fence, 1);
+    SDL_ReleaseGPUFence(dev, fence);
+    void *px = SDL_MapGPUTransferBuffer(dev, down, false);
+    if (SDL_Surface *surf = SDL_CreateSurfaceFrom(rt_w, rt_h, SDL_PIXELFORMAT_ABGR8888, px, rt_w * 4)) {
+        char path[1024];
+        snprintf(path, sizeof path, "%s/gpu_%06llu.bmp", dir, static_cast<unsigned long long>(n));
+        SDL_SaveBMP(surf, path);
+        SDL_DestroySurface(surf);
+    }
+    SDL_UnmapGPUTransferBuffer(dev, down);
+    SDL_ReleaseGPUTransferBuffer(dev, down);
+}
+
 // Render all queued work. Before it: bring CPU changes of the back buffer into the target
 // (full upload if the target is stale, otherwise only the changed pixels as an overlay).
 // After it: optionally read the picture back (downscaled) into guest memory, or present it.
@@ -414,6 +457,10 @@ void flush(After after) {
         for (size_t i = 0; i < guest.size(); i++)
             if (guest[i] != baseline[i]) { scratch[i] = rgb565_to_rgba(guest[i]); have_overlay = true; }
         if (have_overlay) upload_rgba(copy, overlay, scratch.data(), g_w, g_h, garbage);
+        if (dbg && have_overlay) {
+            dbg_overlay_flushes++;
+            for (size_t i = 0; i < guest.size(); i++) dbg_overlay_px += guest[i] != baseline[i];
+        }
     }
     std::map<Surface *, SDL_GPUTexture *> bound;
     for (auto &c : frame_cmds)
@@ -444,7 +491,7 @@ void flush(After after) {
     SDL_EndGPUCopyPass(copy);
 
     SDL_GPUFilter up = settings::get().nearest ? SDL_GPU_FILTER_NEAREST : SDL_GPU_FILTER_LINEAR;
-    if (need_full) blit(cmd, lowres, g_w, g_h, rt, rt_w, rt_h, up);
+    if (need_full) { blit(cmd, lowres, g_w, g_h, rt, rt_w, rt_h, up); dbg_full_uploads++; }
     if (have_overlay) {
         SDL_GPUColorTargetInfo ct{};
         ct.texture = rt;
@@ -501,6 +548,7 @@ void flush(After after) {
             SDL_GPUTextureSamplerBinding tsb{c.texture ? bound[c.texture] : white, sampler(c.sampler_key)};
             SDL_BindGPUFragmentSamplers(pass, 0, &tsb, 1);
             SDL_PushGPUFragmentUniformData(cmd, 0, &c.uniforms, sizeof c.uniforms);
+            SDL_PushGPUVertexUniformData(cmd, 0, c.voffset, sizeof c.voffset);
             SDL_DrawGPUIndexedPrimitives(pass, c.index_count, 1, c.first_index, 0, 0);
         }
         SDL_EndGPURenderPass(pass);
@@ -509,6 +557,7 @@ void flush(After after) {
     if (after == After::Present) {
         host::gpu::present(cmd, rt, rt_w, rt_h);   // submits
         host::count_frame();
+        snapshot_rt();
     } else {
         SDL_GPUTransferBuffer *down = nullptr;
         if (after == After::Download) {
@@ -564,6 +613,7 @@ bool init() {
     sci.format = SDL_GPU_SHADERFORMAT_MSL;
     sci.entrypoint = "vs_main";
     sci.stage = SDL_GPU_SHADERSTAGE_VERTEX;
+    sci.num_uniform_buffers = 1;
     vs = SDL_CreateGPUShader(dev, &sci);
     sci.entrypoint = "fs_main";
     sci.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
@@ -647,7 +697,7 @@ uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
         const TLVertex &v = verts[i];
         // Clip-space position with w = 1/rhw so the GPU interpolates perspective-correctly.
         float w = v.rhw > 1e-8f ? 1.f / v.rhw : 1.f;
-        float nx = (v.sx + 0.5f) * sx - 1.f, ny = 1.f - (v.sy + 0.5f) * sy;
+        float nx = v.sx * sx - 1.f, ny = 1.f - v.sy * sy;
         frame_vertices.push_back({nx * w, ny * w, v.sz * w, w, v.color, v.specular, v.tu, v.tv});
     }
     return base;
@@ -698,12 +748,46 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
         }
     }
     c.uniforms.snap[0] = flat && texture ? 1.f : 0.f;
+    if (dbg && texture) {
+        for (uint32_t t = 0; t < ntri; t++) {
+            const GpuVertex *v[3];
+            for (int k = 0; k < 3; k++) v[k] = &frame_vertices[base + (indices[3 * t + k] < nverts ? indices[3 * t + k] : 0)];
+            bool tf = std::fabs(v[0]->w - v[1]->w) < 1e-4f * v[0]->w && std::fabs(v[0]->w - v[2]->w) < 1e-4f * v[0]->w;
+            float rhw = 1.f / v[0]->w, z = v[0]->z / v[0]->w;
+            float x = (v[0]->x / v[0]->w + 1) * 0.5f * g_w, y = (1 - v[0]->y / v[0]->w) * 0.5f * g_h;
+            char key[160];
+            snprintf(key, sizeof key, "%s run_flat=%d rhw=%.3g z=%.3g y_band=%d blend=%d", tf ? "FLAT " : "slant",
+                     flat ? 1 : 0, tf ? rhw : -1.f, tf ? z : -1.f, static_cast<int>(y) / 60, c.pipe.blend ? 1 : 0);
+            dbg_tri[key]++;
+            (void)x;
+        }
+        uint64_t now = SDL_GetTicks();
+        if (now - dbg_last > 15000) {
+            dbg_last = now;
+            log("D3D debug: overlay flushes %llu, changed px %llu, full uploads %llu\n",
+                (unsigned long long)dbg_overlay_flushes, (unsigned long long)dbg_overlay_px,
+                (unsigned long long)dbg_full_uploads);
+            std::vector<std::pair<uint64_t, std::string>> top;
+            for (auto &[k, n] : dbg_tri) top.push_back({n, k});
+            std::sort(top.rbegin(), top.rend());
+            for (size_t i = 0; i < top.size() && i < 40; i++) log("  %8llu %s\n", (unsigned long long)top[i].first, top[i].second.c_str());
+            dbg_tri.clear();
+        }
+    }
     c.uniforms.snap[1] = static_cast<float>(rt_w) / static_cast<float>(g_w ? g_w : 1);
+    // D3D samples at integer pixel coordinates, Metal at half-integers: shift by half an
+    // original pixel. Flat 2D overlays stay on the original pixel grid instead, so they cover
+    // exactly the pixels they covered at 640x480 (their sampling is snapped in the shader).
+    if (!(flat && texture)) {
+        c.voffset[0] = 1.f / static_cast<float>(g_w);
+        c.voffset[1] = -1.f / static_cast<float>(g_h);
+    }
     c.index_count = ntri * 3;
     if (!frame_cmds.empty()) {   // merge with the previous draw if nothing changed
         Cmd &p = frame_cmds.back();
         if (p.kind == Cmd::Draw && !(p.pipe < c.pipe) && !(c.pipe < p.pipe) && p.texture == c.texture &&
             p.sampler_key == c.sampler_key && !memcmp(&p.uniforms, &c.uniforms, sizeof c.uniforms) &&
+            !memcmp(p.voffset, c.voffset, sizeof c.voffset) &&
             p.first_index + p.index_count == c.first_index) {
             p.index_count += c.index_count;
             return;
