@@ -66,3 +66,11 @@ No matrices, lights or transform states are used — the game does all T&L itsel
 
 ### Render states in a race
 SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for most sprite/HUD batches; ALPHATEST, FOG, SPECULAR unused.
+
+## Stage 3 results (2026-10-13) — high resolution, owner-confirmed
+- One SDL_GPU device owns the swapchain (`host_gpu.cpp`); software frames are uploaded and blitted, D3D frames are presented from the render target. `RenderScale=auto|1..4` (auto = 4 on the dev Mac → 2560×1920).
+- **Bug 1 — 3D in the top-left quarter:** vertex x/y were normalised by the render-target size instead of the guest size.
+- **Bug 2 — text bars/underlines at scale > 1:** the half-pixel shift that maps D3D's integer pixel centres onto Metal made flat quads cover an extra half original pixel right/bottom, sampling neighbouring glyphs. Flat textured overlays (all vertices share rhw/z — HUD and text have rhw=1, z≈0) now stay on the original pixel grid and sample at the D3D pixel centre via screen-space derivatives; 3D keeps the shift through a per-draw vertex uniform.
+- **Bug 3 — 16/9 mode still low-res:** in 16/9 mode the game renders into a separate **640×360 offscreen D3D target** and each frame does `Blt(primary [0,60,640,420] ← target)` instead of flipping (seen with `MOTORACER_D3D_DEBUG=1` Blt summary). The CPU Blt read the picture back at 640×360. Now an unscaled full-target Blt to the primary presents the GPU picture directly (`present_blt` → `present_placed`); with `Widescreen=auto` only the 16:9 band is shown (2560×1440 at scale 4), otherwise it is placed in the 4:3 frame. The target's guest copy is marked stale and read back on demand.
+- Pause screens are still upscaled 640×480: the game copies the back buffer to an offscreen surface and back on the CPU. Fix idea: keep a GPU-side high-res shadow for surfaces copied from the render target.
+- Debug aids: `MOTORACER_D3D_DEBUG=1` (flat-triangle classes, overlay/full-upload counts, Blt summaries), `MOTORACER_SNAPSHOT_DIR` now also dumps GPU frames at full resolution.

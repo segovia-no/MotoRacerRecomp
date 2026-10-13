@@ -43,5 +43,8 @@ void surface_destroyed(Surface *s);
 // At Flip: if `back` holds a GPU-rendered frame, present it at full resolution and return true
 // (the guest front buffer is then not updated); otherwise false.
 bool present_flip(Surface *back);
+// Blt of the whole render target onto the primary at (x, y), unscaled: present the GPU picture
+// there directly (the game's 16/9 mode does this instead of flipping). Returns true if handled.
+bool present_blt(Surface *src, Surface *dst, int32_t x, int32_t y, uint32_t w, uint32_t h);
 
 }  // namespace dx::gpu

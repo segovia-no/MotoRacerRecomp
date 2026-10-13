@@ -167,6 +167,7 @@ bool depth_initialised = false;
 bool rt_valid = false;               // RT holds this back buffer's picture (plus queued work)
 bool cpu_dirty = false;              // guest pixels changed since `baseline` was taken
 bool gpu_frame_used = false;         // 3D was drawn since the last Flip
+bool guest_stale = false;            // RT was presented without reading it back into guest memory
 // MOTORACER_D3D_DEBUG=1: classification statistics for flat (screen-aligned) triangles.
 bool dbg = getenv("MOTORACER_D3D_DEBUG") != nullptr;
 std::map<std::string, uint64_t> dbg_tri;
@@ -859,7 +860,10 @@ void clear(uint32_t flags, uint32_t argb, float depth_value) {
 }
 
 void sync_to_cpu(Surface *s) {
-    if (s && s == target && !frame_cmds.empty()) flush(After::Download);
+    if (s && s == target && (!frame_cmds.empty() || guest_stale)) {
+        flush(After::Download);
+        guest_stale = false;
+    }
 }
 
 void cpu_wrote(Surface *s) {
@@ -867,6 +871,26 @@ void cpu_wrote(Surface *s) {
         if (!frame_cmds.empty()) flush(After::Download);
         cpu_dirty = true;
     }
+}
+
+bool present_blt(Surface *src, Surface *dst, int32_t x, int32_t y, uint32_t w, uint32_t h) {
+    if (!dev || !rt || src != target || !gpu_frame_used || w != g_w || h != g_h) return false;
+    if (x < 0 || y < 0 || x + w > dst->w || y + h > dst->h) return false;
+    host::gpu::Crop placed{static_cast<uint32_t>(x), static_cast<uint32_t>(y), w, h};
+    host::gpu::Crop frame{0, 0, dst->w, dst->h};
+    // Widescreen: the game's 16/9 mode blits a 16:9 band; show just that band.
+    host::gpu::Crop crop = (settings::get().widescreen && w * 9 == h * 16) ? placed : frame;
+    host::gpu::set_game_size(dst->w, dst->h);
+    // Render queued work and present the target where the game put it.
+    SDL_GPUCommandBuffer *cmd = nullptr;
+    flush(After::Nothing);
+    cmd = SDL_AcquireGPUCommandBuffer(dev);
+    host::gpu::present_placed(cmd, rt, rt_w, rt_h, placed, crop);
+    host::count_frame();
+    snapshot_rt();
+    gpu_frame_used = false;
+    guest_stale = true;
+    return true;
 }
 
 bool present_flip(Surface *back) {

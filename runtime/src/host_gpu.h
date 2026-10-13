@@ -16,6 +16,10 @@ struct Crop { uint32_t x = 0, y = 0, w = 640, h = 480; };
 // Blits `tex` (w x h, a `scale`-times image of the game frame) into the window, showing `crop`
 // letterboxed to its own aspect, and submits `cmd`. Consumes `cmd`.
 void present(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_t h, const Crop &crop);
+// Same, for a texture that holds only the game-frame rectangle `placed` (e.g. the 640x360 band
+// of the game's 16/9 mode, which it blits to y=60 of the 640x480 screen).
+void present_placed(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_t h, const Crop &placed,
+                    const Crop &crop);
 
 // Uploads an RGBA8 frame and presents it (software renderer path).
 void present_rgba(const uint32_t *px, uint32_t w, uint32_t h, const Crop &crop);

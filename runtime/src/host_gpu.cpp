@@ -65,7 +65,8 @@ Crop widescreen_vote(bool bars_black, uint32_t gw, uint32_t gh) {
     return Crop{0, (gh - band) / 2, gw, band};
 }
 
-void present(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_t h, const Crop &crop) {
+void present_placed(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_t h, const Crop &placed,
+                    const Crop &crop) {
     device();
     SDL_GPUTexture *swap = nullptr;
     uint32_t sw = 0, sh = 0;
@@ -75,15 +76,65 @@ void present(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_
     }
     const auto &cfg = settings::get();
     shown = crop;
-    float sx = static_cast<float>(w) / (game_w ? game_w : 640), sy = static_cast<float>(h) / (game_h ? game_h : 480);
-    // Letterbox to the crop's aspect in swapchain pixels; optional whole-number scale.
+    // Letterbox the crop (game pixels) to its own aspect in swapchain pixels.
     float aspect = static_cast<float>(crop.w) / static_cast<float>(crop.h ? crop.h : 1);
     float dw = static_cast<float>(sw), dh = dw / aspect;
     if (dh > sh) { dh = static_cast<float>(sh); dw = dh * aspect; }
     if (cfg.integer_scale) {
-        uint32_t base_w = crop.w ? crop.w : 640;
-        float k = std::floor(dw / base_w);
-        if (k >= 1) { dw = k * base_w; dh = dw / aspect; }
+        float k = std::floor(dw / (crop.w ? crop.w : 640));
+        if (k >= 1) { dw = k * crop.w; dh = dw / aspect; }
+    }
+    float dx = std::floor((sw - dw) / 2), dy = std::floor((sh - dh) / 2);
+    // Where the texture's game rectangle lands inside that letterbox.
+    float k = dw / static_cast<float>(crop.w ? crop.w : 1);
+    SDL_GPUBlitInfo bi{};
+    bi.source.texture = tex;
+    bi.source.w = w;
+    bi.source.h = h;
+    bi.destination.texture = swap;
+    bi.destination.x = static_cast<uint32_t>(std::max(0.f, dx + (static_cast<float>(placed.x) - crop.x) * k));
+    bi.destination.y = static_cast<uint32_t>(std::max(0.f, dy + (static_cast<float>(placed.y) - crop.y) * k));
+    bi.destination.w = static_cast<uint32_t>(placed.w * k);
+    bi.destination.h = static_cast<uint32_t>(placed.h * k);
+    bi.load_op = SDL_GPU_LOADOP_CLEAR;
+    bi.clear_color = {0, 0, 0, 1};
+    bi.filter = cfg.nearest ? SDL_GPU_FILTER_NEAREST : SDL_GPU_FILTER_LINEAR;
+    SDL_BlitGPUTexture(cmd, &bi);
+    SDL_SubmitGPUCommandBuffer(cmd);
+    // remember letterbox in window points for mouse mapping
+    int ww = 0, wh = 0;
+    SDL_GetWindowSize(win, &ww, &wh);
+    float px_per_pt = ww ? static_cast<float>(sw) / ww : 1.f;
+    lb_x = dx / px_per_pt;
+    lb_y = dy / px_per_pt;
+    lb_w = dw / px_per_pt;
+    lb_h = dh / px_per_pt;
+}
+
+void present(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_t h, const Crop &crop) {
+    // `tex` holds the whole game frame; blit only the crop, as a texture placed at the crop.
+    float sx = static_cast<float>(w) / (game_w ? game_w : 640), sy = static_cast<float>(h) / (game_h ? game_h : 480);
+    if (crop.x == 0 && crop.y == 0 && crop.w == game_w && crop.h == game_h) {
+        present_placed(cmd, tex, w, h, crop, crop);
+        return;
+    }
+    // Cropped: copy the region into a temporary view by blitting through present_placed with
+    // a source sub-rectangle.
+    device();
+    SDL_GPUTexture *swap = nullptr;
+    uint32_t sw = 0, sh = 0;
+    if (!SDL_WaitAndAcquireGPUSwapchainTexture(cmd, win, &swap, &sw, &sh) || !swap) {
+        SDL_SubmitGPUCommandBuffer(cmd);
+        return;
+    }
+    const auto &cfg = settings::get();
+    shown = crop;
+    float aspect = static_cast<float>(crop.w) / static_cast<float>(crop.h ? crop.h : 1);
+    float dw = static_cast<float>(sw), dh = dw / aspect;
+    if (dh > sh) { dh = static_cast<float>(sh); dw = dh * aspect; }
+    if (cfg.integer_scale) {
+        float k = std::floor(dw / (crop.w ? crop.w : 640));
+        if (k >= 1) { dw = k * crop.w; dh = dw / aspect; }
     }
     float dx = std::floor((sw - dw) / 2), dy = std::floor((sh - dh) / 2);
     SDL_GPUBlitInfo bi{};
@@ -102,7 +153,6 @@ void present(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_
     bi.filter = cfg.nearest ? SDL_GPU_FILTER_NEAREST : SDL_GPU_FILTER_LINEAR;
     SDL_BlitGPUTexture(cmd, &bi);
     SDL_SubmitGPUCommandBuffer(cmd);
-    // remember letterbox in window points for mouse mapping
     int ww = 0, wh = 0;
     SDL_GetWindowSize(win, &ww, &wh);
     float px_per_pt = ww ? static_cast<float>(sw) / ww : 1.f;

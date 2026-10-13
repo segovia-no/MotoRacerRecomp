@@ -6,6 +6,9 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <map>
+#include <string>
 #include <vector>
 
 #include "com.h"
@@ -452,6 +455,30 @@ COM_METHOD(S_Blt, 5) {
     if (flags & 0x02000000) {   // DDBLT_DEPTHFILL on the Z-buffer
         gpu::clear(2, 0, fx ? static_cast<float>(RD32(fx + 80) & 0xFFFF) / 65535.f : 1.f);
         return S_OK;
+    }
+    if (getenv("MOTORACER_D3D_DEBUG")) {
+        static std::map<std::string, uint64_t> seen;
+        static uint64_t last = 0;
+        BltRect a = read_rect(arg(1), *d), b = s ? read_rect(arg(3), *s) : BltRect{0, 0, 0, 0};
+        char key[200];
+        snprintf(key, sizeof key, "dst %ux%u%s [%d,%d,%d,%d] <- src %ux%u%s [%d,%d,%d,%d] flags %x%s", d->w, d->h,
+                 d->primary() ? "(prim)" : (d->caps & DDSCAPS_BACKBUFFER) ? "(back)" : "", a.l, a.t, a.r, a.b,
+                 s ? s->w : 0, s ? s->h : 0, s == d ? "(self)" : (s && (s->caps & DDSCAPS_BACKBUFFER)) ? "(back)" : "",
+                 b.l, b.t, b.r, b.b, flags, (flags & DDBLT_COLORFILL) ? " FILL" : "");
+        seen[key]++;
+        if (SDL_GetTicks() - last > 15000) {
+            last = SDL_GetTicks();
+            log("Blt summary:\n");
+            for (auto &[k, n] : seen) log("  %6llu  %s\n", (unsigned long long)n, k.c_str());
+            seen.clear();
+        }
+    }
+    if (s && d->primary() && !(flags & ~0x01000000u)) {   // plain copy (DDBLT_WAIT allowed)
+        BltRect a = read_rect(arg(1), *d), b = read_rect(arg(3), *s);
+        if (b.l == 0 && b.t == 0 && static_cast<uint32_t>(b.r) == s->w && static_cast<uint32_t>(b.b) == s->h &&
+            a.r - a.l == b.r && a.b - a.t == b.b &&
+            gpu::present_blt(s, d, a.l, a.t, static_cast<uint32_t>(b.r), static_cast<uint32_t>(b.b)))
+            return S_OK;
     }
     gpu::sync_to_cpu(d);
     if (s) gpu::sync_to_cpu(s);
