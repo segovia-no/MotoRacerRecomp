@@ -26,6 +26,7 @@ Game files are **not** committed (see `.gitignore`). Anyone reproducing must ext
 - [07-translator.md](07-translator.md) — phase 2: x86→C execution model, differential tester vs Unicorn, known gaps
 - [08-runtime.md](08-runtime.md) — phase 3: build/run, runtime layout, address space, Win32/MFC emulation, observed boot sequence
 - [09-ddraw-and-eh.md](09-ddraw-and-eh.md) — phase 4: COM, DirectDraw software path, presentation, C++ exceptions via SEH + setjmp/longjmp
+- [10-input-audio.md](10-input-audio.md) — phase 5: CD audio (MCI) emulation, DirectSound, keyboard/mouse
 
 ## Analysis tooling
 
