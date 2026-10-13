@@ -22,9 +22,11 @@ SDL_Window *win = nullptr;
 SDL_GPUTexture *frame_tex = nullptr;
 uint32_t frame_w = 0, frame_h = 0;
 SDL_GPUTransferBuffer *frame_tb = nullptr;
-// last letterbox (window points) and game frame size, for mouse mapping
+// last letterbox (window points) and the shown crop of the game frame, for mouse mapping
 float lb_x = 0, lb_y = 0, lb_w = 0, lb_h = 0;
 uint32_t game_w = 640, game_h = 480;
+Crop shown;
+int ws_score = 0;   // >0: recent checks saw black letterbox bars
 }  // namespace
 
 SDL_GPUDevice *device() {
@@ -54,7 +56,16 @@ uint32_t render_scale() {
     return static_cast<uint32_t>(std::clamp((target_h + 479) / 480, 1, 4));
 }
 
-void present(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_t h) {
+Crop widescreen_vote(bool bars_black, uint32_t gw, uint32_t gh) {
+    Crop full{0, 0, gw, gh};
+    if (!settings::get().widescreen || gh * 4 != gw * 3) { ws_score = 0; return full; }
+    ws_score = bars_black ? std::min(ws_score + 1, 3) : 0;
+    if (ws_score < 2) return full;
+    uint32_t band = gw * 9 / 16;   // 640 -> 360
+    return Crop{0, (gh - band) / 2, gw, band};
+}
+
+void present(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_t h, const Crop &crop) {
     device();
     SDL_GPUTexture *swap = nullptr;
     uint32_t sw = 0, sh = 0;
@@ -63,20 +74,24 @@ void present(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_
         return;
     }
     const auto &cfg = settings::get();
-    // 4:3 letterbox in swapchain pixels; optional whole-number scale of the game frame.
-    float aspect = 4.f / 3.f;
+    shown = crop;
+    float sx = static_cast<float>(w) / (game_w ? game_w : 640), sy = static_cast<float>(h) / (game_h ? game_h : 480);
+    // Letterbox to the crop's aspect in swapchain pixels; optional whole-number scale.
+    float aspect = static_cast<float>(crop.w) / static_cast<float>(crop.h ? crop.h : 1);
     float dw = static_cast<float>(sw), dh = dw / aspect;
     if (dh > sh) { dh = static_cast<float>(sh); dw = dh * aspect; }
     if (cfg.integer_scale) {
-        uint32_t base_w = game_w ? game_w : 640;
+        uint32_t base_w = crop.w ? crop.w : 640;
         float k = std::floor(dw / base_w);
         if (k >= 1) { dw = k * base_w; dh = dw / aspect; }
     }
     float dx = std::floor((sw - dw) / 2), dy = std::floor((sh - dh) / 2);
     SDL_GPUBlitInfo bi{};
     bi.source.texture = tex;
-    bi.source.w = w;
-    bi.source.h = h;
+    bi.source.x = static_cast<uint32_t>(crop.x * sx);
+    bi.source.y = static_cast<uint32_t>(crop.y * sy);
+    bi.source.w = static_cast<uint32_t>(crop.w * sx);
+    bi.source.h = static_cast<uint32_t>(crop.h * sy);
     bi.destination.texture = swap;
     bi.destination.x = static_cast<uint32_t>(dx);
     bi.destination.y = static_cast<uint32_t>(dy);
@@ -97,7 +112,12 @@ void present(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_
     lb_h = dh / px_per_pt;
 }
 
-void present_rgba(const uint32_t *px, uint32_t w, uint32_t h) {
+void set_game_size(uint32_t w, uint32_t h) {
+    game_w = w;
+    game_h = h;
+}
+
+void present_rgba(const uint32_t *px, uint32_t w, uint32_t h, const Crop &crop) {
     device();
     game_w = w;
     game_h = h;
@@ -131,14 +151,14 @@ void present_rgba(const uint32_t *px, uint32_t w, uint32_t h) {
     dst.d = 1;
     SDL_UploadToGPUTexture(copy, &src, &dst, true);
     SDL_EndGPUCopyPass(copy);
-    present(cmd, frame_tex, w, h);
+    present(cmd, frame_tex, w, h, crop);
 }
 
 bool window_to_game(float wx, float wy, int *gx, int *gy) {
     if (lb_w <= 0 || lb_h <= 0) { *gx = static_cast<int>(wx); *gy = static_cast<int>(wy); return true; }
     float u = (wx - lb_x) / lb_w, v = (wy - lb_y) / lb_h;
-    *gx = std::clamp(static_cast<int>(u * game_w), 0, static_cast<int>(game_w) - 1);
-    *gy = std::clamp(static_cast<int>(v * game_h), 0, static_cast<int>(game_h) - 1);
+    *gx = std::clamp(static_cast<int>(shown.x + u * shown.w), 0, static_cast<int>(game_w) - 1);
+    *gy = std::clamp(static_cast<int>(shown.y + v * shown.h), 0, static_cast<int>(game_h) - 1);
     return true;
 }
 

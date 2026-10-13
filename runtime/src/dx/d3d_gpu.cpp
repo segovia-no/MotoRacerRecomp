@@ -171,6 +171,9 @@ bool gpu_frame_used = false;         // 3D was drawn since the last Flip
 bool dbg = getenv("MOTORACER_D3D_DEBUG") != nullptr;
 std::map<std::string, uint64_t> dbg_tri;
 uint64_t dbg_overlay_px = 0, dbg_overlay_flushes = 0, dbg_full_uploads = 0, dbg_last = 0;
+// Vertical extent of non-flat (3D) geometry in the current frame, in guest pixels.
+float frame_min_y = 1e9f, frame_max_y = -1e9f;
+std::map<std::pair<int, int>, uint64_t> dbg_extents;   // (min/10, max/10) -> frames
 std::vector<uint16_t> baseline;      // guest pixels as of the last upload/readback
 std::map<PipelineKey, SDL_GPUGraphicsPipeline *> pipelines;
 std::map<uint32_t, SDL_GPUSampler *> samplers;
@@ -397,6 +400,45 @@ void blit(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *src, uint32_t sw, uint32_t 
 }
 
 enum class After { Nothing, Download, Present };
+host::gpu::Crop crop_now;   // what the current GPU frame presents (widescreen detection)
+
+// Every 10th GPU frame: read the top/bottom 60-row bands (downscaled, nearest) and check
+// whether they are pure black — the game's 16/9 letterbox.
+void check_widescreen() {
+    static uint32_t n = 0;
+    if (n++ % 10) return;
+    uint32_t band = (g_h - g_w * 9 / 16) / 2;
+    if (!band || !settings::get().widescreen) { crop_now = host::gpu::widescreen_vote(false, g_w, g_h); return; }
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
+    blit(cmd, rt, rt_w, rt_h, lowres, g_w, g_h, SDL_GPU_FILTER_NEAREST);
+    uint32_t bytes = g_w * band * 4;
+    SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, bytes * 3, 0};
+    SDL_GPUTransferBuffer *down = SDL_CreateGPUTransferBuffer(dev, &tci);
+    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
+    uint32_t ys[3] = {0, g_h - band, g_h / 2};
+    for (int k = 0; k < 3; k++) {
+        SDL_GPUTextureRegion src{};
+        src.texture = lowres;
+        src.y = ys[k];
+        src.w = g_w;
+        src.h = k == 2 ? 1 : band;
+        src.d = 1;
+        SDL_GPUTextureTransferInfo dst{down, bytes * static_cast<uint32_t>(k), g_w, src.h};
+        SDL_DownloadFromGPUTexture(cp, &src, &dst);
+    }
+    SDL_EndGPUCopyPass(cp);
+    SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+    SDL_WaitForGPUFences(dev, true, &fence, 1);
+    SDL_ReleaseGPUFence(dev, fence);
+    auto *px = static_cast<const uint32_t *>(SDL_MapGPUTransferBuffer(dev, down, false));
+    bool black = true;
+    for (uint32_t i = 0; i < 2 * g_w * band && black; i++) black = !(px[i] & 0xFFFFFF);
+    bool picture = false;
+    for (uint32_t x = 0; x < g_w && !picture; x++) picture = px[2 * g_w * band + x] & 0xFFFFFF;
+    SDL_UnmapGPUTransferBuffer(dev, down);
+    SDL_ReleaseGPUTransferBuffer(dev, down);
+    crop_now = host::gpu::widescreen_vote(black && picture, g_w, g_h);
+}
 
 // Debug: MOTORACER_SNAPSHOT_DIR also captures GPU frames (full render-target resolution).
 void snapshot_rt() {
@@ -555,7 +597,8 @@ void flush(After after) {
     }
 
     if (after == After::Present) {
-        host::gpu::present(cmd, rt, rt_w, rt_h);   // submits
+        host::gpu::set_game_size(g_w, g_h);
+        host::gpu::present(cmd, rt, rt_w, rt_h, crop_now);   // submits
         host::count_frame();
         snapshot_rt();
     } else {
@@ -748,6 +791,14 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
         }
     }
     c.uniforms.snap[0] = flat && texture ? 1.f : 0.f;
+    if (!flat) {
+        for (uint32_t t = 0; t < ntri * 3; t++) {
+            const GpuVertex &v = frame_vertices[base + (indices[t] < nverts ? indices[t] : 0)];
+            float y = (1.f - v.y / v.w) * 0.5f * static_cast<float>(g_h);
+            frame_min_y = std::min(frame_min_y, y);
+            frame_max_y = std::max(frame_max_y, y);
+        }
+    }
     if (dbg && texture) {
         for (uint32_t t = 0; t < ntri; t++) {
             const GpuVertex *v[3];
@@ -820,7 +871,21 @@ void cpu_wrote(Surface *s) {
 
 bool present_flip(Surface *back) {
     if (!dev || !rt || back != target || !gpu_frame_used) return false;
+    if (crop_now.w != g_w) crop_now = host::gpu::Crop{0, 0, g_w, g_h};
+    if (dbg && frame_max_y > frame_min_y) {
+        dbg_extents[{static_cast<int>(frame_min_y) / 10, static_cast<int>(frame_max_y) / 10}]++;
+        static uint64_t last = 0;
+        if (SDL_GetTicks() - last > 15000) {
+            last = SDL_GetTicks();
+            log("D3D extents (min_y/10, max_y/10) -> frames:\n");
+            for (auto &[k, n] : dbg_extents) if (n > 5) log("  %4d..%4d  %llu\n", k.first * 10, k.second * 10, (unsigned long long)n);
+            dbg_extents.clear();
+        }
+    }
+    frame_min_y = 1e9f;
+    frame_max_y = -1e9f;
     flush(After::Present);
+    check_widescreen();
     gpu_frame_used = false;
     rt_valid = false;   // after the flip the back buffer is a different picture
     cpu_dirty = false;

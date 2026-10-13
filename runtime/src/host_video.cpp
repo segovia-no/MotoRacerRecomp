@@ -30,9 +30,24 @@ void maybe_snapshot(const uint32_t *px, int w, int h) {
     SDL_DestroySurface(s);
 }
 
+// The game's 16/9 mode: pure black bands of 60 rows above and below a 640x360 picture.
+bool bars_black(int w, int h) {
+    int band = (h - w * 9 / 16) / 2;
+    if (band <= 0) return false;
+    for (int y = 0; y < band; y++)
+        for (int x = 0; x < w; x++)
+            if ((rgba[static_cast<size_t>(y) * w + x] & 0xFFFFFF) || (rgba[static_cast<size_t>(h - 1 - y) * w + x] & 0xFFFFFF))
+                return false;
+    // and the picture itself must not be black (screen fades)
+    const uint32_t *mid = &rgba[static_cast<size_t>(h / 2) * w];
+    for (int x = 0; x < w; x++) if (mid[x] & 0xFFFFFF) return true;
+    return false;
+}
+
 void submit(int w, int h) {
     maybe_snapshot(rgba.data(), w, h);
-    gpu::present_rgba(rgba.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+    gpu::Crop crop = gpu::widescreen_vote(bars_black(w, h), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+    gpu::present_rgba(rgba.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h), crop);
     frames++;
 }
 }  // namespace
