@@ -46,13 +46,13 @@ target_compile_options(gamecode PRIVATE -w -O1 -fno-strict-aliasing)
 find_package(SDL3 REQUIRED CONFIG)
 
 file(GLOB RUNTIME_SOURCES CONFIGURE_DEPENDS
-  runtime/src/*.cpp runtime/src/*.c runtime/src/win32/*.cpp)
+  runtime/src/*.cpp runtime/src/*.c runtime/src/win32/*.cpp runtime/src/dx/*.cpp)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
   list(APPEND RUNTIME_SOURCES runtime/src/stack_switch_arm64.S)
 endif()
 
 add_executable(motoracer ${RUNTIME_SOURCES} $<TARGET_OBJECTS:gamecode>)
-target_include_directories(motoracer PRIVATE runtime/include runtime/src/win32 "${GEN_DIR}")
+target_include_directories(motoracer PRIVATE runtime/include runtime/src runtime/src/win32 runtime/src/dx "${GEN_DIR}")
 target_compile_options(motoracer PRIVATE
   $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-unused-parameter>)
 target_link_libraries(motoracer PRIVATE SDL3::SDL3)

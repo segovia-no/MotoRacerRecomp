@@ -28,6 +28,16 @@ COND = {
 
 PREFIXES = {0x26, 0x2E, 0x36, 0x3E, 0x64, 0x65, 0x66, 0x67, 0xF0, 0xF2, 0xF3, 0x9B}
 
+# MSVC CRT jumps that resume execution in an *outer* active frame with esp/ebp restored:
+# _JumpToContinuation (after a C++ catch block) and the SE-translator guard handler.
+# See docs/09-ddraw-and-eh.md.
+NONLOCAL_JUMPS = {0x4B283C, 0x4B2AFF}
+
+
+def is_fs0(op):
+    kind, val, _ = op
+    return kind == "mem" and val[4] == "fs" and val[0] is None and val[1] is None and val[3] == 0
+
 
 def fn_name(va):
     return f"f_{va:08x}"
@@ -54,6 +64,7 @@ class FunctionTranslator:
         self.out = []
         self.labels = set()
         self.cur = None
+        self.uses_eh = False
 
     # ---------- operands ----------
     def smc_field(self, insn, kind):
@@ -158,6 +169,11 @@ class FunctionTranslator:
     # ---------- main ----------
     def translate(self):
         tr = self.tr
+        # Bodies are emitted in address order; a function may own code *below* its entry
+        # (e.g. an EH funclet that tail-jumps into a destructor nobody else reaches).
+        if self.body and self.body[0] != self.entry:
+            self.labels.add(self.entry)
+            self.out.append(f"    goto L_{self.entry:08x};")
         for i, va in enumerate(self.body):
             insn = self.d.insns[va]
             self.cur = insn
@@ -180,6 +196,8 @@ class FunctionTranslator:
         lines = [f"void {fn_name(self.entry)}(void) {{",
                  "    uint32_t cf = 0, zf = 0, sf = 0, of = 0, pf = 0, af = 0;",
                  "    (void)cf; (void)zf; (void)sf; (void)of; (void)pf; (void)af;"]
+        if self.uses_eh:
+            lines.append("    jmp_buf eh_jb;")
         for ln in self.out:
             if ln.startswith("__LABEL_"):
                 va = int(ln[8:16], 16)
@@ -224,6 +242,13 @@ class FunctionTranslator:
     def i_mov(self, insn):
         size = self.op_size(insn, 0)
         self.emit(self.wr(insn, 0, self.rd(insn, 1, size), size))
+        if is_fs0(insn.ops[0]):
+            if insn.ops[1] == ("reg", "esp", 4):
+                self.uses_eh = True
+                self.emit("eh_register(R.esp, &eh_jb);")
+                self.emit("if (_setjmp(eh_jb)) { call_indirect(eh_resume_va); return; }")
+            else:
+                self.emit(f"eh_unlink({self.rd(insn, 1, 4)});")
         return True
 
     def i_movzx(self, insn):
@@ -262,6 +287,8 @@ class FunctionTranslator:
         else:
             # pop [esp+x] computes its address after the increment: POP32 runs first.
             self.emit(f"{{ uint32_t v = POP32(); {self.wr(insn, 0, 'v')} }}")
+            if is_fs0(insn.ops[0]):
+                self.emit("eh_unlink(RD32(R.fs_base));")
         return True
 
     def i_pushal(self, insn):
@@ -601,6 +628,9 @@ class FunctionTranslator:
             cases = " ".join(f"case 0x{t:x}u: {self.goto(t)}" for t in dict.fromkeys(jt.targets))
             self.emit(f"switch ({self.rd(insn, 0, 4)}) {{ {cases} default: "
                       f"x86_unimpl(0x{insn.va:x}u, \"jump table miss\"); return; }}")
+            return False
+        if insn.va in NONLOCAL_JUMPS:
+            self.emit(f"nonlocal_jump({self.rd(insn, 0, 4)}); return;")
             return False
         self.emit(f"call_indirect({self.rd(insn, 0, 4)}); return;")
         return False

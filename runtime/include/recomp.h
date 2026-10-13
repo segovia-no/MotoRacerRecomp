@@ -6,6 +6,7 @@
  */
 #pragma once
 #include <math.h>
+#include <setjmp.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -95,6 +96,15 @@ void REP_SCAS(int size, int rep, uint32_t *cf, uint32_t *zf, uint32_t *sf, uint3
               uint32_t *pf, uint32_t *af);
 void REP_CMPS(int size, int rep, uint32_t *cf, uint32_t *zf, uint32_t *sf, uint32_t *of,
               uint32_t *pf, uint32_t *af);
+
+/* ---------- structured / C++ exceptions ----------
+ * A function that links an SEH registration record (mov fs:[0], esp) also records a setjmp
+ * point; when the CRT later jumps to a catch continuation inside that frame, nonlocal_jump
+ * longjmps back to the function, which then runs the continuation. */
+void eh_register(uint32_t record, jmp_buf *jb);
+void eh_unlink(uint32_t new_head);
+void nonlocal_jump(uint32_t target);
+extern uint32_t eh_resume_va;
 
 /* ---------- control transfer / traps ---------- */
 void call_indirect(uint32_t va);   /* guest VA -> recompiled fn, import shim or COM thunk */

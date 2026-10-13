@@ -9,6 +9,7 @@
 #include <map>
 #include <vector>
 
+#include "ddraw.h"
 #include "user32.h"
 #include "win32.h"
 
@@ -85,6 +86,7 @@ void post_message(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) { post(
 
 // Pump SDL and translate host events into window messages.
 void pump_host_events() {
+    dx::ddraw_tick();
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {

@@ -201,13 +201,6 @@ STDCALL(KERNEL32, FormatMessageA, 7) {
     return write_cstr(arg(4), msg, arg(5));
 }
 
-STDCALL(KERNEL32, RaiseException, 4) {
-    fatal("guest RaiseException code 0x%08x flags %u nargs %u", arg(0), arg(1), arg(2));
-}
-
-STDCALL(KERNEL32, RtlUnwind, 4) {
-    fatal("guest RtlUnwind(frame=0x%08x, target=0x%08x) - SEH unwinding not supported", arg(0), arg(1));
-}
 
 STDCALL(KERNEL32, IsBadReadPtr, 2) { return arg(0) < NULL_GUARD; }
 STDCALL(KERNEL32, IsBadWritePtr, 2) { return arg(0) < NULL_GUARD; }
