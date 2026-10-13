@@ -57,13 +57,22 @@ struct FragUniforms {
     float4 fog_color;
     float4 mode;     // x: textured, y: TEXTUREMAPBLEND, z: fog, w: specular
     float4 alpha;    // x: alpha test on, y: ref (0..1), z: colour key on, w: texture format has alpha
+    float4 snap;     // x: sample at the original 640x480 pixel centre, y: render scale
 };
 
 fragment float4 fs_main(VOut in [[stage_in]], constant FragUniforms &u [[buffer(0)]],
                         texture2d<float> tex [[texture(0)]], sampler smp [[sampler(0)]]) {
     float4 c = in.color;
     if (u.mode.x > 0.5) {
-        float4 t = tex.sample(smp, in.uv);
+        float2 uv = in.uv;
+        if (u.snap.x > 0.5) {
+            // Flat 2D element (HUD/text): use the texture coordinate the original 640x480 frame
+            // sampled for this pixel, so glyph atlases don't bleed at high resolution.
+            float2 gpos = in.pos.xy / u.snap.y;
+            float2 d = (floor(gpos) + 0.5 - gpos) * u.snap.y;
+            uv += dfdx(in.uv) * d.x + dfdy(in.uv) * d.y;
+        }
+        float4 t = tex.sample(smp, uv);
         if (u.alpha.z > 0.5 && t.a < 0.5) discard_fragment();
         int blend = int(u.mode.y + 0.5);
         if (blend == 1 || blend == 7)       c = t;                                  // DECAL / COPY
@@ -105,6 +114,7 @@ struct FragUniforms {
     float fog_color[4];
     float mode[4];
     float alpha[4];
+    float snap[4];
 };
 
 struct PipelineKey {
@@ -674,10 +684,21 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     // opaque), otherwise from the vertex. The game's vertices often carry alpha 0.
     c.uniforms.alpha[3] = (texture && (texture->amask || texture->gmask == 0x00F0 || texture->ckey_src)) ? 1.f : 0.f;
     c.first_index = static_cast<uint32_t>(frame_indices.size());
+    bool flat = rt_w != g_w;   // only matters when rendering above the original resolution
+    float w0 = 0, z0 = 0;
     for (uint32_t t = 0; t < ntri * 3; t++) {
         uint32_t idx = indices[t];
-        frame_indices.push_back(base + (idx < nverts ? idx : 0));
+        uint32_t vi = base + (idx < nverts ? idx : 0);
+        frame_indices.push_back(vi);
+        if (flat) {
+            const GpuVertex &v = frame_vertices[vi];
+            float z = v.z / v.w;
+            if (t == 0) { w0 = v.w; z0 = z; }
+            else if (std::fabs(v.w - w0) > 1e-4f * std::fabs(w0) || std::fabs(z - z0) > 1e-5f) flat = false;
+        }
     }
+    c.uniforms.snap[0] = flat && texture ? 1.f : 0.f;
+    c.uniforms.snap[1] = static_cast<float>(rt_w) / static_cast<float>(g_w ? g_w : 1);
     c.index_count = ntri * 3;
     if (!frame_cmds.empty()) {   // merge with the previous draw if nothing changed
         Cmd &p = frame_cmds.back();
