@@ -40,5 +40,8 @@ void sync_to_cpu(Surface *s);
 // After the CPU wrote into `s`: if it is the render target, re-upload before the next draw.
 void cpu_wrote(Surface *s);
 void surface_destroyed(Surface *s);
+// At Flip: if `back` holds a GPU-rendered frame, present it at full resolution and return true
+// (the guest front buffer is then not updated); otherwise false.
+bool present_flip(Surface *back);
 
 }  // namespace dx::gpu

@@ -10,7 +10,8 @@
 //   Filter=linear       linear | nearest  (scaling filter)
 //   IntegerScale=0      1 = only scale by whole multiples (sharp pixels, may add borders)
 //   VSync=1
-//   Renderer=software   software | d3d  (d3d: game's Direct3D path on the GPU; work in progress)
+//   Renderer=software   software | d3d  (d3d: game's Direct3D path on the GPU)
+//   RenderScale=auto    d3d only: 3D resolution multiplier of 640x480 (auto | 1..4)
 #pragma once
 #include <string>
 
@@ -24,6 +25,7 @@ struct Settings {
     bool integer_scale = false;
     bool vsync = true;
     bool d3d = false;
+    int render_scale = 0;   // 0 = auto
 };
 
 // Loads <game_dir>/motoracer.ini; missing keys keep their defaults.

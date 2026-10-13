@@ -512,16 +512,19 @@ COM_METHOD(S_Flip, 2) {
     Surface *s = obj<Surface>(self);
     std::vector<Surface *> chain;
     for (Surface *a : s->attached) if (a->caps & (DDSCAPS_BACKBUFFER | DDSCAPS_FLIP)) chain.push_back(a);
-    for (Surface *a : chain) gpu::sync_to_cpu(a);
+    // A 3D frame is presented straight from the high-resolution GPU target.
+    bool gpu_presented = !chain.empty() && gpu::present_flip(chain[0]);
+    if (!gpu_presented)
+        for (Surface *a : chain) gpu::sync_to_cpu(a);
     if (!chain.empty()) {
         // front <- back[0] <- back[1] ... : rotate buffer memory through the chain
         uint32_t front_mem = s->mem;
         s->mem = chain[0]->mem;
         for (size_t i = 0; i + 1 < chain.size(); i++) chain[i]->mem = chain[i + 1]->mem;
         chain.back()->mem = front_mem;
-        for (Surface *a : chain) { a->version++; gpu::cpu_wrote(a); }
+        for (Surface *a : chain) a->version++;
     }
-    present(s);
+    if (!gpu_presented) present(s);
     return S_OK;
 }
 
