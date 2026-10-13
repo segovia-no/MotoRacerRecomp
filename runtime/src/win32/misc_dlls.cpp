@@ -62,11 +62,6 @@ STDCALL(WINMM, mixerGetLineControlsA, 3) { return 2; }
 STDCALL(WINMM, mixerGetControlDetailsA, 3) { return 2; }
 STDCALL(WINMM, mixerSetControlDetails, 3) { return 2; }
 
-STDCALL(WINMM, mciSendCommandA, 4) {
-    log("mciSendCommandA(dev %u, msg 0x%x, flags 0x%x) -> not supported yet\n", arg(0), arg(1), arg(2));
-    return 263;   // MCIERR_INVALID_DEVICE_NAME
-}
-STDCALL(WINMM, mciGetErrorStringA, 3) { write_cstr(arg(1), "MCI error", arg(2)); return 1; }
 
 // ---------- COMCTL32 / COMDLG32 / WINSPOOL ----------
 STDCALL(COMCTL32, ord17, 0) { return 0; }   // InitCommonControls

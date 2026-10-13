@@ -74,5 +74,6 @@ void host_window_resized(Window *w);
 void host_window_destroyed();
 void host_event_hook(const SDL_Event &e);
 uint32_t key_state(uint32_t vk);
+void cd_audio_tick();   // winmm_cd.cpp
 
 }  // namespace w32
