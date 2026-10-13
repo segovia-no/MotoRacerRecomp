@@ -1,6 +1,7 @@
 // Presents guest frame buffers in the SDL window (Metal-backed SDL_Renderer).
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -86,5 +87,14 @@ void present_pal8(const uint8_t *px, int w, int h, int pitch, const uint32_t *pa
 }
 
 uint64_t frame_count() { return frames; }
+
+bool window_to_game(float wx, float wy, int *gx, int *gy) {
+    if (!renderer || !tex_w) { *gx = static_cast<int>(wx); *gy = static_cast<int>(wy); return true; }
+    float x, y;
+    if (!SDL_RenderCoordinatesFromWindow(renderer, wx, wy, &x, &y)) return false;
+    *gx = std::clamp(static_cast<int>(x), 0, tex_w - 1);
+    *gy = std::clamp(static_cast<int>(y), 0, tex_h - 1);
+    return true;
+}
 
 }  // namespace host

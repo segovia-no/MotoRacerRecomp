@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "ddraw.h"
+#include "host_video.h"
 #include "user32.h"
 #include "win32.h"
 
@@ -46,6 +47,7 @@ std::vector<Hook> hooks;
 uint32_t next_hook = 0x7700;
 
 uint32_t focus_hwnd, active_hwnd, capture_hwnd, cursor_handle;
+uint32_t mouse_buttons;   // MK_LBUTTON | MK_RBUTTON
 int32_t cursor_x, cursor_y;
 std::map<std::string, uint32_t> registered_messages;
 
@@ -95,9 +97,33 @@ void pump_host_events() {
             if (main_window) post(main_window, WM_CLOSE, 0, 0);
             break;
         case SDL_EVENT_MOUSE_MOTION:
-            cursor_x = static_cast<int32_t>(e.motion.x);
-            cursor_y = static_cast<int32_t>(e.motion.y);
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        case SDL_EVENT_MOUSE_BUTTON_UP: {
+            float wx = e.type == SDL_EVENT_MOUSE_MOTION ? e.motion.x : e.button.x;
+            float wy = e.type == SDL_EVENT_MOUSE_MOTION ? e.motion.y : e.button.y;
+            int gx, gy;
+            if (!host::window_to_game(wx, wy, &gx, &gy)) break;
+            cursor_x = gx;
+            cursor_y = gy;
+            if (e.type != SDL_EVENT_MOUSE_MOTION) {
+                bool down = e.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+                if (e.button.button == SDL_BUTTON_LEFT) mouse_buttons = down ? mouse_buttons | 1 : mouse_buttons & ~1u;
+                if (e.button.button == SDL_BUTTON_RIGHT) mouse_buttons = down ? mouse_buttons | 2 : mouse_buttons & ~2u;
+            }
+            uint32_t target = capture_hwnd ? capture_hwnd : main_window;
+            if (!target) break;
+            uint32_t mk = mouse_buttons | (key_state(0x10) & 0x8000 ? 4 : 0) | (key_state(0x11) & 0x8000 ? 8 : 0);
+            uint32_t lp = (static_cast<uint32_t>(gy) << 16) | (static_cast<uint32_t>(gx) & 0xFFFF);
+            uint32_t msg = WM_MOUSEMOVE;
+            if (e.type != SDL_EVENT_MOUSE_MOTION) {
+                bool down = e.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+                if (e.button.button == SDL_BUTTON_LEFT) msg = down ? WM_LBUTTONDOWN : WM_LBUTTONUP;
+                else if (e.button.button == SDL_BUTTON_RIGHT) msg = down ? WM_RBUTTONDOWN : WM_RBUTTONUP;
+                else break;
+            }
+            post(target, msg, mk, lp);
             break;
+        }
         default:
             host_event_hook(e);
             break;
