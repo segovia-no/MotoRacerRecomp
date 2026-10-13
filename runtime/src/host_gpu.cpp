@@ -49,6 +49,8 @@ uint32_t render_scale(uint32_t gw, uint32_t gh) {
     gh = gh ? gh : 480;
     uint32_t max_scale = std::max<uint32_t>(1, 8192 / std::max(gw, gh));
     if (cfg.render_scale > 0) return std::clamp<uint32_t>(static_cast<uint32_t>(cfg.render_scale), 1, max_scale);
+    // "auto" renders the SCREEN MODEs above the game's own 640x480 natively.
+    if (gw > 640) return 1;
     // "auto": smallest scale whose image covers the display height (in pixels)
     SDL_Window *w = ensure_window();
     int pw = 0, ph = 0;

@@ -115,3 +115,33 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   mode is in the table, and a per-frame tick saves the selected area whenever it changes.
 - `RenderScale=auto` uses the display mode's own pixel density now and logs its inputs
   (`gpu: render scale ...`). On the owner's 2560×1440 pt @2× display a 900-row band gets 4×.
+
+### Curated SCREEN MODE lists, native 16:9 resolutions (2026-10-13)
+- Owner request: with 16/9 MODE on, offer common 16:9 resolutions (1280×720, 1920×1080,
+  2560×1440, 3840×2160) and render them natively; no confusing 4:3 sizes in that list.
+- How the game's 16/9 mode works: it keeps a 4:3 display mode W×H and renders a W × W·9/16 band
+  into an offscreen D3D target (`0x499c66`: band = (W/16)·9), blitted to the primary at
+  y = (H − band)/2. Focal lengths come from W/640 and H/480 (`0x459467`), so only 4:3 modes give
+  square pixels. Hence a native 1920×1080 picture = internal mode 1920×1440.
+- Mode table facts: `0x474ca0` = "is (w, h, 16 bpp) in the table" — the viewport setup falls back
+  to 640×480 and loops until that is present, so 320×240 / 512×384 / 640×480 must stay.
+  `0x474cf0(area, dir)` finds a mode by area (dir 0 exact, 1 next larger, wrapping to the min index
+  `0x4ee97c`; −1 next smaller, max index `0x4ee980`). Labels: `sprintf(0x53f3c0, "%d*%d", w, h)` at
+  `0x443bd9` and `0x4447e8`.
+- Menu copies: in the 640×480 menus the game parks the live class `0x4dc0c8` (forced to 2) and
+  16/9 flag `0x4dc0d4` (forced to 0) in `0x504bc4` / `0x504e80` (`0x409f97`); the Options page edits
+  the copies and the race start puts them back (`0x40ba44`). Config keys: `ScreenMode` → class,
+  `Mode_169` → `0x4dc0d4`, `FullScreen` → `0x4dbff0`.
+- Implementation (`runtime/src/game_hooks.cpp`): the runtime owns the table and writes one of two
+  lists, switching when `0x504e80` changes:
+  - 4:3: 320×240, 512×384, 640×480, 800×600, 1024×768, 1280×960, 1600×1200, 1920×1440.
+  - 16:9 (internal → band): 320×240→320×180, 512×384→512×288, 640×480→640×360,
+    1280×960→1280×720, 1920×1440→1920×1080, 2560×1920→2560×1440, 3840×2880→3840×2160.
+  - Translator hooks before both label sprintfs rewrite the height argument to W·9/16 in 16/9 mode.
+  - The chosen mode is remembered per orientation (`recomp_state.txt`: `ScreenMode43=`,
+    `ScreenMode169=`); first switch to 16:9 defaults to 1920×1080.
+  - `RenderScale=auto` renders modes wider than 640 at 1× (native); the original modes are still
+    upscaled. DirectDraw now reports 256 MB of video memory (3840×2880 frame buffers).
+- Verified by E2E: label cycling in both lists; races at 1920×1080 (render target 1920×1080, 1×) and
+  3840×2160 (3840×2880 mode, 3840×2160 target), ~60 fps on an M3 Pro. The HUD keeps the original
+  sprite pixel sizes, so it is small at 1080p and tiny at 4K.

@@ -62,6 +62,10 @@ GAME_HOOKS = {
     # Options load: "ScreenMode" (only the size class 0..2) has just been mapped to a mode area
     # at 0x4dc0cc. The runtime restores a remembered mode above 640x480 here.
     0x42B0A3: "game_hook_screen_mode_loaded",
+    # Options page: sprintf(label, "%d*%d", w, h) for SCREEN MODE (two call sites); the runtime
+    # shows the 16:9 band size while 16/9 MODE is on.
+    0x443BD9: "game_hook_mode_label",
+    0x4447E8: "game_hook_mode_label",
 }
 
 

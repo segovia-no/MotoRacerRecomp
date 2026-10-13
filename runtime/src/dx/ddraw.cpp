@@ -319,7 +319,7 @@ COM_METHOD(DD_EnumDisplayModes, 4) {
     std::vector<std::array<uint32_t, 3>> modes = {
         {320, 200, 8}, {320, 240, 8}, {320, 240, 16}, {512, 384, 8}, {512, 384, 16}, {640, 400, 8},
         {640, 480, 8}, {640, 480, 16}, {800, 600, 8}, {800, 600, 16}, {1024, 768, 8}, {1024, 768, 16},
-        {1152, 864, 16}, {1280, 960, 16}, {1400, 1050, 16}, {1600, 1200, 16}, {2048, 1536, 16}};
+        {1280, 960, 16}, {1600, 1200, 16}, {1920, 1440, 16}, {2560, 1920, 16}, {3840, 2880, 16}};
     // Developer aid: MOTORACER_MODES="960x720,1024x600" replaces the 16-bit modes above 640x480.
     if (const char *e = getenv("MOTORACER_MODES")) {
         modes.resize(8);
@@ -377,8 +377,8 @@ void fill_caps(uint32_t p) {
     WR32(p + 12, 0x200);                                                 // CKEYCAPS_SRCBLT
     WR32(p + 24, 0x4);                                                   // PALCAPS_8BIT
     if (d3d_enabled()) WR32(p + 56, 0x400);                              // dwZBufferBitDepths: DDBD_16
-    WR32(p + 60, 16u << 20);                                             // dwVidMemTotal
-    WR32(p + 64, 16u << 20);                                             // dwVidMemFree
+    WR32(p + 60, 256u << 20);                                            // dwVidMemTotal
+    WR32(p + 64, 256u << 20);                                            // dwVidMemFree
     if (size >= 136)
         WR32(p + 132, DDSCAPS_BACKBUFFER | DDSCAPS_COMPLEX | DDSCAPS_FLIP | DDSCAPS_FRONTBUFFER |
                           DDSCAPS_OFFSCREENPLAIN | DDSCAPS_PALETTE | DDSCAPS_PRIMARYSURFACE |
@@ -436,8 +436,9 @@ COM_METHOD(DD_SetDisplayMode2, 5) { return set_mode(self, arg(1), arg(2), arg(3)
 COM_METHOD(DD_WaitForVerticalBlank, 2) { return S_OK; }
 
 COM_METHOD(DD_GetAvailableVidMem, 3) {
-    if (arg(2)) WR32(arg(2), 16u << 20);
-    if (arg(3)) WR32(arg(3), 16u << 20);
+    // Room for the frame buffers of the largest mode (3840x2880) plus textures.
+    if (arg(2)) WR32(arg(2), 256u << 20);
+    if (arg(3)) WR32(arg(3), 256u << 20);
     return S_OK;
 }
 

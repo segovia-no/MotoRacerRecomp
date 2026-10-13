@@ -109,6 +109,7 @@ extern uint32_t eh_resume_va;
 /* ---------- game hooks ----------
  * Called by translated code just before specific instructions (GAME_HOOKS in translate.py). */
 void game_hook_screen_mode_loaded(void);
+void game_hook_mode_label(void);
 
 /* ---------- control transfer / traps ---------- */
 void call_indirect(uint32_t va);   /* guest VA -> recompiled fn, import shim or COM thunk */

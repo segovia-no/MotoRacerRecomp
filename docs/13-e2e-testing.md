@@ -30,6 +30,9 @@ test. Each run opens a game window for its duration.
 - Options: rows are DIFFICULTY, CONTROLLER, DETAIL LEVELS, OPPONENTS, D3D, VOICES, SOUNDS, MUSIC,
   SCREEN MODE, 16/9 MODE, ... — 9 × `DOWN` reaches SCREEN MODE. `ENTER` cycles a value (`LEFT`/
   `RIGHT` do nothing). From SCREEN MODE, 7 × `DOWN` reaches Accept.
+- SCREEN MODE lists (runtime-owned): 4:3 = 320×240, 512×384, 640×480, 800×600, 1024×768, 1280×960,
+  1600×1200, 1920×1440; 16/9 MODE on = 1920×1080 → 2560×1440 → 3840×2160 → 320×180 → 512×288 →
+  640×360 → 1280×720 (wraps). The 16/9 MODE row is right below SCREEN MODE; `ENTER` toggles it.
 - 300 ms between rows and 1.5 s between screens is enough.
 - SCREEN MODE persists between runs (the game saves its size class, the runtime the exact mode —
   see 11-d3d-plan.md), so count SCREEN MODE presses from the saved mode. With `MOTORACER_MODES`
