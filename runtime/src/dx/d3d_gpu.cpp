@@ -766,8 +766,8 @@ uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
 // screen-space quads at depth exactly 0 (text) or 1/65536 (gauges) with rhw = 1, each glyph its own
 // draw. Small 3D models are also drawn at those depths with perspective rhw: the gauge needles, and
 // trackside markers/signs in the world. The quads of a frame are grouped into elements (glyphs of a
-// word, a gauge with its needle); an element is HUD only if it has at least one rhw = 1 sprite, so
-// needles go with their dial and world models are left alone. In larger modes each HUD element is
+// word); a model is HUD only if it lies inside a sprite element (a needle inside its dial), so world
+// models are left alone even when HUD text overlaps them. In larger modes each HUD element is
 // enlarged by k:
 //  - in the left/right third of the screen about that edge, and vertically about the top edge,
 //    centre or bottom edge of the third it sits in, so corner HUD stays in its corner;
@@ -817,29 +817,44 @@ void hud_apply() {
     if (hud_quads.empty()) return;
     float k = hud_factor(), rt_scale = static_cast<float>(rt_w) / static_cast<float>(g_w);
     size_t n = hud_quads.size();
-    // union-find: quads touching after growing each by half the smaller height are one element
+    // union-find over the 2D sprites: sprites touching after growing each by half the smaller
+    // height are one element
     std::vector<size_t> parent(n);
     for (size_t i = 0; i < n; i++) parent[i] = i;
     auto root = [&](size_t i) { while (parent[i] != i) i = parent[i] = parent[parent[i]]; return i; };
     for (size_t i = 0; i < n; i++)
         for (size_t j = i + 1; j < n; j++) {
             const HudQuad &a = hud_quads[i], &b = hud_quads[j];
+            if (!a.screen || !b.screen) continue;
             float e = 0.5f * std::min(a.y1 - a.y0, b.y1 - b.y0);
             if (a.x0 - e <= b.x1 && b.x0 - e <= a.x1 && a.y0 - e <= b.y1 && b.y0 - e <= a.y1) parent[root(i)] = root(j);
         }
     std::map<size_t, std::array<float, 4>> boxes;
-    std::map<size_t, bool> has_sprite;
-    for (size_t i = 0; i < n; i++) has_sprite[root(i)] = has_sprite[root(i)] || hud_quads[i].screen;
     for (size_t i = 0; i < n; i++) {
+        if (!hud_quads[i].screen) continue;
         auto [it, fresh] = boxes.try_emplace(root(i), std::array<float, 4>{1e9f, 1e9f, -1e9f, -1e9f});
         auto &b = it->second;
         b[0] = std::min(b[0], hud_quads[i].x0); b[1] = std::min(b[1], hud_quads[i].y0);
         b[2] = std::max(b[2], hud_quads[i].x1); b[3] = std::max(b[3], hud_quads[i].y1);
     }
+    // A model joins the sprite element whose area contains it (a gauge needle inside its dial);
+    // any other model is in the world and is left alone, even when HUD text overlaps it (the
+    // turn-warning sign at the end of a lap under "NEW RECORD").
+    std::vector<bool> scaled(n, false);
+    for (size_t i = 0; i < n; i++) {
+        if (hud_quads[i].screen) { scaled[i] = true; continue; }
+        const HudQuad &q = hud_quads[i];
+        for (auto &[r, b] : boxes)
+            if (q.x0 >= b[0] - 1 && q.x1 <= b[2] + 1 && q.y0 >= b[1] - 1 && q.y1 <= b[3] + 1) {
+                parent[i] = r;
+                scaled[i] = true;
+                break;
+            }
+    }
     std::vector<uint8_t> done(frame_vertices.size(), 0);
     float W = static_cast<float>(g_w), H = static_cast<float>(g_h);
     for (size_t i = 0; i < n; i++) {
-        if (!has_sprite[root(i)]) continue;   // a model in the world, drawn in front
+        if (!scaled[i]) continue;   // a model in the world, drawn in front
         const auto &b = boxes[root(i)];
         float cx = (b[0] + b[2]) * 0.5f, cy = (b[1] + b[3]) * 0.5f, ax, ay, sx = 0, sy = 0;
         if (cx < W / 3.f || cx > W * 2.f / 3.f) {   // side columns: anchored to the screen edges

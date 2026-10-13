@@ -179,4 +179,9 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   depth 1/65536 (always in front) with perspective rhw (100+ vertices, w 500..3300); so are the
   gauge needles. Real HUD sprites have rhw = 1. Now an element is scaled only if it contains at
   least one rhw = 1 quad: needles go with their dial, world models are left alone.
+- Bug (owner): the red S-curve turn sign was enlarged only at the end of a lap. There the
+  "NEW RECORD"/lap texts (sprites) overlap it, and grouping merged the sign model into their HUD
+  element. Now elements are built from sprites only; a model joins an element only if its bounding
+  box lies inside the element's sprite box (gauge needles inside their dial), otherwise it is left
+  alone.
 - `MOTORACER_SNAPSHOT_EVERY=<frames>` sets the GPU snapshot interval (default 120) for animations.

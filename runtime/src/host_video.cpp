@@ -2,6 +2,7 @@
 // GPU presenter (host_gpu.cpp), which letterboxes them into the window.
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -19,10 +20,11 @@ namespace {
 std::vector<uint32_t> rgba;
 uint64_t frames = 0;
 
-// Debug aid: MOTORACER_SNAPSHOT_DIR=<dir> saves every 60th presented frame as BMP.
+// Debug aid: MOTORACER_SNAPSHOT_DIR=<dir> saves every 60th (MOTORACER_SNAPSHOT_EVERY) presented frame.
 void maybe_snapshot(const uint32_t *px, int w, int h) {
     static const char *dir = getenv("MOTORACER_SNAPSHOT_DIR");
-    if (!dir || frames % 60) return;
+    static const uint64_t every = getenv("MOTORACER_SNAPSHOT_EVERY") ? std::max(1, atoi(getenv("MOTORACER_SNAPSHOT_EVERY"))) : 60;
+    if (!dir || frames % every) return;
     SDL_Surface *s = SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_ABGR8888, const_cast<uint32_t *>(px), w * 4);
     if (!s) return;
     char path[1024];
