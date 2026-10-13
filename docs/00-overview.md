@@ -15,6 +15,10 @@ Living index of what we know. Each topic gets its own file; this one links them.
 
 Game files are **not** committed (see `.gitignore`). Anyone reproducing must extract their own copy.
 
+## Status
+**Playable on macOS (Apple Silicon)** as of 2026-10-13: intro, menus (mouse + keyboard), races (keyboard), CD music, sound effects, clean quit. Software renderer at 640×480×16.
+Not yet: gamepad/joystick, Direct3D path / higher resolutions, multiplayer (stubbed by decision), GDI text on surfaces.
+
 ## Docs index
 
 - [01-binary.md](01-binary.md) — PE layout, toolchain, imports, statically-linked libraries

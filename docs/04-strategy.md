@@ -48,6 +48,6 @@ runtime/ (C++)                              ▼
 2. **Translator** — ✅ done (see `07-translator.md`): 4,106 fns, 0 unsupported insns, clean clang build, 0 mismatches vs Unicorn over 2,405 forms.
 3. **Runtime boot** — ✅ done (see `08-runtime.md`): CRT + MFC InitInstance run, main window + SDL window + status dialog created; stops at DirectDrawEnumerateA.
 4. **DirectDraw software path** — ✅ done (see `09-ddraw-and-eh.md`): intro plays; C++ exceptions supported.
-5. **Input + timing + DSound + CD audio (WAV)** — playable.
+5. **Input + timing + DSound + CD audio (WAV)** — ✅ **playable** (2026-10-13, see `10-input-audio.md`): owner raced with keyboard; menus with mouse; music + SFX; no visual glitches; clean exit.
 6. **D3D5 path** on Metal/SDL_GPU, resolution upgrades.
 7. **Hybrid**: hand-decompile game modules (bank loader, menu, physics…) into readable C++.

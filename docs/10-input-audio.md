@@ -32,3 +32,6 @@ One SDL3 playback device (44.1 kHz S16 stereo requested). Each sound source is a
 - **Mouse:** SDL motion/buttons → `WM_MOUSEMOVE`, `WM_L/RBUTTONDOWN/UP` with `MK_*` flags, coordinates converted to the 640×480 frame buffer through the renderer's logical presentation (letterbox + Retina aware); `GetCursorPos` uses the same coordinates.
 - **DirectInput:** not loaded in the menus. `LoadLibrary("DINPUT.DLL")` + `GetProcAddress("DirectInputCreateA")` will need a real implementation if races use it.
 - **Joystick:** `joyGetDevCapsA` reports unplugged. TODO: SDL gamepad → WINMM joystick API.
+
+## Validation session (2026-10-13)
+Owner played through menus (mouse + keyboard) and a race (keyboard): sound effects, music and visuals correct. Session log: 0 `FATAL`, 0 unimplemented imports, clean exit (code 0). Only repeated events were the per-screen DirectDraw re-initialisation (`SetDisplayMode(640,480,16)` + refused `IDirect3D` QI).
