@@ -51,13 +51,6 @@ CDECL(USER32, wsprintfA) {
 STDCALL(WINMM, timeGetTime, 0) { return static_cast<uint32_t>(SDL_GetTicks()); }
 
 
-STDCALL(WINMM, mixerGetNumDevs, 0) { return 0; }
-STDCALL(WINMM, mixerOpen, 5) { return 2; }           // MMSYSERR_BADDEVICEID
-STDCALL(WINMM, mixerClose, 1) { return 0; }
-STDCALL(WINMM, mixerGetLineInfoA, 3) { return 2; }
-STDCALL(WINMM, mixerGetLineControlsA, 3) { return 2; }
-STDCALL(WINMM, mixerGetControlDetailsA, 3) { return 2; }
-STDCALL(WINMM, mixerSetControlDetails, 3) { return 2; }
 
 
 // ---------- COMCTL32 / COMDLG32 / WINSPOOL ----------

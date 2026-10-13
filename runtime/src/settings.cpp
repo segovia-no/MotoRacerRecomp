@@ -61,6 +61,7 @@ void load(const std::string &game_dir) {
     if (const char *e = getenv("MOTORACER_RENDERER")) s.d3d = !strcasecmp(e, "d3d");   // dev override
     if (auto v = get("recomp", "renderscale")) s.render_scale = strcasecmp(v->c_str(), "auto") ? atoi(v->c_str()) : 0;
     if (const char *e = getenv("MOTORACER_RENDER_SCALE")) s.render_scale = atoi(e);
+    if (auto v = get("recomp", "controllermenus")) s.controller_menus = truthy(*v);
     if (auto v = get("recomp", "widescreen")) s.widescreen = strcasecmp(v->c_str(), "off") && strcasecmp(v->c_str(), "0");
     if (s.d3d) {
         // GOG's launcher adds these when its D3D / ZBuffer options are on.

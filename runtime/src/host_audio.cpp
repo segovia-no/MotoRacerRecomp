@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <vector>
@@ -15,6 +16,7 @@ namespace host {
 namespace {
 SDL_AudioDeviceID device = 0;
 bool tried = false;
+std::atomic<float> g_master{1.f}, g_sfx{1.f}, g_music{1.f};
 
 struct Source {
     std::function<int(uint8_t *, int)> pull;
@@ -45,6 +47,7 @@ bool audio_init() {
         return false;
     }
     log("audio: device opened (%s)\n", SDL_GetAudioDeviceName(device));
+    SDL_SetAudioDeviceGain(device, g_master);
     return true;
 }
 
@@ -61,6 +64,15 @@ SDL_AudioStream *audio_open_source(const SDL_AudioSpec &spec, std::function<int(
     SDL_BindAudioStream(device, s);
     return s;
 }
+
+void set_master_gain(float g) {
+    g_master = g;
+    if (device) SDL_SetAudioDeviceGain(device, g);
+}
+void set_sfx_gain(float g) { g_sfx = g; }
+void set_music_gain(float g) { g_music = g; }
+float sfx_gain() { return g_sfx; }
+float music_gain() { return g_music; }
 
 void audio_close_source(SDL_AudioStream *s) {
     if (!s) return;

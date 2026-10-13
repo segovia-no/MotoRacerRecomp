@@ -3,9 +3,10 @@
 // The game polls joyGetPosEx with JOY_RETURNX|Y|BUTTONS|CENTERED (0x483) and decides at startup
 // whether a stick is digital: resting axes of exactly 0, 0x8000 or 0xFFFF mean digital. We centre
 // at 0x7FFF so pads are treated as analog.
-//   X = left stick X (steering)
-//   Y = left stick Y, pushed up by the right trigger and down by the left trigger (throttle/brake)
-//   buttons 1-8 = A, B, X, Y, LB, RB, Back, Start
+//   X = left stick X (steering), D-pad left/right = full deflection
+//   Y = left stick Y, D-pad up/down = full deflection
+//   buttons 1-8 = A, B, X, Y, LB, RB, Back, Start; 9 = right trigger, 10 = left trigger (past
+//   halfway) — the game's control setup binds accelerate/brake to buttons, not to an axis.
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -22,6 +23,8 @@ constexpr int MAX_JOYSTICKS = 16;
 constexpr int DEADZONE = 4000;
 
 std::vector<SDL_Gamepad *> pads;
+constexpr int NUM_BUTTONS = 10;
+constexpr int TRIGGER_PRESSED = 16384;   // half of the 0..32767 trigger range
 
 void refresh_pads() {
     static bool init = false;
@@ -61,6 +64,11 @@ uint32_t to_axis(int v) {   // SDL -32768..32767 -> WINMM 0..65535, centre 0x7FF
 
 }  // namespace
 
+namespace w32 {
+uint64_t last_poll_ms = 0;   // last joyGetPosEx: the game is reading the pad itself
+}
+using w32::last_poll_ms;
+
 STDCALL(WINMM, joyGetNumDevs, 0) { return MAX_JOYSTICKS; }
 
 STDCALL(WINMM, joyGetDevCapsA, 3) {
@@ -75,7 +83,7 @@ STDCALL(WINMM, joyGetDevCapsA, 3) {
     WR32(p + 40, 65535);   // X max
     WR32(p + 48, 65535);   // Y max
     WR32(p + 56, 65535);   // Z max
-    WR32(p + 60, 8);       // buttons
+    WR32(p + 60, NUM_BUTTONS);
     WR32(p + 64, 10);      // period min
     WR32(p + 68, 1000);    // period max
     WR32(p + 100, 2);      // max axes
@@ -88,10 +96,13 @@ STDCALL(WINMM, joyGetPosEx, 2) {
     uint32_t id = arg(0), p = arg(1);
     SDL_Gamepad *g = pad(id);
     if (!g) return JOYERR_UNPLUGGED;
+    last_poll_ms = SDL_GetTicks();
     int x = dz(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTX));
     int y = dz(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTY));
-    y -= SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
-    y += SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+    if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_LEFT)) x = -32768;
+    if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) x = 32767;
+    if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_UP)) y = -32768;
+    if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_DOWN)) y = 32767;
     static const SDL_GamepadButton order[8] = {
         SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH,
         SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, SDL_GAMEPAD_BUTTON_BACK,
@@ -99,6 +110,8 @@ STDCALL(WINMM, joyGetPosEx, 2) {
     uint32_t buttons = 0, count = 0;
     for (int i = 0; i < 8; i++)
         if (SDL_GetGamepadButton(g, order[i])) { buttons |= 1u << i; count++; }
+    if (SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > TRIGGER_PRESSED) { buttons |= 1u << 8; count++; }
+    if (SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > TRIGGER_PRESSED) { buttons |= 1u << 9; count++; }
     uint32_t pov = 0xFFFF;   // JOY_POVCENTERED
     if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_UP)) pov = 0;
     else if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) pov = 9000;

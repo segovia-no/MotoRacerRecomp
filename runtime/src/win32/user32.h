@@ -75,5 +75,6 @@ void host_window_destroyed();
 void host_event_hook(const SDL_Event &e);
 uint32_t key_state(uint32_t vk);
 void cd_audio_tick();   // winmm_cd.cpp
+void controller_tick(); // host_window.cpp: menu navigation auto-repeat
 
 }  // namespace w32

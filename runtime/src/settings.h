@@ -14,6 +14,7 @@
 //   RenderScale=auto    d3d only: 3D resolution multiplier of 640x480 (auto | 1..4)
 //   Widescreen=auto     auto: when the game's own 16/9 MODE letterboxes the picture, show
 //                       only the 16:9 band so it fills a widescreen window | off
+//   ControllerMenus=1   gamepad navigates the menus (D-pad/stick = arrows, A = Enter, B/Start = Esc)
 #pragma once
 #include <string>
 
@@ -29,6 +30,7 @@ struct Settings {
     bool d3d = false;
     int render_scale = 0;   // 0 = auto
     bool widescreen = true;
+    bool controller_menus = true;
 };
 
 // Loads <game_dir>/motoracer.ini; missing keys keep their defaults.

@@ -73,7 +73,7 @@ float db_to_gain(int32_t hundredths) { return hundredths <= -10000 ? 0.f : std::
 int pull(Buffer *b, uint8_t *dst, int bytes) {
     std::lock_guard<std::mutex> lock(mu);
     if (!b->playing || !b->size) return 0;
-    float vol = db_to_gain(b->volume);
+    float vol = db_to_gain(b->volume) * host::sfx_gain();
     float gl = vol * (b->pan > 0 ? db_to_gain(-b->pan) : 1.f);
     float gr = vol * (b->pan < 0 ? db_to_gain(b->pan) : 1.f);
     auto *out = reinterpret_cast<float *>(dst);

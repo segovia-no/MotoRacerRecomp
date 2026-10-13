@@ -166,6 +166,11 @@ int pull(uint8_t *dst, int bytes) {
         pos += frame_carry / BYTES_PER_FRAME;
         frame_carry %= BYTES_PER_FRAME;
     }
+    float g = host::music_gain();   // CD AUDIO VOLUME from the Options page
+    if (g < 0.999f) {
+        auto *smp = reinterpret_cast<int16_t *>(dst);
+        for (int i = 0; i < written / 2; i++) smp[i] = static_cast<int16_t>(smp[i] * g);
+    }
     return written;
 }
 

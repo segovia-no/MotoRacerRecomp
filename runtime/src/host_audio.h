@@ -16,4 +16,11 @@ SDL_AudioStream *audio_open_source(const SDL_AudioSpec &spec,
                                    std::function<int(uint8_t *dst, int bytes)> pull);
 void audio_close_source(SDL_AudioStream *s);
 
+// Volumes from the game's Options page (WINMM mixer), 0..1.
+void set_master_gain(float g);
+void set_sfx_gain(float g);     // DirectSound
+void set_music_gain(float g);   // CD audio
+float sfx_gain();
+float music_gain();
+
 }  // namespace host

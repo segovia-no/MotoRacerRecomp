@@ -31,6 +31,10 @@ void toggle_fullscreen() {
 
 namespace w32 {
 
+extern uint64_t last_poll_ms;   // winmm_joy.cpp
+void inject_key(uint32_t vk, uint32_t scancode, bool down);
+void controller_event(const SDL_Event &e);
+
 namespace {
 
 uint8_t vk_down[256];
@@ -125,14 +129,92 @@ void host_event_hook(const SDL_Event &e) {
         }
         uint32_t vk = to_vk(e.key.scancode);
         if (!vk) return;
-        bool down = e.type == SDL_EVENT_KEY_DOWN;
-        bool was = vk_down[vk];
-        vk_down[vk] = down;
-        if (down && !was) vk_toggle[vk] ^= 1;
-        uint32_t lp = 1 | (pc_scancode(e.key.scancode) << 16) | (was ? 1u << 30 : 0) | (down ? 0 : 0xC0000000u);
-        bool alt = vk_down[0x12];
-        uint32_t msg = down ? (alt ? WM_SYSKEYDOWN : WM_KEYDOWN) : (alt ? WM_SYSKEYUP : WM_KEYUP);
-        if (main_window) post_message(main_window, msg, vk, lp);
+        inject_key(vk, pc_scancode(e.key.scancode), e.type == SDL_EVENT_KEY_DOWN);
+        return;
+    }
+    controller_event(e);
+}
+
+void inject_key(uint32_t vk, uint32_t scancode, bool down) {
+    bool was = vk_down[vk];
+    vk_down[vk] = down;
+    if (down && !was) vk_toggle[vk] ^= 1;
+    uint32_t lp = 1 | (scancode << 16) | (was ? 1u << 30 : 0) | (down ? 0 : 0xC0000000u);
+    bool alt = vk_down[0x12];
+    uint32_t msg = down ? (alt ? WM_SYSKEYDOWN : WM_KEYDOWN) : (alt ? WM_SYSKEYUP : WM_KEYUP);
+    if (main_window) post_message(main_window, msg, vk, lp);
+}
+
+// ---------- controller -> keyboard for the menus ----------
+// The menus only read the keyboard/mouse. While the game is not polling the joystick itself
+// (it does in races), the D-pad / left stick act as arrow keys, A as Enter and B as Escape.
+// Start is Escape (pause) everywhere.
+namespace {
+constexpr uint32_t VK_RETURN_ = 0x0D, VK_ESCAPE_ = 0x1B, VK_LEFT_ = 0x25, VK_UP_ = 0x26, VK_RIGHT_ = 0x27,
+                   VK_DOWN_ = 0x28;
+uint32_t nav_scancode(uint32_t vk) {
+    switch (vk) {
+    case VK_RETURN_: return 0x1C;
+    case VK_ESCAPE_: return 0x01;
+    case VK_LEFT_: return 0x4B;
+    case VK_UP_: return 0x48;
+    case VK_RIGHT_: return 0x4D;
+    case VK_DOWN_: return 0x50;
+    default: return 0;
+    }
+}
+bool nav_down[256];
+uint32_t held_vk = 0;
+uint64_t held_since = 0, last_repeat = 0;
+bool stick_dir[4];   // left, up, right, down
+
+bool game_reads_pad() { return SDL_GetTicks() - last_poll_ms < 300; }
+
+void nav(uint32_t vk, bool down, bool always = false) {
+    if (down && !always && game_reads_pad()) return;
+    if (down == nav_down[vk]) return;
+    nav_down[vk] = down;
+    inject_key(vk, nav_scancode(vk), down);
+    bool dir = vk >= VK_LEFT_ && vk <= VK_DOWN_;
+    if (dir && down) { held_vk = vk; held_since = last_repeat = SDL_GetTicks(); }
+    if (dir && !down && held_vk == vk) held_vk = 0;
+}
+}  // namespace
+
+void controller_event(const SDL_Event &e) {
+    if (!settings::get().controller_menus) return;
+    if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP) {
+        bool down = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        switch (e.gbutton.button) {
+        case SDL_GAMEPAD_BUTTON_DPAD_LEFT: nav(VK_LEFT_, down); break;
+        case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: nav(VK_RIGHT_, down); break;
+        case SDL_GAMEPAD_BUTTON_DPAD_UP: nav(VK_UP_, down); break;
+        case SDL_GAMEPAD_BUTTON_DPAD_DOWN: nav(VK_DOWN_, down); break;
+        case SDL_GAMEPAD_BUTTON_SOUTH: nav(VK_RETURN_, down); break;
+        case SDL_GAMEPAD_BUTTON_EAST: nav(VK_ESCAPE_, down); break;
+        case SDL_GAMEPAD_BUTTON_START: nav(VK_ESCAPE_, down, true); break;
+        default: break;
+        }
+    } else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION &&
+               (e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTX || e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTY)) {
+        int v = e.gaxis.value;
+        int neg = e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTX ? 0 : 1, pos = neg + 2;
+        uint32_t vneg = neg == 0 ? VK_LEFT_ : VK_UP_, vpos = neg == 0 ? VK_RIGHT_ : VK_DOWN_;
+        // hysteresis: press beyond 60%, release below 30%
+        bool want_neg = stick_dir[neg] ? v < -10000 : v < -20000;
+        bool want_pos = stick_dir[pos] ? v > 10000 : v > 20000;
+        if (want_neg != stick_dir[neg]) { stick_dir[neg] = want_neg; nav(vneg, want_neg); }
+        if (want_pos != stick_dir[pos]) { stick_dir[pos] = want_pos; nav(vpos, want_pos); }
+    }
+}
+
+// Auto-repeat for a held direction (like keyboard typematic): 400 ms delay, then every 120 ms.
+void controller_tick() {
+    if (!held_vk || !nav_down[held_vk]) return;
+    uint64_t now = SDL_GetTicks();
+    if (now - held_since > 400 && now - last_repeat > 120) {
+        last_repeat = now;
+        if (!game_reads_pad()) inject_key(held_vk, nav_scancode(held_vk), true);
     }
 }
 
