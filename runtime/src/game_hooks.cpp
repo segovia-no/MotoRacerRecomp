@@ -95,6 +95,26 @@ void save_state() {
 // First run (no Defaults=1 in recomp_state.txt): a fresh GOG install starts at 640x480 4:3. Turn
 // on the game's 16/9 MODE and pick 2560x1440 if the display is at least that tall, else 1920x1080. The game saves its
 // options when it exits, so this happens once; later choices are the player's.
+// Controller bindings: {keyboard VK, joystick input} per action at 0x53eae0, in the order of the
+// game's control settings screen (Accelerate, Brake, Turn Left, Turn Right, Higher Gear, Lower Gear,
+// Turbo/Stunts). Joystick inputs: -2/-3 X left/right, -4/-5 Y up/down, 0.. buttons (the runtime's
+// order: A, B, X, Y, LB, RB, Back, Start, then RT/LT as 8/9 in joypad mode). The game's own default
+// joystick layout is buttons 0/1 for throttle/brake and no stunt button; the preset is an Xbox 360
+// layout: analog RT/LT on the Y axis, left stick steers, RB/LB shift up/down, A for stunts (Start
+// already pauses, as Escape).
+constexpr uint32_t BINDINGS = 0x53eae0;
+constexpr uint32_t INPUT_DEVICE = 0x4dc11c;   // "InputDevice" (CONTROLLER): 2 = JOYSTICK
+constexpr int32_t kFactoryJoy[7] = {0, 1, -2, -3, 2, 3, -1};
+constexpr int32_t kXboxJoy[7] = {-4, -5, -2, -3, 5, 4, 0};
+
+void apply_controller_preset() {
+    if (!settings::get().controller_preset || RD32(INPUT_DEVICE) != 2) return;
+    for (uint32_t i = 0; i < 7; i++)
+        if (static_cast<int32_t>(RD32(BINDINGS + 8 * i + 4)) != kFactoryJoy[i]) return;   // player's own
+    for (uint32_t i = 0; i < 7; i++) WR32(BINDINGS + 8 * i + 4, static_cast<uint32_t>(kXboxJoy[i]));
+    log("controller: Xbox layout preset applied (RT/LT throttle/brake, LB/RB gears, A stunts)\n");
+}
+
 void apply_first_run_defaults() {
     int display_h = 1080;
     if (SDL_DisplayID d = SDL_GetPrimaryDisplay())
@@ -185,6 +205,19 @@ void select_for(List which) {
 
 }  // namespace
 
+// First run with a gamepad connected: CONTROLLER = JOYSTICK (analog), set right after the game read
+// "InputDevice" and before it initialises the input device at startup (0x47310b -> 0x4311c0, which
+// falls back to the keyboard if no joystick answers). The binding preset follows in frame_tick.
+extern "C" void game_hook_input_loaded(void) {
+    load_state();
+    if (defaults_applied || !settings::get().controller_preset) return;
+    SDL_InitSubSystem(SDL_INIT_GAMEPAD);
+    if (SDL_HasGamepad() && RD32(INPUT_DEVICE) != 2) {
+        WR32(INPUT_DEVICE, 2);
+        log("first run: gamepad found, CONTROLLER set to JOYSTICK\n");
+    }
+}
+
 extern "C" void game_hook_screen_mode_loaded(void) {
     // The 16/9 option is read after this point, so the mode is (re)selected on the next frame.
     options_loaded = true;
@@ -205,6 +238,7 @@ void frame_tick() {
     if (!active() || !RD32(MODE_COUNT)) return;   // before the game enumerated display modes
     load_state();
     if (!defaults_applied && options_loaded) apply_first_run_defaults();
+    if (options_loaded) apply_controller_preset();
     List which = current_list();
     if (table_list != which) {
         write_table(which);

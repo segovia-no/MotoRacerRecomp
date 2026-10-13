@@ -69,6 +69,9 @@ GAME_HOOKS = {
     # Track config load: the per-detail-level table at 0x51d1b8 (LenBPlane, FlatZ, LOD zones...)
     # has just been read; the runtime extends draw and LOD distances (DrawDistance setting).
     0x4287EA: "game_hook_detail_loaded",
+    # Options load: "InputDevice" (CONTROLLER) was just read into 0x4dc11c; on a first run with a
+    # gamepad connected the runtime selects JOYSTICK before the game initialises its input device.
+    0x42B37D: "game_hook_input_loaded",
     # Opponent bike LOD (0x45f160): ST(0) = distance / FOV, about to be compared with the
     # hardcoded thresholds 1000 / 2500 / 3000 (full model / reduced models / sprite).
     0x45F1E0: "game_hook_bike_lod",

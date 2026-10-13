@@ -49,9 +49,28 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
 - **Controller menus:** D-pad/left stick → arrow keys (auto-repeat 400/120 ms), A → Enter, B → Escape, Start → Escape always; suppressed while the game polled the joystick in the last 300 ms (races). `ControllerMenus=0` disables it.
 
 ### How the game reads the joystick in a race (`0x411b30`)
-- `0x431190(n)` returns the action bound to input `n`: `-4/-5` = X directions, `-2/-3` = Y directions, `0..k` = buttons. Actions set bits in a control mask (1, 2, 4, 8, 0x10, 0x20) and some invert the axis value (`0xFFFF - v`) so the analog strength always points the same way.
+- `0x431190(n)` returns the action bound to joystick input `n`: `-2/-3` = X left/right, `-4/-5` = Y up/down (corrected 2026-10-14 from the factory and owner bindings), `0..k` = buttons. Actions set bits in a control mask (1, 2, 4, 8, 0x10, 0x20) and some invert the axis value (`0xFFFF - v`) so the analog strength always points the same way.
 - If the global `0x4dc11c == 2` (analog joystick mode) X/Y stay analog (X clamped per steering state); otherwise both are forced to centre `0x8000` (digital JOYPAD mode).
 - Therefore analog throttle/brake = triggers on the Y axis, bound in the game's config to "Y up"/"Y down".
 - The config screen takes whichever input it notices first, so triggers must not be buttons *and* axis at once. `TriggerMode=auto` (default) reads the mode global: 2 → triggers add `LT − RT` to Y; otherwise → buttons 9/10. `axis` / `buttons` force one.
 
 **Confirmed in play (2026-10-13):** `0x4dc11c` = 1 for the digital JOYPAD mode, 2 for the analog joystick mode. In mode 2 the game's control setup registers the triggers as "Y up"/"Y down" and races get analog throttle/brake (owner-confirmed).
+
+## Control bindings and the Xbox preset (2026-10-14)
+- Bindings: 7 × `{keyboard VK, joystick input}` at `0x53eae0`, in the order of the controls screen
+  (Options › CONTROLLER › config): Accelerate, Brake, Turn Left, Turn Right, Higher Gear, Lower Gear,
+  Turbo/Stunts. Factory: keys ↑ ↓ ← → A Z Space; joystick 0, 1, −2, −3, 2, 3, none.
+- Options keys: `InputDevice` → `0x4dc11c` (CONTROLLER: 1 when no joystick / keyboard, 2 = JOYSTICK,
+  4 = joypad type), `JoyType` → `0x4dc120`. Startup input init `0x47310b` → `0x4311c0` initialises the
+  joystick (`0x4189c0`) for mode 2 and falls back to 1 if none answers. The options are saved to
+  `data/CONFIG.BPT` when the game exits normally (also without visiting Options).
+- Runtime (`game_hooks.cpp`, `ControllerPreset=1`):
+  - first run (no `Defaults=1` in recomp_state.txt) with a gamepad connected: hook `0x42b37d` (right
+    after `InputDevice` is read, before the startup input init) sets CONTROLLER = JOYSTICK;
+  - whenever CONTROLLER is JOYSTICK and the joystick bindings are still the factory ones, they become
+    an Xbox 360 layout: Accelerate = Y up (RT, analog), Brake = Y down (LT), steering = left stick X,
+    Higher Gear = RB (button 5), Lower Gear = LB (4), Turbo/Stunts = A (0). Start already pauses
+    (sent as Escape). Custom bindings are never overwritten.
+- SDL's gamepad database maps Xbox, PlayStation, Switch Pro, 8BitDo and most pads to the same
+  positional layout, so one preset fits all of them (on Nintendo-layout pads the bottom face
+  button, labelled B, is "A").

@@ -112,6 +112,7 @@ void game_hook_screen_mode_loaded(void);
 void game_hook_mode_label(void);
 void game_hook_detail_loaded(void);
 void game_hook_bike_lod(void);
+void game_hook_input_loaded(void);
 
 /* ---------- control transfer / traps ---------- */
 void call_indirect(uint32_t va);   /* guest VA -> recompiled fn, import shim or COM thunk */

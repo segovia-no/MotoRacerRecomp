@@ -22,6 +22,8 @@
 //                       640x480; auto = screen width / 640 | a factor such as 2 or 2.5 | 1 = off
 //   Widescreen=auto     auto: when the game's own 16/9 MODE letterboxes the picture, show
 //                       only the 16:9 band so it fills a widescreen window | off
+//   ControllerPreset=1  when CONTROLLER is JOYSTICK and the game's default bindings are untouched,
+//                       use an Xbox 360 layout (RT/LT throttle/brake, LB/RB gears, A stunts)
 //   ControllerMenus=1   gamepad navigates the menus (D-pad/stick = arrows, A = Enter, B/Start = Esc)
 //   TriggerMode=auto    auto: in the game's analog JOYSTICK mode the triggers drive the Y axis
 //                       (analog accelerate/brake), otherwise they are buttons 9/10 | axis | buttons
@@ -46,6 +48,7 @@ struct Settings {
     float hud_scale = 0;   // 0 = auto
     float draw_distance = 2;
     bool controller_menus = true;
+    bool controller_preset = true;
     TriggerMode trigger_mode = TriggerMode::Auto;
 };
 
