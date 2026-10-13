@@ -164,3 +164,15 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   pixel-doubled, not blurred.
 - Verified by E2E at 1920×1080 (k = 3): lap time / best lap / time / position / gauges with needles
   in place and crisp; owner-confirmed.
+- Bug (owner): the "4 LAPS" banner, which falls from the top at the race start, fell three times.
+  Per-quad zone anchoring maps each third of the screen onto the whole screen, so a moving element
+  crossed the screen once per zone. Now (`hud_apply`, run in `flush` before the vertex upload):
+  - the frame's HUD quads are grouped into elements (quads touching after growing by half the
+    smaller height);
+  - left/right-column elements keep edge anchoring (they are static);
+  - a middle-column element keeps its shape scaled by k about its centre, and the centre is moved by
+    `hud_map`, a continuous piecewise-linear map with slope k within L/(4k) of the screen centre and
+    within L/(8k) of the edges, gentler in between. Centred messages keep their layout no matter how
+    they are grouped ("03" stays above "GET READY" while GET READY blinks), and a moving element
+    crosses the screen once. Elements that were fully on screen are kept on screen.
+- `MOTORACER_SNAPSHOT_EVERY=<frames>` sets the GPU snapshot interval (default 120) for animations.

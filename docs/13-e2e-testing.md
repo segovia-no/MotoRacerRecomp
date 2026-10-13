@@ -10,6 +10,8 @@ test. Each run opens a game window for its duration.
   single letter/digit taps a key (held 80 ms); `+KEY` / `-KEY` press / release.
 - `MOTORACER_SNAPSHOT_DIR` (runtime): BMP snapshots — `gpu_*.bmp` every 120 Direct3D frames at full
   render-target resolution, `frame_*.bmp` every 60 software-renderer frames.
+- `MOTORACER_SNAPSHOT_EVERY=<frames>`: GPU snapshot interval (default 120); e.g. 10 to follow an
+  animation such as the race-start banner.
 - `MOTORACER_MODES="1024x600,960x720"` (runtime, `ddraw.cpp`): replaces the 16-bit display modes
   above 640×480 offered to the game — for bisecting resolution bugs.
 - `MOTORACER_D3D_DEBUG=1`: triangle classification / execute-buffer statistics in the log.

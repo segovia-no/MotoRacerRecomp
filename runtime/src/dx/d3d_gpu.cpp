@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -18,6 +19,8 @@
 using namespace rt;
 
 namespace dx::gpu {
+
+void hud_apply();   // race HUD scaling, below
 
 namespace {
 
@@ -142,6 +145,7 @@ struct Cmd {
     FragUniforms uniforms{};
     float voffset[4] = {};
     uint32_t first_index = 0, index_count = 0;
+    bool hud = false;   // screen-space HUD quad: transformed and snapped by hud_apply()
     float vp[4] = {};
     // clear
     uint32_t clear_flags = 0, clear_argb = 0;
@@ -180,7 +184,12 @@ std::map<PipelineKey, SDL_GPUGraphicsPipeline *> pipelines;
 std::map<uint32_t, SDL_GPUSampler *> samplers;
 std::map<Surface *, CachedTexture> textures;
 std::vector<GpuVertex> frame_vertices;
-std::vector<uint8_t> hud_done;       // per frame vertex: HUD scaling already applied
+struct HudQuad {
+    float x0, y0, x1, y1;          // bounding box, guest pixels
+    std::vector<uint32_t> verts;   // frame vertex indices
+    size_t cmd;                    // index into frame_cmds
+};
+std::vector<HudQuad> hud_quads;      // this frame's HUD quads (see hud_apply)
 std::vector<uint32_t> frame_indices;
 std::vector<Cmd> frame_cmds;
 bool failed = false;
@@ -445,8 +454,9 @@ void check_widescreen() {
 // Debug: MOTORACER_SNAPSHOT_DIR also captures GPU frames (full render-target resolution).
 void snapshot_rt() {
     static const char *dir = getenv("MOTORACER_SNAPSHOT_DIR");
+    static const uint64_t every = getenv("MOTORACER_SNAPSHOT_EVERY") ? std::max(1, atoi(getenv("MOTORACER_SNAPSHOT_EVERY"))) : 120;
     static uint64_t n = 0;
-    if (!dir || (n++ % 120)) return;
+    if (!dir || (n++ % every)) return;
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
     SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, rt_w * rt_h * 4, 0};
     SDL_GPUTransferBuffer *down = SDL_CreateGPUTransferBuffer(dev, &tci);
@@ -484,6 +494,7 @@ void flush(After after) {
     bool need_overlay = rt_valid && cpu_dirty && !full_clear_first;
     if (frame_cmds.empty() && !need_full && !need_overlay && after == After::Nothing) return;
 
+    hud_apply();
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
     std::vector<SDL_GPUTransferBuffer *> garbage;
     std::vector<uint32_t> scratch;
@@ -643,7 +654,7 @@ void flush(After after) {
     if (ibuf) SDL_ReleaseGPUBuffer(dev, ibuf);
     frame_vertices.clear();
     frame_indices.clear();
-    hud_done.clear();
+    hud_quads.clear();
     frame_cmds.clear();
 }
 
@@ -752,45 +763,109 @@ uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
 // ---------- race HUD scaling ----------
 // The race HUD (text, digits, gauges) is laid out for a 640-pixel-wide screen and drawn as
 // screen-space quads at depth exactly 0 (text) or 1/65536 (gauges), each glyph its own draw; rhw is
-// 1, except on the gauge needles where it is left over from the 3D projection. In larger modes it is
-// enlarged by k about the screen edge it belongs to: a quad in the left/right third scales away from
-// that edge, one in the middle third about the centre (same for top/bottom), so corner elements stay
-// in their corners and centred messages stay centred.
+// 1, except on the gauge needles where it is left over from the 3D projection. In larger modes the
+// quads of a frame are grouped into elements (glyphs of a word, a gauge with its needle) and each
+// element is enlarged by k:
+//  - in the left/right third of the screen about that edge, and vertically about the top edge,
+//    centre or bottom edge of the third it sits in, so corner HUD stays in its corner;
+//  - in the middle third its centre is moved by hud_map (continuous, k times the distance from the
+//    screen centre near the centre, compressed towards the edges) and its size is scaled by k, so
+//    centred messages keep their layout ("03" above "GET READY") and moving ones (the "4 LAPS"
+//    banner falls across the screen) still cross the screen once.
 float hud_factor() {
     if (g_w <= 640) return 1.f;
     float k = settings::get().hud_scale > 0 ? settings::get().hud_scale : static_cast<float>(g_w) / 640.f;
     return std::max(k, 1.f);
 }
 
-// Scales the quad's vertices if it is a HUD element; returns the snapped-grid origin in guest pixels.
-bool hud_scale_quad(uint32_t base, uint32_t nverts, const uint16_t *indices, uint32_t ntri, float k, float origin[2]) {
-    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+// Continuous map of a middle-column element centre on an axis of length L: slope k within
+// b = L/(4k) of the centre and within a = L/(8k) of the edges, gentler in between.
+float hud_map(float v, float L, float k) {
+    float a = L / (8.f * k), b = L / (4.f * k), h = L * 0.5f;
+    const float xs[6] = {0, a, h - b, h + b, L - a, L};
+    const float ys[6] = {0, k * a, h - k * b, h + k * b, L - k * a, L};
+    if (v <= 0) return v * k;
+    if (v >= L) return L + (v - L) * k;
+    int i = 0;
+    while (i < 4 && v > xs[i + 1]) i++;
+    return ys[i] + (v - xs[i]) * (ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]);
+}
+
+// Records the draw as a HUD quad if all its vertices are screen-space HUD vertices.
+bool hud_record(uint32_t base, uint32_t nverts, const uint16_t *indices, uint32_t ntri, size_t cmd) {
+    HudQuad q{1e9f, 1e9f, -1e9f, -1e9f, {}, cmd};
     for (uint32_t t = 0; t < ntri * 3; t++) {
-        const GpuVertex &v = frame_vertices[base + (indices[t] < nverts ? indices[t] : 0)];
+        uint32_t vi = base + (indices[t] < nverts ? indices[t] : 0);
+        const GpuVertex &v = frame_vertices[vi];
         float z = v.z / v.w;
         if (z != 0.f && std::fabs(z - 1.f / 65536.f) > 1e-9f) return false;
         float x = (v.x / v.w + 1) * 0.5f * g_w, y = (1 - v.y / v.w) * 0.5f * g_h;
-        x0 = std::min(x0, x); x1 = std::max(x1, x); y0 = std::min(y0, y); y1 = std::max(y1, y);
+        q.x0 = std::min(q.x0, x); q.x1 = std::max(q.x1, x); q.y0 = std::min(q.y0, y); q.y1 = std::max(q.y1, y);
+        if (std::find(q.verts.begin(), q.verts.end(), vi) == q.verts.end()) q.verts.push_back(vi);
     }
-    if (x1 - x0 > g_w * 0.5f || y1 - y0 > g_h * 0.5f) return false;   // fades, backdrops
-    float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
-    float ax = cx < g_w / 3.f ? 0.f : cx > g_w * 2.f / 3.f ? static_cast<float>(g_w) : g_w * 0.5f;
-    float ay = cy < g_h / 3.f ? 0.f : cy > g_h * 2.f / 3.f ? static_cast<float>(g_h) : g_h * 0.5f;
-    origin[0] = ax * (1.f - k);
-    origin[1] = ay * (1.f - k);
-    if (hud_done.size() < frame_vertices.size()) hud_done.resize(frame_vertices.size(), 0);
-    for (uint32_t t = 0; t < ntri * 3; t++) {
-        uint32_t vi = base + (indices[t] < nverts ? indices[t] : 0);
-        if (hud_done[vi]) continue;
-        hud_done[vi] = 1;
-        GpuVertex &v = frame_vertices[vi];
-        float x = (v.x / v.w + 1) * 0.5f * g_w, y = (1 - v.y / v.w) * 0.5f * g_h;
-        x = ax + (x - ax) * k;
-        y = ay + (y - ay) * k;
-        v.x = (x / g_w * 2.f - 1.f) * v.w;
-        v.y = (1.f - y / g_h * 2.f) * v.w;
-    }
+    if (q.x1 - q.x0 > g_w * 0.5f || q.y1 - q.y0 > g_h * 0.5f) return false;   // fades, backdrops
+    hud_quads.push_back(std::move(q));
     return true;
+}
+
+// Groups the frame's HUD quads into elements and scales them (before the vertices are uploaded).
+void hud_apply() {
+    if (hud_quads.empty()) return;
+    float k = hud_factor(), rt_scale = static_cast<float>(rt_w) / static_cast<float>(g_w);
+    size_t n = hud_quads.size();
+    // union-find: quads touching after growing each by half the smaller height are one element
+    std::vector<size_t> parent(n);
+    for (size_t i = 0; i < n; i++) parent[i] = i;
+    auto root = [&](size_t i) { while (parent[i] != i) i = parent[i] = parent[parent[i]]; return i; };
+    for (size_t i = 0; i < n; i++)
+        for (size_t j = i + 1; j < n; j++) {
+            const HudQuad &a = hud_quads[i], &b = hud_quads[j];
+            float e = 0.5f * std::min(a.y1 - a.y0, b.y1 - b.y0);
+            if (a.x0 - e <= b.x1 && b.x0 - e <= a.x1 && a.y0 - e <= b.y1 && b.y0 - e <= a.y1) parent[root(i)] = root(j);
+        }
+    std::map<size_t, std::array<float, 4>> boxes;
+    for (size_t i = 0; i < n; i++) {
+        auto [it, fresh] = boxes.try_emplace(root(i), std::array<float, 4>{1e9f, 1e9f, -1e9f, -1e9f});
+        auto &b = it->second;
+        b[0] = std::min(b[0], hud_quads[i].x0); b[1] = std::min(b[1], hud_quads[i].y0);
+        b[2] = std::max(b[2], hud_quads[i].x1); b[3] = std::max(b[3], hud_quads[i].y1);
+    }
+    std::vector<uint8_t> done(frame_vertices.size(), 0);
+    float W = static_cast<float>(g_w), H = static_cast<float>(g_h);
+    for (size_t i = 0; i < n; i++) {
+        const auto &b = boxes[root(i)];
+        float cx = (b[0] + b[2]) * 0.5f, cy = (b[1] + b[3]) * 0.5f, ax, ay, sx = 0, sy = 0;
+        if (cx < W / 3.f || cx > W * 2.f / 3.f) {   // side columns: anchored to the screen edges
+            ax = cx < W / 3.f ? 0.f : W;
+            ay = cy < H / 3.f ? 0.f : cy > H * 2.f / 3.f ? H : H * 0.5f;
+        } else {                                    // middle column: centre moved by hud_map
+            ax = cx;
+            ay = cy;
+            sx = hud_map(cx, W, k) - cx;
+            sy = hud_map(cy, H, k) - cy;
+            // keep an element that was fully on screen on screen
+            float nx0 = cx + (b[0] - cx) * k + sx, nx1 = cx + (b[2] - cx) * k + sx;
+            float ny0 = cy + (b[1] - cy) * k + sy, ny1 = cy + (b[3] - cy) * k + sy;
+            if (b[0] >= 0 && b[2] <= W) sx += nx0 < 0 ? -nx0 : nx1 > W ? W - nx1 : 0;
+            if (b[1] >= 0 && b[3] <= H) sy += ny0 < 0 ? -ny0 : ny1 > H ? H - ny1 : 0;
+        }
+        for (uint32_t vi : hud_quads[i].verts) {
+            if (done[vi]) continue;
+            done[vi] = 1;
+            GpuVertex &v = frame_vertices[vi];
+            float x = (v.x / v.w + 1) * 0.5f * W, y = (1 - v.y / v.w) * 0.5f * H;
+            x = ax + (x - ax) * k + sx;
+            y = ay + (y - ay) * k + sy;
+            v.x = (x / W * 2.f - 1.f) * v.w;
+            v.y = (1.f - y / H * 2.f) * v.w;
+        }
+        // texel snapping on the enlarged grid: guest pixel p lands at origin + k * p
+        Cmd &c = frame_cmds[hud_quads[i].cmd];
+        c.uniforms.snap[0] = c.texture ? 1.f : 0.f;
+        c.uniforms.snap[1] = rt_scale * k;
+        c.uniforms.snap[2] = (ax * (1.f - k) + sx) * rt_scale;
+        c.uniforms.snap[3] = (ay * (1.f - k) + sy) * rt_scale;
+    }
 }
 
 void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, const uint16_t *indices,
@@ -837,11 +912,10 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             else if (std::fabs(v.w - w0) > 1e-4f * std::fabs(w0) || std::fabs(z - z0) > 1e-5f) flat = false;
         }
     }
-    float hud_k = hud_factor(), hud_origin[2] = {0, 0};
-    bool hud = hud_k > 1.f && hud_scale_quad(base, nverts, indices, ntri, hud_k, hud_origin);
+    bool hud = hud_factor() > 1.f && hud_record(base, nverts, indices, ntri, frame_cmds.size());
     if (hud) flat = true;
-    float rt_scale = static_cast<float>(rt_w) / static_cast<float>(g_w ? g_w : 1);
-    c.uniforms.snap[0] = flat && texture && (hud || rt_w != g_w) ? 1.f : 0.f;
+    c.hud = hud;
+    c.uniforms.snap[0] = flat && texture && rt_w != g_w ? 1.f : 0.f;
     if (!flat) {
         for (uint32_t t = 0; t < ntri * 3; t++) {
             const GpuVertex &v = frame_vertices[base + (indices[t] < nverts ? indices[t] : 0)];
@@ -876,9 +950,7 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             dbg_tri.clear();
         }
     }
-    c.uniforms.snap[1] = rt_scale * (hud ? hud_k : 1.f);
-    c.uniforms.snap[2] = hud_origin[0] * rt_scale;
-    c.uniforms.snap[3] = hud_origin[1] * rt_scale;
+    c.uniforms.snap[1] = static_cast<float>(rt_w) / static_cast<float>(g_w ? g_w : 1);
     // D3D samples at integer pixel coordinates, Metal at half-integers: shift by half an
     // original pixel. Flat 2D overlays stay on the original pixel grid instead, so they cover
     // exactly the pixels they covered at 640x480 (their sampling is snapped in the shader).
@@ -887,9 +959,9 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
         c.voffset[1] = -1.f / static_cast<float>(g_h);
     }
     c.index_count = ntri * 3;
-    if (!frame_cmds.empty()) {   // merge with the previous draw if nothing changed
+    if (!frame_cmds.empty() && !hud) {   // merge with the previous draw if nothing changed
         Cmd &p = frame_cmds.back();
-        if (p.kind == Cmd::Draw && !(p.pipe < c.pipe) && !(c.pipe < p.pipe) && p.texture == c.texture &&
+        if (p.kind == Cmd::Draw && !p.hud && !(p.pipe < c.pipe) && !(c.pipe < p.pipe) && p.texture == c.texture &&
             p.sampler_key == c.sampler_key && !memcmp(&p.uniforms, &c.uniforms, sizeof c.uniforms) &&
             !memcmp(p.voffset, c.voffset, sizeof c.voffset) &&
             p.first_index + p.index_count == c.first_index) {
