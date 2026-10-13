@@ -12,3 +12,7 @@ build/
 .venv/
 __pycache__/
 *.pyc
+# Local tool / editor state
+.claude/
+.vscode/
+.idea/

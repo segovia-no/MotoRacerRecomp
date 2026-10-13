@@ -16,6 +16,8 @@
 // 2 = 640x480), so a larger mode came back as 640x480 after a restart. The runtime remembers the
 // chosen mode per orientation in <game dir>/recomp_state.txt and restores it after the game loads
 // its options.
+#include <SDL3/SDL.h>
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -61,6 +63,8 @@ Mode remembered[2];       // [0] 4:3, [1] 16:9 (internal display mode)
 bool state_loaded = false;
 int table_list = -1;      // which List is in the game's table (-1: not built yet)
 bool reselect = false;    // pick the remembered mode on the next tick (after an options load)
+bool defaults_applied = false;
+bool options_loaded = false;     // the game has read its options (CONFIG.BPT)   // first-run defaults done (recomp_state.txt: Defaults=1)
 uint32_t last_area = 0;
 
 bool active() {
@@ -77,6 +81,7 @@ void load_state() {
         Mode m{};
         if (sscanf(line.c_str(), "ScreenMode43=%ux%u", &m.w, &m.h) == 2) remembered[0] = m;
         if (sscanf(line.c_str(), "ScreenMode169=%ux%u", &m.w, &m.h) == 2) remembered[1] = m;
+        if (line == "Defaults=1") defaults_applied = true;
     }
 }
 
@@ -84,6 +89,25 @@ void save_state() {
     std::ofstream out(kStateFile);
     if (remembered[0].w) out << "ScreenMode43=" << remembered[0].w << 'x' << remembered[0].h << '\n';
     if (remembered[1].w) out << "ScreenMode169=" << remembered[1].w << 'x' << remembered[1].h << '\n';
+    if (defaults_applied) out << "Defaults=1\n";
+}
+
+// First run (no Defaults=1 in recomp_state.txt): a fresh GOG install starts at 640x480 4:3. Turn
+// on the game's 16/9 MODE and pick 2560x1440 if the display is at least that tall, else 1920x1080. The game saves its
+// options when it exits, so this happens once; later choices are the player's.
+void apply_first_run_defaults() {
+    int display_h = 1080;
+    if (SDL_DisplayID d = SDL_GetPrimaryDisplay())
+        if (const SDL_DisplayMode *m = SDL_GetCurrentDisplayMode(d))
+            display_h = static_cast<int>(m->h * (m->pixel_density > 0 ? m->pixel_density : 1.f));
+    Mode pick = kDefault169;
+    if (2560 * 9 / 16 <= display_h) pick = {2560, 1920};   // 4K stays a manual choice (slower Macs)
+    WR32(MODE_169, 1);
+    if (!remembered[1].w) remembered[1] = pick;
+    defaults_applied = true;
+    save_state();
+    log("first run: 16/9 MODE on, screen mode %ux%u (display %d px tall)\n", remembered[1].w, remembered[1].w * 9 / 16,
+        display_h);
 }
 
 uint32_t size_class(uint32_t area) { return area < 0x30000 ? 0 : area == 0x30000 ? 1 : 2; }
@@ -163,6 +187,7 @@ void select_for(List which) {
 
 extern "C" void game_hook_screen_mode_loaded(void) {
     // The 16/9 option is read after this point, so the mode is (re)selected on the next frame.
+    options_loaded = true;
     if (active()) reselect = true;
 }
 
@@ -179,6 +204,7 @@ void frame_tick() {
         WR32(TRACK_SECTIONS, static_cast<uint32_t>(ORIGINAL_SECTIONS * settings::get().draw_distance + 0.5f));
     if (!active() || !RD32(MODE_COUNT)) return;   // before the game enumerated display modes
     load_state();
+    if (!defaults_applied && options_loaded) apply_first_run_defaults();
     List which = current_list();
     if (table_list != which) {
         write_table(which);
