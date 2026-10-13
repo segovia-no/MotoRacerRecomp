@@ -50,3 +50,19 @@ No matrices, lights or transform states are used — the game does all T&L itsel
 **Render states seen (intro + menu):** TEXTUREHANDLE (0 or a handle), TEXTUREADDRESS=CLAMP, TEXTUREPERSPECTIVE=1, ZENABLE=1, ZWRITEENABLE=1, ZFUNC=LESSEQUAL, FILLMODE=SOLID, SHADEMODE=GOURAUD, TEXTUREMAG/MIN=NEAREST|LINEAR, TEXTUREMAPBLEND=MODULATE, ALPHABLEND/ALPHATEST/DITHER/SPECULAR/STIPPLEDALPHA=0. Races may add more (alpha blending for shadows/smoke, fog) — the stats report every 10 s lists them.
 
 **Stage 2 therefore needs:** TLVERTEX triangles with perspective-correct texturing (modulate by vertex colour), Gouraud shading, 16-bit depth test LESSEQUAL with write, nearest/linear filtering, clamp addressing; palettized (PAL8) and 16-bit textures uploaded from guest surfaces (re-upload on Lock/Unlock or Load); viewport Clear with the background material colour.
+
+## Stage 2 results (2026-10-13) — `runtime/src/dx/d3d_gpu.cpp`
+**Owner-confirmed: races render correctly through the GPU with transparency, HUD and name entry ("everything works flawlessly").** Native 640×480.
+
+- SDL_GPU (Metal), MSL shaders compiled at startup. Clip-space `pos = (ndc·w, z·w, w)` with `w = 1/rhw` (perspective-correct). Pipelines cached per depth/blend/cull key, samplers per filter/address.
+- Frame model: guest back buffer authoritative; GPU colour target uploaded from it before 3D after CPU writes, read back (RGBA8→RGB565) before any CPU access (`Lock`, `Blt`, `BltFast`, `GetDC`, `Flip`).
+- Textures cached per surface with `Surface::version` / `Palette::version` invalidation; PAL8/565/1555/4444 → RGBA8.
+
+### Bugs found while bringing it up
+1. **`IDirectDraw::DuplicateSurface`** (slot 7) was missing — the game duplicates bike textures (`-NoDuplicateSurfaces` disables it). Duplicates share pixel memory (`Surface::storage` shared_ptr).
+2. **Transparency mode:** without `-Alpha` the game blends with `SRCBLEND=DESTBLEND=INVSRCALPHA` (code at `0x41de4d`, chosen by the `-Alpha` global `0x4dc1cc`), giving black boxes. With `-Alpha` it uses standard `SRCALPHA/INVSRCALPHA` + ARGB textures. D3D mode now always passes `-Alpha` (the game's readme recommends it for the name-entry letters too).
+3. **MODULATE alpha rule:** vertices carry colour `0x00RRGGBB` (alpha 0); D3D takes alpha from the texture whenever the texture *format* has alpha. Using the texture alpha only when < 1 made opaque HUD texels invisible.
+4. **Metal abort on 0×0 texture descriptors** (seen once, during a menu `Flip`): invalid surfaces now draw untextured and are logged. SIGABRT/SIGILL/SIGFPE now go through the crash reporter.
+
+### Render states in a race
+SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for most sprite/HUD batches; ALPHATEST, FOG, SPECULAR unused.
