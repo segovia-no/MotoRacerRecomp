@@ -183,5 +183,5 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   "NEW RECORD"/lap texts (sprites) overlap it, and grouping merged the sign model into their HUD
   element. Now elements are built from sprites only; a model joins an element only if its bounding
   box lies inside the element's sprite box (gauge needles inside their dial), otherwise it is left
-  alone.
+  alone. Owner-confirmed at the end of a lap.
 - `MOTORACER_SNAPSHOT_EVERY=<frames>` sets the GPU snapshot interval (default 120) for animations.
