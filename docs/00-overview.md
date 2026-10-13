@@ -20,7 +20,8 @@ Game files are **not** committed (see `.gitignore`). Anyone reproducing must ext
 - [01-binary.md](01-binary.md) — PE layout, toolchain, imports, statically-linked libraries
 - [02-game-files.md](02-game-files.md) — data directory, file formats (BKF, BPT, TRK, DEM)
 - [03-subsystems.md](03-subsystems.md) — engine subsystems, source module names, command-line flags
-- [04-strategy.md](04-strategy.md) — recompilation strategy and decisions
+- [04-strategy.md](04-strategy.md) — recompilation strategy, decisions, architecture, phases
+- [05-self-modifying-code.md](05-self-modifying-code.md) — SMC in rasterizer span loops and how recomp handles it
 
 ## Analysis tooling
 
