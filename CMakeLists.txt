@@ -56,3 +56,11 @@ target_include_directories(motoracer PRIVATE runtime/include runtime/src runtime
 target_compile_options(motoracer PRIVATE
   $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-unused-parameter>)
 target_link_libraries(motoracer PRIVATE SDL3::SDL3)
+
+# `cmake --build build/cmake --target app` -> build/cmake/MotoRacer.app
+get_filename_component(GAME_DIR_FOR_ICON "${GAME_EXE}" DIRECTORY)
+add_custom_target(app
+  COMMAND "${CMAKE_SOURCE_DIR}/tools/make_app.sh" "$<TARGET_FILE:motoracer>" "${CMAKE_BINARY_DIR}" "${GAME_DIR_FOR_ICON}"
+  DEPENDS motoracer
+  COMMENT "Assembling MotoRacer.app"
+  VERBATIM)

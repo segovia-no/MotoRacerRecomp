@@ -61,3 +61,10 @@ At shim entry `[esp]` is the return address and `arg(i)` = `[esp+4+4i]`. `STDCAL
    - creates modeless MFC dialog 231 `"Moto"` (two STATIC lines — a loading/status box).
    - polls joysticks (`joyGetDevCapsA` ×8) and the mixer.
    - calls `DirectDrawEnumerateA` from `0x475150` → **phase 4**.
+
+## Packaging (added after phase 5)
+- `runtime/src/settings.*`: reads `<game dir>/motoracer.ini`; `[Settings] Params=` (GOG launcher) is the game command line; `[Recomp]` holds window size, fullscreen, filter, integer scale, vsync.
+- Game folder search: `--game-dir`, `$MOTORACER_GAME_DIR`, `~/Library/Application Support/MotoRacerRecomp/game`, `./extracted/app`; error dialog if none.
+- `tools/install_game.sh <setup.exe>`: innoextract into the Application Support folder.
+- `cmake --build build/cmake --target app` → `tools/make_app.sh`: `MotoRacer.app` with bundled SDL3 (`@rpath`), icon generated from the user's `goggame-*.ico`, ad-hoc signature.
+- Hotkeys: Cmd+F / Alt+Enter fullscreen, Cmd+Q quit; Cmd combinations are not forwarded to the game.

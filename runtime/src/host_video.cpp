@@ -8,12 +8,13 @@
 
 #include "host_video.h"
 #include "runtime.h"
+#include "settings.h"
 
 using namespace rt;
 
 namespace host {
 
-extern SDL_Window *sdl_window;
+SDL_Window *ensure_window();
 
 namespace {
 SDL_Renderer *renderer = nullptr;
@@ -24,22 +25,21 @@ std::vector<uint32_t> convert_buf;
 uint64_t frames = 0;
 
 bool ensure(int w, int h, SDL_PixelFormat fmt) {
-    if (!sdl_window) {
-        sdl_window = SDL_CreateWindow("Moto Racer", 1280, 960, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
-        if (!sdl_window) fatal("SDL_CreateWindow failed: %s", SDL_GetError());
-    }
+    const auto &cfg = settings::get();
     if (!renderer) {
-        renderer = SDL_CreateRenderer(sdl_window, nullptr);
+        renderer = SDL_CreateRenderer(ensure_window(), nullptr);
         if (!renderer) fatal("SDL_CreateRenderer failed: %s", SDL_GetError());
-        SDL_SetRenderVSync(renderer, 1);
+        SDL_SetRenderVSync(renderer, cfg.vsync ? 1 : 0);
         log("renderer: %s\n", SDL_GetRendererName(renderer));
     }
     if (!texture || w != tex_w || h != tex_h || fmt != tex_fmt) {
         if (texture) SDL_DestroyTexture(texture);
         texture = SDL_CreateTexture(renderer, fmt, SDL_TEXTUREACCESS_STREAMING, w, h);
         if (!texture) fatal("SDL_CreateTexture failed: %s", SDL_GetError());
-        SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
-        SDL_SetRenderLogicalPresentation(renderer, w, h, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+        SDL_SetTextureScaleMode(texture, cfg.nearest ? SDL_SCALEMODE_NEAREST : SDL_SCALEMODE_LINEAR);
+        SDL_SetRenderLogicalPresentation(renderer, w, h,
+                                         cfg.integer_scale ? SDL_LOGICAL_PRESENTATION_INTEGER_SCALE
+                                                           : SDL_LOGICAL_PRESENTATION_LETTERBOX);
         tex_w = w;
         tex_h = h;
         tex_fmt = fmt;

@@ -3,13 +3,31 @@
 #include <SDL3/SDL.h>
 
 #include "runtime.h"
+#include "settings.h"
 #include "user32.h"
 
 using namespace rt;
 
 namespace host {
 SDL_Window *sdl_window = nullptr;
+
+// The one host window. Size and fullscreen state come from motoracer.ini [Recomp].
+SDL_Window *ensure_window() {
+    if (sdl_window) return sdl_window;
+    const auto &cfg = settings::get();
+    sdl_window = SDL_CreateWindow("Moto Racer", cfg.window_w, cfg.window_h,
+                                  SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    if (!sdl_window) fatal("SDL_CreateWindow failed: %s", SDL_GetError());
+    if (cfg.fullscreen) SDL_SetWindowFullscreen(sdl_window, true);
+    return sdl_window;
 }
+
+void toggle_fullscreen() {
+    if (!sdl_window) return;
+    bool fs = SDL_GetWindowFlags(sdl_window) & SDL_WINDOW_FULLSCREEN;
+    SDL_SetWindowFullscreen(sdl_window, !fs);
+}
+}  // namespace host
 
 namespace w32 {
 
@@ -75,13 +93,8 @@ uint32_t pc_scancode(SDL_Scancode sc);
 
 void host_window_shown(Window *w) {
     if (host::sdl_window) return;
-    if (!SDL_WasInit(SDL_INIT_VIDEO) && !SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
-        fatal("SDL_Init failed: %s", SDL_GetError());
-    int cw = w->client_w() > 0 ? w->client_w() : 640, ch = w->client_h() > 0 ? w->client_h() : 480;
-    if (cw > 1600 || ch > 1200) { cw = 640; ch = 480; }
-    host::sdl_window = SDL_CreateWindow("Moto Racer", cw, ch, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
-    if (!host::sdl_window) fatal("SDL_CreateWindow failed: %s", SDL_GetError());
-    log("host window created %dx%d for hwnd %08x\n", cw, ch, w->hwnd);
+    host::ensure_window();
+    log("host window created for hwnd %08x\n", w->hwnd);
 }
 
 void host_window_resized(Window *w) { (void)w; }
@@ -95,6 +108,21 @@ void host_window_destroyed() {
 
 void host_event_hook(const SDL_Event &e) {
     if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) {
+        // Host hotkeys: Cmd+F / Alt+Enter fullscreen, Cmd+Q quit. Cmd combos never reach the game.
+        bool down_evt = e.type == SDL_EVENT_KEY_DOWN;
+        if (e.key.mod & SDL_KMOD_GUI) {
+            if (down_evt && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F) host::toggle_fullscreen();
+            if (down_evt && e.key.scancode == SDL_SCANCODE_Q) {
+                SDL_Event q{};
+                q.type = SDL_EVENT_QUIT;
+                SDL_PushEvent(&q);
+            }
+            return;
+        }
+        if (down_evt && !e.key.repeat && e.key.scancode == SDL_SCANCODE_RETURN && (e.key.mod & SDL_KMOD_ALT)) {
+            host::toggle_fullscreen();
+            return;
+        }
         uint32_t vk = to_vk(e.key.scancode);
         if (!vk) return;
         bool down = e.type == SDL_EVENT_KEY_DOWN;
