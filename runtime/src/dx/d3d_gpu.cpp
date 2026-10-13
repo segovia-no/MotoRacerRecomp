@@ -630,7 +630,9 @@ void set_target(Surface *s) {
 uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
     uint32_t base = static_cast<uint32_t>(frame_vertices.size());
     if (!dev || !rt) return base;
-    float sx = 2.f / static_cast<float>(rt_w), sy = 2.f / static_cast<float>(rt_h);
+    // Vertex x/y are in guest pixels (640x480); NDC is resolution independent, so the same
+    // positions land correctly on the larger render target.
+    float sx = 2.f / static_cast<float>(g_w), sy = 2.f / static_cast<float>(g_h);
     for (uint32_t i = 0; i < n; i++) {
         const TLVertex &v = verts[i];
         // Clip-space position with w = 1/rhw so the GPU interpolates perspective-correctly.
