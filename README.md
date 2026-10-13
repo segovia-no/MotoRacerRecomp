@@ -62,6 +62,9 @@ Debugging: `--trace` logs every Windows API call; `MOTORACER_SNAPSHOT_DIR=<dir>`
 
 Design notes and reverse-engineering findings live in [docs/](docs/).
 
+## Distribution
+Only this source repository may be shared. Everything produced by a build — `build/gen/*.c`, the `motoracer` binary and `MotoRacer.app` — contains code translated from your `game.EXE` and must **not** be redistributed (no prebuilt releases). Each player installs their own GOG copy and builds locally.
+
 ## Roadmap
 - Direct3D renderer path on Metal for higher resolutions
 - Hand-decompiling game modules into readable C++ (hybrid approach)

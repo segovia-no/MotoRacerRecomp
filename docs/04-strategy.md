@@ -8,6 +8,7 @@
 | D3 | Multiplayer | **Stubbed** (DirectPlay returns "no providers"); revisit later |
 | D4 | Repo policy | **Public**. No game code/assets/generated code in git. User supplies `game.EXE`; C is generated at build time |
 | D5 | Host | macOS arm64 first (Apple M3 Pro dev box) |
+| D7 | Distribution | Source only. Generated C, the built binary and `MotoRacer.app` are derived from `game.EXE` → never published (no prebuilt releases). Game files live per user in `~/Library/Application Support/MotoRacerRecomp/game` via `tools/install_game.sh`; never bundled. |
 | D6 | Baseline binary | **GOG release only** (`setup_moto_racer_2.1.0.11.exe` → `game.EXE` SHA-256 `b2f92109…cb2187`). Purchasable today; original CD effectively lost. Build verifies this hash and refuses others. |
 
 ## Defaults chosen (not yet challenged)
