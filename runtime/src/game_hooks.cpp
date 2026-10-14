@@ -262,6 +262,11 @@ extern "C" void game_hook_band(void) {
 
 namespace game {
 
+bool first_run() {
+    load_state();
+    return !defaults_applied;
+}
+
 void frame_tick() {
     if (settings::get().draw_distance > 1.f && RD32(TRACK_SECTIONS) == ORIGINAL_SECTIONS)
         WR32(TRACK_SECTIONS, static_cast<uint32_t>(ORIGINAL_SECTIONS * settings::get().draw_distance + 0.5f));

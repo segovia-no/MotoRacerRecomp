@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <string>
 
+#include "game_hooks.h"
 #include "host_audio.h"
 #include "win32.h"
 
@@ -136,6 +137,17 @@ STDCALL(WINMM, mixerSetControlDetails, 3) {
     if (id < 1 || id > 3) return MIXERR_INVALCONTROL;
     uint32_t v = RD32(details) & 0xFFFF;
     trace("mixerSetControlDetails", id, v);
+    // The GOG install's saved options (data/CONFIG.BPT) restore MASTER VOLUME to 0 at startup, so a
+    // fresh install starts silent. On the first run, ignore that 0: the slider then shows full
+    // volume and the game saves it on exit. A volume of 0 chosen later is kept.
+    static bool startup_master = true;
+    if (id == 1 && startup_master) {
+        startup_master = false;
+        if (v == 0 && game::first_run()) {
+            log("mixer: first run, ignoring the saved MASTER VOLUME of 0\n");
+            v = 0xFFFF;
+        }
+    }
     volume[id] = v;
     apply(id);
     return MMSYSERR_NOERROR;
