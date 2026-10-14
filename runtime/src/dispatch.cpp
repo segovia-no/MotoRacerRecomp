@@ -34,7 +34,10 @@ void vout(const char *fmt, va_list ap) {
     va_list ap2;
     va_copy(ap2, ap);
     vfprintf(stderr, fmt, ap);
-    if (log_file) vfprintf(log_file, fmt, ap2);
+    if (log_file) {
+        vfprintf(log_file, fmt, ap2);
+        fflush(log_file);   // the Windows CRT treats _IOLBF as full buffering: a crash would lose the log
+    }
     va_end(ap2);
 }
 

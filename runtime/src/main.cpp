@@ -12,6 +12,7 @@
 #include <vector>
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>   // Windows: WinMain entry for a GUI program, UTF-8 argv
 
 #include "platform/platform.h"
 #include "runtime.h"

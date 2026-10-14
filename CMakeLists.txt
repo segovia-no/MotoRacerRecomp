@@ -70,12 +70,16 @@ file(GLOB RUNTIME_SOURCES CONFIGURE_DEPENDS
 set(PLAT runtime/src/platform)
 if(APPLE)
   list(APPEND RUNTIME_SOURCES ${PLAT}/posix.cpp ${PLAT}/paths_macos.cpp)
+elseif(WIN32)
+  list(APPEND RUNTIME_SOURCES ${PLAT}/win32.cpp)
 elseif(UNIX)
   list(APPEND RUNTIME_SOURCES ${PLAT}/posix.cpp ${PLAT}/paths_xdg.cpp)
 else()
   message(FATAL_ERROR "no platform adapters for ${CMAKE_SYSTEM_NAME} yet (see docs/15-ports-plan.md)")
 endif()
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
+if(WIN32)
+  # the deep stack is a fiber (win32.cpp), no trampoline
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
   list(APPEND RUNTIME_SOURCES ${PLAT}/stack_arm64.S)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
   list(APPEND RUNTIME_SOURCES ${PLAT}/stack_x86_64_sysv.S)
@@ -89,8 +93,21 @@ target_compile_options(motoracer PRIVATE
   $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-unused-parameter>)
 target_link_libraries(motoracer PRIVATE ${SDL3_TARGET})
 
-# `cmake --build build/cmake --target app` -> build/cmake/MotoRacer.app
 get_filename_component(GAME_DIR_FOR_ICON "${GAME_EXE}" DIRECTORY)
+if(WIN32)
+  # GUI program (no console window), one self-contained .exe (static C++ runtime), manifest
+  # (UTF-8 code page, DPI awareness) and the game's own icon from the user's GOG files.
+  enable_language(RC)
+  set(_rc "1 24 \"${CMAKE_SOURCE_DIR}/runtime/src/platform/motoracer.manifest\"\n")
+  if(EXISTS "${GAME_DIR_FOR_ICON}/goggame-1207658895.ico")
+    string(APPEND _rc "1 ICON \"${GAME_DIR_FOR_ICON}/goggame-1207658895.ico\"\n")
+  endif()
+  file(WRITE "${CMAKE_BINARY_DIR}/motoracer.rc" "${_rc}")
+  target_sources(motoracer PRIVATE "${CMAKE_BINARY_DIR}/motoracer.rc")
+  target_link_options(motoracer PRIVATE -mwindows -static)
+endif()
+
+# `cmake --build build/cmake --target app` -> build/cmake/MotoRacer.app
 if(APPLE)
   add_custom_target(app
   COMMAND "${CMAKE_SOURCE_DIR}/tools/make_app.sh" "$<TARGET_FILE:motoracer>" "${CMAKE_BINARY_DIR}" "${GAME_DIR_FOR_ICON}"

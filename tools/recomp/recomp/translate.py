@@ -298,7 +298,7 @@ class FunctionTranslator:
             if insn.ops[1] == ("reg", "esp", 4):
                 self.uses_eh = True
                 self.emit("eh_register(R.esp, &eh_jb);")
-                self.emit("if (_setjmp(eh_jb)) { call_indirect(eh_resume_va); return; }")
+                self.emit("if (RECOMP_SETJMP(eh_jb)) { call_indirect(eh_resume_va); return; }")
             else:
                 self.emit(f"eh_unlink({self.rd(insn, 1, 4)});")
         return True

@@ -160,41 +160,48 @@ it indirectly). Nothing else; the generated C compiles with gcc-14 unchanged.
 - **Still manual:** Steam gives a new non-Steam shortcut the "Keyboard (WASD) and Mouse" template. Choose
   "Gamepad with Joystick Trackpad" once.
 
-### P3: Windows
-1. **Toolchain: MSYS2 CLANG64.** Reasons:
-   - clang compiles the generated C unchanged;
-   - mingw-w64 supplies `dirent`, `unistd` and `strcasecmp`;
-   - pacman has `mingw-w64-clang-x86_64-{toolchain,cmake,ninja,sdl3,python,innoextract}`;
-   - its bash runs `setup.sh` and the E2E scripts.
-   Visual Studio + clang-cl + vcpkg stays possible later, but it needs more `#ifdef`s.
-2. `platform_win32.cpp`:
-   - **Memory:** reserve 4 GB, then commit:
-     - image sections at load;
-     - stack, TEB and EXT at init;
-     - heap and VirtualAlloc arenas page-wise as `Arena::alloc` hands out blocks (avoids a 1.8 GB commit
-       charge).
-   - **Crashes:** vectored exception handler that reports guest faults.
-   - **Stack:** main-thread stack through the linker.
-3. **SEH/`setjmp`:** mingw-w64 x64 `longjmp` unwinds through frames (via `RtlUnwindEx`), and clang emits the
-   unwind tables it needs. If it misbehaves or is slow, switch the generated code to `__builtin_setjmp` /
-   `__builtin_longjmp`. **Gate:** the difftest plus an E2E race that triggers the CRT exception paths.
-4. **App manifest:**
-   - UTF-8 active code page, for non-ASCII user folders;
-   - PerMonitorV2 DPI awareness;
-   - WIN32 subsystem (no console).
-   Icon `.rc` built locally from the GOG `.ico`.
-5. **GPU:** D3D12 by default (any DX12-class GPU from 2015 on); Vulkan as fallback through SDL's driver hint.
-6. **Setup:**
-   - `setup.ps1` installs MSYS2 with `winget` if it is missing, then runs `setup.sh` in the CLANG64
-     environment;
-   - output goes to `%LOCALAPPDATA%\Programs\MotoRacerRecomp\` (exe + SDL3.dll) plus a Start-menu shortcut;
-   - **bonus:** detect an existing GOG install in the registry (`HKLM\SOFTWARE\WOW6432Node\GOG.com\Games\…`)
-     and copy its files in place of the installer.
-7. **Verification:**
-   - needs Windows: real hardware, or Windows 11 ARM in UTM/Parallels running the x64 build under
-     emulation;
-   - VM GPUs may lack D3D12, so test Vulkan or WARP there and treat real hardware as the final check;
-   - an arm64-Windows native build (llvm-mingw aarch64) is an optional extra.
+### P3: Windows — implemented 2026-10-14 (verified under Wine; awaiting the owner's PC)
+**Toolchain: llvm-mingw** (clang 23, mingw-w64, UCRT), not MSYS2.
+- It is the same toolchain for the cross-build on the Mac (`tools/windows/mingw-cross.cmake`) and the player
+  build on Windows (`setup.ps1`). The Windows release zip is portable, pinned and SHA-256 checked; there is no
+  system-wide install.
+- `setup.ps1` gets CMake 4.4.3 and Ninja 1.13.2 from pip into the build venv. Python itself (3.12) comes from
+  winget, per user, if missing.
+
+**Adapters** (`platform/win32.cpp`):
+
+| Interface | Implementation |
+|---|---|
+| VirtualMemory | `VirtualAlloc` reserve/commit. A vectored exception handler commits any other untouched page in the reservation on first access (POSIX overcommit semantics); guard ranges excluded. |
+| Execution | a **fiber** with a 512 MB stack on the main thread (no trampoline asm, no linker stack flag) |
+| CrashReporter | `SetUnhandledExceptionFilter` + `SIGABRT`; `SetThreadStackGuarantee` leaves room after a stack overflow; backtrace as module+offset from `RtlCaptureStackBackTrace` |
+| FileSystem | UTF-16 Win32 APIs; `rename` = `MoveFileExW(REPLACE_EXISTING)`, as POSIX |
+| HostPaths | `%LOCALAPPDATA%/MotoRacerRecomp` (not roaming: about 100 MB of game files), log in `logs/` |
+| HostInfo | `SteamDeck=1` (Windows on a Deck) |
+
+**Program:**
+- GUI subsystem (`-mwindows`) and a static C++ runtime with SDL3 bundled. The only imports are system DLLs and
+  the UCRT.
+- `SDL_main.h` provides `WinMain`.
+- A generated `motoracer.rc` embeds `runtime/src/platform/motoracer.manifest` (activeCodePage UTF-8, PerMonitorV2
+  DPI, Windows 10/11) and the GOG icon.
+
+**Portability fixes the MinGW build found:**
+- Generated code used BSD `_setjmp`. `RECOMP_SETJMP`/`RECOMP_LONGJMP` (recomp.h) are `_setjmp`/`_longjmp` on POSIX
+  and the CRT `setjmp`/`longjmp` on Windows, which unwinds through SEH.
+- `asprintf` (com.cpp thunk names) → `std::string` storage.
+- Missing `<cstdlib>` (support.cpp, winmm_joy.cpp).
+- Log flushed after every write, because the Windows CRT treats `_IOLBF` as full buffering. A killed run left an
+  empty log.
+
+**GPU:** the device is created with SPIR-V + MSL, so SDL picks **Vulkan** on Windows. A DXIL backend (D3D12) is
+optional later, for machines without Vulkan drivers.
+
+**Verification:**
+- Cross-built `motoracer.exe` under Wine 8 (Docker amd64, Xvfb, lavapipe): menus and a full race on Vulkan.
+- The log is written to `%LOCALAPPDATA%\MotoRacerRecomp\logs`.
+- innoextract 1.9 (Windows, 32-bit) under Wine unpacks the GOG installer; the `game.EXE` hash matches.
+- `setup.ps1` parses (PowerShell parser). It has not run on Windows yet.
 
 ### P4: CI without game code
 GitHub Actions matrix (macos-14, ubuntu-24.04, windows-2022/MSYS2):
@@ -220,5 +227,5 @@ independent after P0.
 - [x] P0 portability layer + cross-compiled shaders
 - [x] P1 Linux (container build, headless-verified)
 - [x] P2 Steam Deck: verified on the owner's Deck (2026-10-14). Pending: automatic Steam Input template
-- [ ] P3 Windows
+- [x] P3 Windows: implemented, verified under Wine; on-PC test pending
 - [ ] P4 CI

@@ -58,7 +58,7 @@ void nonlocal_jump(uint32_t target) {
     eh_resume_va = target;
     jmp_buf *jb = it->second;
     frames.erase(frames.begin(), it);   // inner frames are unwound
-    _longjmp(*jb, 1);
+    RECOMP_LONGJMP(*jb, 1);
 }
 
 }  // extern "C"

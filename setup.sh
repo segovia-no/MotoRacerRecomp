@@ -23,7 +23,7 @@ die() { printf '\nerror: %s\n' "$*" >&2; exit 1; }
 
 # --- platform -------------------------------------------------------------------------------
 [ "$(uname -s)" = Linux ] && exec "$HERE/tools/linux/setup_linux.sh" "$@"   # Linux / Steam Deck
-[ "$(uname -s)" = Darwin ] || die "this setup is for macOS and Linux (a Windows port is planned)"
+[ "$(uname -s)" = Darwin ] || die "this setup is for macOS and Linux; on Windows run setup.cmd"
 [ "$(uname -m)" = arm64 ] || die "an Apple Silicon Mac (arm64) is required for now"
 xcode-select -p >/dev/null 2>&1 || die "Xcode Command Line Tools are missing: run 'xcode-select --install' and re-run this script"
 command -v brew >/dev/null 2>&1 || die "Homebrew is required: see https://brew.sh, then re-run this script"

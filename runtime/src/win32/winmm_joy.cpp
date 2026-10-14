@@ -13,6 +13,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <vector>
 
 #include "settings.h"

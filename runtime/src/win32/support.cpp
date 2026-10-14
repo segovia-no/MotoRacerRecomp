@@ -1,6 +1,7 @@
 // Handle table, path mapping, module registry and resource lookup.
 #include <strings.h>
 
+#include <cstdlib>
 #include <map>
 #include <vector>
 

@@ -1,13 +1,13 @@
 # Moto Racer Recomp
 
-Play **Moto Racer** (Delphine Software, 1997) natively on modern Macs, Linux PCs and the **Steam Deck**: in widescreen, at up to 4K, with a gamepad.
+Play **Moto Racer** (Delphine Software, 1997) natively on modern Macs, Windows and Linux PCs and the **Steam Deck**: in widescreen, at up to 4K, with a gamepad.
 
-This is a *static recompilation*: the original Windows game executable from your GOG copy is translated to C on your machine and linked against a small runtime that re-implements the Windows, DirectDraw/Direct3D, DirectSound and CD-audio parts the game needs. No emulator, no Wine: the game runs as a native Apple Silicon or x86-64 Linux program.
+This is a *static recompilation*: the original Windows game executable from your GOG copy is translated to C on your machine and linked against a small runtime that re-implements the Windows, DirectDraw/Direct3D, DirectSound and CD-audio parts the game needs. No emulator, no Wine: the game runs as a native Apple Silicon, Windows x64 or x86-64 Linux program.
 
 > **You need your own copy of the game.** Buy *Moto Racer* on [GOG](https://www.gog.com/game/moto_racer) and download the offline installer (`setup_moto_racer_2.1.0.11.exe`). This repository contains no game code or assets; everything is generated from your installer on your own machine.
 
 ## Features
-- Native macOS app (Apple Silicon) or Linux / Steam Deck program, built locally from your GOG installer with one command.
+- Native macOS app (Apple Silicon), Windows program or Linux / Steam Deck program, built locally from your GOG installer with one command.
 - The game's Direct3D renderer on the GPU (Metal) — or its original software renderer (Options › D3D: OFF).
 - **True widescreen**: the game's own 16/9 mode at native 1280×720, 1920×1080, 2560×1440 or 3840×2160, or 16:10 at 1280×800 (Steam Deck), 1920×1200 or 2560×1600, chosen in the game's Options › SCREEN MODE.
 - Race HUD scaled to the resolution, longer draw distance and smoother opponent level of detail.
@@ -51,6 +51,16 @@ To update after a `git pull`, run `./setup.sh` again (no argument needed); your 
 
 Other Linux PCs (x86-64): same command. It needs `podman` or `docker`; the binary runs on any distribution with glibc 2.29 or later.
 
+## Windows
+1. Get the code: `git clone https://github.com/segovia-no/MotoRacerRecomp.git`, or **Code › Download ZIP** on GitHub and unzip it.
+2. Put the GOG offline installer in your Downloads folder and **double-click `setup.cmd`**. You can also drop the installer onto `setup.cmd`.
+   - Needs Windows 10 or 11 (64-bit).
+   - Python 3 is installed for your user with winget if it is missing.
+   - The compiler (llvm-mingw), innoextract, CMake and Ninja are downloaded into the project's `build` folder: pinned versions, checksum-verified. Nothing else is installed.
+   - The game goes to `%LOCALAPPDATA%\MotoRacerRecomp`, with a **Moto Racer** Start menu entry.
+   - The first run downloads about 250 MB and takes a few minutes.
+3. Start *Moto Racer* from the Start menu. **Alt+Enter** toggles fullscreen.
+
 ## Controls
 **Keyboard** (as in the original; change them in Options › CONTROLLER › config): arrows to steer, accelerate and brake, **A**/**Z** gear up/down, **Space** turbo/stunts, **Esc** pause.
 
@@ -76,7 +86,7 @@ Most settings are the game's own, in **Options**:
 - **D3D** — OFF (original software renderer, original resolutions), ON, FILTERED (smooth textures).
 - **DETAIL LEVELS**, opponents, volumes, controller.
 
-Port options live in the `[Recomp]` section of `motoracer.ini` in the game folder (`~/Library/Application Support/MotoRacerRecomp/game` on macOS, `~/.local/share/MotoRacerRecomp/game` on Linux):
+Port options live in the `[Recomp]` section of `motoracer.ini` in the game folder (`~/Library/Application Support/MotoRacerRecomp/game` on macOS, `~/.local/share/MotoRacerRecomp/game` on Linux, `%LOCALAPPDATA%\MotoRacerRecomp\game` on Windows):
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -96,10 +106,10 @@ Port options live in the `[Recomp]` section of `motoracer.ini` in the game folde
 | `Renderer` | `d3d` | `software` forces the original renderer everywhere (the in-game D3D option is usually enough) |
 
 ## Troubleshooting
-- **Log**: `~/Library/Logs/MotoRacerRecomp/motoracer.log` on macOS, `~/.local/state/MotoRacerRecomp/motoracer.log` on Linux (the previous run is kept as `motoracer.log.1`). Please attach it to bug reports.
+- **Log**: `~/Library/Logs/MotoRacerRecomp/motoracer.log` on macOS, `~/.local/state/MotoRacerRecomp/motoracer.log` on Linux, `%LOCALAPPDATA%\MotoRacerRecomp\logs\motoracer.log` on Windows (the previous run is kept as `motoracer.log.1`). Please attach it to bug reports.
 - **Reinstall the game files**: `./setup.sh path/to/installer.exe` again.
 - **Reset settings**: delete the `[Recomp]` section of `motoracer.ini` and `recomp_state.txt` in the game folder; the game's own options are in `data/CONFIG.BPT`.
-- **Uninstall**: delete `~/Applications/MotoRacer.app` and `~/Library/Application Support/MotoRacerRecomp` (macOS), or `~/.local/share/MotoRacerRecomp` and `~/.local/share/applications/motoracer-recomp.desktop` (Linux).
+- **Uninstall**: delete `~/Applications/MotoRacer.app` and `~/Library/Application Support/MotoRacerRecomp` (macOS), `~/.local/share/MotoRacerRecomp` and `~/.local/share/applications/motoracer-recomp.desktop` (Linux), or `%LOCALAPPDATA%\MotoRacerRecomp` and the Start menu shortcut (Windows).
 - The build only accepts the GOG `game.EXE` (checked by hash), because the recompiler's analysis is specific to that binary.
 
 ## Building by hand
@@ -127,7 +137,7 @@ Developer aids: `--trace` logs every Windows API call; environment overrides `MO
 The reverse-engineering notes and design decisions are in [docs/](docs/00-overview.md).
 
 ## Roadmap
-See [docs/12-roadmap.md](docs/12-roadmap.md) and [docs/15-ports-plan.md](docs/15-ports-plan.md): the Windows port, 21:9, and hand-decompiling game modules into readable C++.
+See [docs/12-roadmap.md](docs/12-roadmap.md) and [docs/15-ports-plan.md](docs/15-ports-plan.md): 21:9, CI builds, and hand-decompiling game modules into readable C++.
 
 ## Distribution and legal
 Only this source repository may be shared. Everything a build produces — the generated C in `build/cmake/gen/`, the `motoracer` binary and `MotoRacer.app` — contains code translated from your `game.EXE` and must **not** be redistributed. There are no prebuilt releases: every player builds from their own GOG copy.

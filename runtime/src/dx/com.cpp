@@ -2,6 +2,8 @@
 
 #include <array>
 #include <cstdio>
+#include <deque>
+#include <string>
 #include <vector>
 
 using namespace rt;
@@ -63,9 +65,9 @@ uint32_t make_vtable(const char *iface, std::initializer_list<Method> methods, i
     for (int s = 0; s < slots; s++) {
         Method m = it != methods.end() ? *it++ : nullptr;
         trap_info[t][s] = {iface, s};
-        char *name = nullptr;
-        asprintf(&name, "%s::slot%d", iface, s);
-        WR32(vt + 4 * static_cast<uint32_t>(s), register_thunk(m ? m : trap_table[t][s], name));
+        static std::deque<std::string> names;   // thunk names live as long as the thunks
+        names.push_back(std::string(iface) + "::slot" + std::to_string(s));
+        WR32(vt + 4 * static_cast<uint32_t>(s), register_thunk(m ? m : trap_table[t][s], names.back().c_str()));
     }
     return vt;
 }
