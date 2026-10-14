@@ -40,7 +40,7 @@ To update after a `git pull`, run `./setup.sh` again (no argument needed); your 
    No sudo or developer mode is needed. The script:
    - builds inside Valve's Steam Runtime SDK container with `podman` (preinstalled on SteamOS);
    - unpacks the installer in a small Debian container;
-   - installs to `~/.local/share/MotoRacerRecomp`, adds a menu entry and adds *Moto Racer* to your Steam library.
+   - installs to `~/.local/share/MotoRacerRecomp` and adds a menu entry. If Steam is running, it also adds *Moto Racer* to your Steam library. Otherwise, in Steam use Games › Add a Non-Steam Game to My Library › Moto Racer.
 
    The first run downloads about 2 GB of build images and takes a few minutes.
 2. Go back to **Game Mode** and start *Moto Racer* from your library (under Non-Steam).

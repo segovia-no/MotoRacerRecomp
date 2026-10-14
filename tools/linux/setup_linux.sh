@@ -104,17 +104,22 @@ Categories=Game;
 Terminal=false
 EOF
 
-if [ -z "${NO_STEAM:-}" ] && command -v steamos-add-to-steam >/dev/null 2>&1; then
-    say "Adding Moto Racer to your Steam library"
-    steamos-add-to-steam "$DESKTOP" >/dev/null 2>&1 || echo "  (could not reach Steam - add it by hand, see below)"
+# steamos-add-to-steam hands a steam:// link to Steam and waits; with Steam not running it starts
+# Steam and never returns. Only use it with Steam already running, detached and time-limited.
+STEAM_ADDED=""
+if [ -z "${NO_STEAM:-}" ] && command -v steamos-add-to-steam >/dev/null 2>&1 && pgrep -x steam >/dev/null 2>&1; then
+    say "Adding Moto Racer to your Steam library (confirm in Steam if it asks)"
+    (timeout 20 steamos-add-to-steam "$DESKTOP" >/dev/null 2>&1 &)
+    STEAM_ADDED=1
 fi
 
 cat <<EOF
 
 Done. Start the game from your applications menu ("Moto Racer"), or:
     "$APP_DIR/bin/motoracer"
-Steam Deck Game Mode: the game is in your library (or in Desktop Mode, Steam > Add a Game >
-Add a Non-Steam Game > Moto Racer). The built-in controls work as a gamepad.
+Steam Deck Game Mode: ${STEAM_ADDED:+the game should now be in your library. Otherwise: }in Desktop Mode open
+Steam > Games > Add a Non-Steam Game to My Library > tick "Moto Racer" > Add Selected Programs.
+Then start it from Game Mode (Library > Non-Steam). The built-in controls work as a gamepad.
 
 First start: the game picks its 16/9 MODE at the screen's native resolution (Steam Deck: 1280x800;
 change it in Options > SCREEN MODE, e.g. 1920x1080 on a TV) and the gamepad layout

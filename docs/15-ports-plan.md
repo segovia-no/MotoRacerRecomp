@@ -111,7 +111,10 @@ it indirectly). Nothing else; the generated C compiles with gcc-14 unchanged.
    - binary at `~/.local/share/MotoRacerRecomp/bin/motoracer` (debug info stripped);
    - icon `motoracer.png`, taken from the GOG `.ico`'s 256 px PNG (`tools/linux/ico_to_png.py`);
    - menu entry `~/.local/share/applications/motoracer-recomp.desktop`;
-   - Steam library entry via `steamos-add-to-steam` (`NO_STEAM=1` skips it).
+   - Steam library entry via `steamos-add-to-steam`, only when Steam is already running, detached and limited to 20 s
+     (`NO_STEAM=1` skips it); otherwise the script prints the manual steps.
+   - First Deck test (2026-10-14): the script hung at this step. `steamos-add-to-steam` passes a `steam://` link to
+     Steam and waits; with Steam not running in Desktop Mode it started Steam and never returned. Fixed as above.
 
 **Platform adapters added:**
 - `paths_xdg.cpp` (data `$XDG_DATA_HOME`, log `$XDG_STATE_HOME`; parents created);
