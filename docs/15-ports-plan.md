@@ -155,6 +155,8 @@ it indirectly). Nothing else; the generated C compiles with gcc-14 unchanged.
   - MASTER VOLUME started at 0 (10-input-audio.md);
   - the gamepad was dead until the joypad config page, and the JOYSTICK default didn't stick: the Steam virtual pad
     appears after launch, and pads were opened lazily (10-input-audio.md).
+- **Retest after the fixes** (owner, 2026-10-14): the gamepad works from launch, JOYSTICK is the default, and
+  performance in Game Mode is "flawless".
 - **Still manual:** Steam gives a new non-Steam shortcut the "Keyboard (WASD) and Mouse" template. Choose
   "Gamepad with Joystick Trackpad" once.
 
@@ -217,6 +219,6 @@ independent after P0.
 ## Status
 - [x] P0 portability layer + cross-compiled shaders
 - [x] P1 Linux (container build, headless-verified)
-- [ ] P2 Steam Deck — implemented, waiting for an on-device test
+- [x] P2 Steam Deck: verified on the owner's Deck (2026-10-14). Pending: automatic Steam Input template
 - [ ] P3 Windows
 - [ ] P4 CI

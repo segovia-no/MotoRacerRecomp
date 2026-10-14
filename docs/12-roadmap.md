@@ -16,7 +16,7 @@
 - [x] **HUD scaling at high resolutions** — race HUD enlarged by screen width / 640 about its screen edges (`HudScale=auto|factor`). See 11-d3d-plan.md.
 - [ ] **Custom resolutions / native 16:9 rendering** — build on the above: render the band directly at the window's resolution instead of a multiple of 640x480; later, adjust the projection for arbitrary aspect ratios.
 - [x] **In-game volume sliders** — Options shows MASTER/WAVE/CD AUDIO VOLUME "Not available" because the WINMM mixer API reports no device; wire it to our music/SFX gains.
-- [x] **Linux / Steam Deck port** (on-device Deck test pending) — runtime is SDL3 + C/C++; needs an x86-64 stack-switch trampoline (arm64 only today), Vulkan/SPIR-V shaders for SDL_GPU (MSL only today), packaging (AppImage/Flatpak), Steam Deck controller defaults. Plan: 15-ports-plan.md.
+- [x] **Linux / Steam Deck port**: verified on a Steam Deck 2026-10-14; Steam Input template still set by hand — runtime is SDL3 + C/C++; needs an x86-64 stack-switch trampoline (arm64 only today), Vulkan/SPIR-V shaders for SDL_GPU (MSL only today), packaging (AppImage/Flatpak), Steam Deck controller defaults. Plan: 15-ports-plan.md.
 - [ ] **Windows port** — same as Linux plus D3D12/Vulkan shader formats for SDL_GPU and a Win32 build; the guest Win32 layer stays emulated (no native API passthrough). Plan: 15-ports-plan.md.
 
 ## In progress
