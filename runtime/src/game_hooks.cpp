@@ -33,6 +33,7 @@
 #include "platform/platform.h"
 #include "runtime.h"
 #include "settings.h"
+#include "user32.h"
 
 using namespace rt;
 
@@ -225,15 +226,22 @@ void select_for(List which) {
 
 }  // namespace
 
-// First run with a gamepad connected: CONTROLLER = JOYSTICK (analog), set right after the game read
-// "InputDevice" and before it initialises the input device at startup (0x47310b -> 0x4311c0, which
-// falls back to the keyboard if no joystick answers). The binding preset follows in frame_tick.
+// Right after the game read "InputDevice" (0x4dc11c) and before it initialises the input device
+// (0x47310b -> 0x4311c0, which falls back to the keyboard if no joystick answers):
+// - wait for the gamepad when one is expected: Steam Input creates its virtual pad just after the
+//   game started (Steam Deck: seen in the first on-device test, the game fell back to KEYBOARD);
+// - first run with a gamepad, or on a Steam Deck: CONTROLLER = JOYSTICK (analog). The binding
+//   preset follows in frame_tick.
 extern "C" void game_hook_input_loaded(void) {
     load_state();
-    if (defaults_applied || !settings::get().controller_preset) return;
-    SDL_InitSubSystem(SDL_INIT_GAMEPAD);
-    bool deck = plat::host().info.is_steam_deck();   // built-in controls, even if not enumerated yet
-    if ((SDL_HasGamepad() || deck) && RD32(INPUT_DEVICE) != 2) {
+    bool deck = plat::host().info.is_steam_deck();
+    bool first = !defaults_applied && settings::get().controller_preset;
+    if (deck || RD32(INPUT_DEVICE) == 2) {
+        uint64_t t0 = SDL_GetTicks();
+        bool found = w32::wait_for_gamepad(deck ? 5000 : 1000);
+        log("gamepad: %s after %llu ms\n", found ? "ready" : "none", static_cast<unsigned long long>(SDL_GetTicks() - t0));
+    }
+    if (first && (SDL_HasGamepad() || deck) && RD32(INPUT_DEVICE) != 2) {
         WR32(INPUT_DEVICE, 2);
         log("first run: %s, CONTROLLER set to JOYSTICK\n", deck ? "Steam Deck" : "gamepad found");
     }

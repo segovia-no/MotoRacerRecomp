@@ -75,3 +75,25 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
 - SDL's gamepad database maps Xbox, PlayStation, Switch Pro, 8BitDo and most pads to the same
   positional layout, so one preset fits all of them (on Nintendo-layout pads the bottom face
   button, labelled B, is "A").
+
+## Gamepads at startup (first Steam Deck test, 2026-10-14)
+- **Symptom:** on the Deck the pad did nothing (menus, race) until the game's joypad config page. CONTROLLER did
+  not default to JOYSTICK.
+- **Cause 1:** pads were opened only inside the WINMM joystick shim, i.e. when the game polled the joystick, and
+  SDL delivers gamepad button/axis events only for *opened* pads. So menu navigation depended on the game
+  polling first.
+  - **Fix:** `SDL_INIT_GAMEPAD` right after `SDL_Init` (main.cpp). Every `SDL_EVENT_GAMEPAD_ADDED`, including those
+    for pads present at start, opens the pad (`w32::gamepads_refresh`).
+- **Cause 2:** Steam Input creates its virtual gamepad only *after* the game process started. The game's input
+  init (`0x4311c0`) found no joystick and fell back to KEYBOARD.
+  - **Fix:** `game_hook_input_loaded` waits for a pad (`w32::wait_for_gamepad`, polling SDL device detection)
+    whenever one is expected: up to 5 s on a Steam Deck, 1 s elsewhere when CONTROLLER = JOYSTICK. It returns at
+    once if a pad is already there. The log says `gamepad: ready|none after N ms`.
+- **SDL facts** (3.4.16, `SDL_gamepad.c` `SDL_ShouldIgnoreGamepad`):
+  - Steam's virtual gamepad (Valve VID, `USB_PRODUCT_STEAM_VIRTUAL_GAMEPAD`) is ignored unless the
+    *environment variable* `SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD` is true. Steam sets it for what it
+    launches, together with `SDL_GAMECONTROLLER_IGNORE_DEVICES` for the physical controller. It is read with
+    getenv, not as a hint.
+  - The owner's test (pad works once opened) shows Steam sets it for non-Steam shortcuts too.
+- **Steam Input template:** a new non-Steam shortcut starts with Steam's "Keyboard (WASD) and Mouse" template.
+  Choose **Gamepad with Joystick Trackpad** once in the game's controller settings; Steam remembers it per game.

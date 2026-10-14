@@ -76,5 +76,7 @@ void host_event_hook(const SDL_Event &e);
 uint32_t key_state(uint32_t vk);
 void cd_audio_tick();   // winmm_cd.cpp
 void controller_tick(); // host_window.cpp: menu navigation auto-repeat
+void gamepads_refresh(); // winmm_joy.cpp: open newly connected gamepads (menu events need them open)
+bool wait_for_gamepad(uint32_t ms);   // winmm_joy.cpp: true once one is open, false after ms
 
 }  // namespace w32

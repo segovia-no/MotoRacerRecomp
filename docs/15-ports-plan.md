@@ -150,7 +150,13 @@ it indirectly). Nothing else; the generated C compiles with gcc-14 unchanged.
     a 1280×800 render target.
   - The Xbox preset needs a real pad: the container has none, so the game fell back to the keyboard.
 - **Container extraction:** produces the GOG `game.EXE` (hash checked).
-- **Still open:** a real Steam Deck run (Game Mode, Steam Input, `steamos-add-to-steam`, performance).
+- **First on-device test** (owner, 2026-10-14): the game runs in Game Mode at 1280×800. Three problems, all fixed:
+  - the setup hung at `steamos-add-to-steam` (see above);
+  - MASTER VOLUME started at 0 (10-input-audio.md);
+  - the gamepad was dead until the joypad config page, and the JOYSTICK default didn't stick: the Steam virtual pad
+    appears after launch, and pads were opened lazily (10-input-audio.md).
+- **Still manual:** Steam gives a new non-Steam shortcut the "Keyboard (WASD) and Mouse" template. Choose
+  "Gamepad with Joystick Trackpad" once.
 
 ### P3: Windows
 1. **Toolchain: MSYS2 CLANG64.** Reasons:

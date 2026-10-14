@@ -44,7 +44,8 @@ To update after a `git pull`, run `./setup.sh` again (no argument needed); your 
 
    The first run downloads about 2 GB of build images and takes a few minutes.
 2. Go back to **Game Mode** and start *Moto Racer* from your library (under Non-Steam).
-   - The built-in controls work as a gamepad.
+   - Controls: Steam gives new non-Steam games a keyboard layout. Once, open the game's controller settings
+     (Steam button › Controller settings) and choose **Gamepad with Joystick Trackpad**; Steam remembers it.
    - The game starts in 16/9 MODE at the Deck's native **1280×800**.
    - Docked to a TV? Choose e.g. 1920×1080 in Options › SCREEN MODE.
 

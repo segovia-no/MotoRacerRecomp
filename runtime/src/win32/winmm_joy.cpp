@@ -89,6 +89,21 @@ uint32_t to_axis(int v) {   // SDL -32768..32767 -> WINMM 0..65535, centre 0x7FF
 
 namespace w32 {
 uint64_t last_poll_ms = 0;   // last joyGetPosEx: the game is reading the pad itself
+
+void gamepads_refresh() { refresh_pads(); }
+
+// Steam Input (Steam Deck, Big Picture) creates its virtual gamepad only after the game started,
+// so it can be missing when the game first looks for a joystick.
+bool wait_for_gamepad(uint32_t ms) {
+    uint64_t until = SDL_GetTicks() + ms;
+    for (;;) {
+        refresh_pads();
+        if (!pads.empty()) return true;
+        if (SDL_GetTicks() >= until) return false;
+        SDL_Delay(50);
+        SDL_PumpEvents();   // runs device detection; the queued events are handled later as usual
+    }
+}
 }
 using w32::last_poll_ms;
 

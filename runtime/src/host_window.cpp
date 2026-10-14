@@ -135,6 +135,7 @@ void host_event_hook(const SDL_Event &e) {
         inject_key(vk, pc_scancode(e.key.scancode), e.type == SDL_EVENT_KEY_DOWN);
         return;
     }
+    if (e.type == SDL_EVENT_GAMEPAD_ADDED) w32::gamepads_refresh();   // also the pads present at start
     controller_event(e);
 }
 

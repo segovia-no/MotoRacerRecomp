@@ -79,6 +79,9 @@ int main(int argc, char **argv) {
     }
 
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) fatal("SDL_Init failed: %s", SDL_GetError());
+    // Gamepads from the start: SDL then reports each connected pad (SDL_EVENT_GAMEPAD_ADDED) and
+    // the runtime opens it, so the menus react to it before the game itself polls the joystick.
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) log("gamepad: init failed: %s\n", SDL_GetError());
     std::string game_dir = find_game_dir(game_dir_arg);
     if (!has_game(game_dir)) no_game();
     settings::load(game_dir);
