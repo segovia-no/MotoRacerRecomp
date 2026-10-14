@@ -46,9 +46,23 @@ target_compile_options(gamecode PRIVATE -w -O1 -fno-strict-aliasing)
 find_package(SDL3 REQUIRED CONFIG)
 
 file(GLOB RUNTIME_SOURCES CONFIGURE_DEPENDS
-  runtime/src/*.cpp runtime/src/*.c runtime/src/win32/*.cpp runtime/src/dx/*.cpp)
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
-  list(APPEND RUNTIME_SOURCES runtime/src/stack_switch_arm64.S)
+  runtime/src/*.cpp runtime/src/*.c runtime/src/win32/*.cpp runtime/src/dx/*.cpp runtime/src/gpu/*.cpp)
+
+# Host platform adapters (runtime/src/platform/platform.h): exactly one set per OS / CPU.
+set(PLAT runtime/src/platform)
+if(APPLE)
+  list(APPEND RUNTIME_SOURCES ${PLAT}/posix.cpp ${PLAT}/paths_macos.cpp)
+elseif(UNIX)
+  list(APPEND RUNTIME_SOURCES ${PLAT}/posix.cpp ${PLAT}/paths_xdg.cpp)
+else()
+  message(FATAL_ERROR "no platform adapters for ${CMAKE_SYSTEM_NAME} yet (see docs/15-ports-plan.md)")
+endif()
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
+  list(APPEND RUNTIME_SOURCES ${PLAT}/stack_arm64.S)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
+  list(APPEND RUNTIME_SOURCES ${PLAT}/stack_x86_64_sysv.S)
+else()
+  message(FATAL_ERROR "no call_on_stack trampoline for ${CMAKE_SYSTEM_PROCESSOR}")
 endif()
 
 add_executable(motoracer ${RUNTIME_SOURCES} $<TARGET_OBJECTS:gamecode>)

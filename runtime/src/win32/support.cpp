@@ -1,11 +1,10 @@
 // Handle table, path mapping, module registry and resource lookup.
-#include <dirent.h>
 #include <strings.h>
-#include <sys/stat.h>
 
 #include <map>
 #include <vector>
 
+#include "platform/platform.h"
 #include "win32.h"
 
 extern "C" {
@@ -73,19 +72,11 @@ std::string guest_full_path(const std::string &p) {
 
 // Find `name` in host directory `dir` ignoring case.
 static std::string match_ci(const std::string &dir, const std::string &name) {
-    struct stat st;
+    auto &fs = plat::host().fs;
     std::string exact = dir.empty() ? name : dir + "/" + name;
-    if (stat(exact.c_str(), &st) == 0) return exact;
-    if (DIR *d = opendir(dir.empty() ? "." : dir.c_str())) {
-        while (dirent *e = readdir(d)) {
-            if (strcasecmp(e->d_name, name.c_str()) == 0) {
-                std::string r = dir.empty() ? e->d_name : dir + "/" + e->d_name;
-                closedir(d);
-                return r;
-            }
-        }
-        closedir(d);
-    }
+    if (fs.stat(exact).exists) return exact;
+    for (const std::string &e : fs.list_dir(dir))
+        if (strcasecmp(e.c_str(), name.c_str()) == 0) return dir.empty() ? e : dir + "/" + e;
     return exact;
 }
 

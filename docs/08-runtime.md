@@ -17,8 +17,10 @@ build/cmake/motoracer [--game-dir extracted/app] [--trace] [-- game args]
 |---|---|
 | `include/recomp.h` | CPU model used by generated code (regs, x87, memory accessors) |
 | `include/runtime.h` | Host API: address-space layout, heap, thunks, `guest_call_*`, `STDCALL()` shim macro |
-| `src/main.cpp` | Args, SDL init, loads image, switches to a 512 MB host stack **on the main thread** (Cocoa needs it) via `stack_switch_arm64.S` |
-| `src/memory.cpp` | 4 GB guest reservation (first 64 KB `PROT_NONE`), best-fit heap arena, VirtualAlloc arena |
+| `src/main.cpp` | Args, SDL init, loads image, switches to a 512 MB host stack **on the main thread** (Cocoa needs it) via `plat::Execution` |
+| `src/memory.cpp` | 4 GB guest reservation (address space, not RAM; first 64 KB inaccessible), commits on use, best-fit heap arena, VirtualAlloc arena |
+| `src/platform/` | host OS adapters (virtual memory, big stack, crash reports, files, folders): see 15-ports-plan.md |
+| `src/gpu/shaders.*`, `shaders/` | GLSL shaders compiled to SPIR-V + MSL (`tools/build_shaders.sh`), one backend adapter per format |
 | `src/loader.cpp` | Verifies GOG `game.EXE` (size + PE timestamp `0x35A4A64F`), maps sections, fills all 284 IAT slots with thunks, TEB/PEB/stack |
 | `src/dispatch.cpp` | `call_indirect`, thunk registry, traps, crash handler (reports *guest* address + host backtrace whose `f_XXXXXXXX` frames are guest VAs) |
 | `src/x86_helpers.c` | x87 conversions, string ops, CPUID |

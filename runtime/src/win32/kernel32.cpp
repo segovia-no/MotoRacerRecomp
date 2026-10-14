@@ -1,17 +1,12 @@
 // KERNEL32 shims. Behaviour follows Windows 98, which the game targets.
-#include <dirent.h>
-#include <fcntl.h>
-#include <fnmatch.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <unistd.h>
-
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <map>
 #include <vector>
 
+#include "platform/platform.h"
 #include "win32.h"
 
 using namespace rt;
@@ -21,9 +16,8 @@ namespace {
 
 // ---------- file objects ----------
 struct File : Object {
-    int fd = -1;
+    std::unique_ptr<plat::File> host;
     std::string path;
-    ~File() override { if (fd >= 0) close(fd); }
 };
 
 struct FindState : Object {
@@ -34,17 +28,32 @@ struct FindState : Object {
 
 constexpr uint64_t EPOCH_DIFF_100NS = 116444736000000000ull;   // 1601 -> 1970
 
-uint64_t unix_to_filetime(time_t t) { return static_cast<uint64_t>(t) * 10000000ull + EPOCH_DIFF_100NS; }
+uint64_t unix_to_filetime(int64_t t) { return static_cast<uint64_t>(t) * 10000000ull + EPOCH_DIFF_100NS; }
+
+// Win32 wildcard match (* and ?), ignoring case.
+bool wildcard_match(const char *pat, const char *s) {
+    for (; *pat; pat++, s++) {
+        if (*pat == '*') {
+            while (pat[1] == '*') pat++;
+            if (!pat[1]) return true;
+            for (; *s; s++)
+                if (wildcard_match(pat + 1, s)) return true;
+            return false;
+        }
+        if (!*s) return false;
+        if (*pat != '?' && tolower(static_cast<unsigned char>(*pat)) != tolower(static_cast<unsigned char>(*s))) return false;
+    }
+    return !*s;
+}
 
 void fill_find_data(uint32_t fd_va, const std::string &host, const std::string &name) {
-    struct stat st{};
-    stat(host.c_str(), &st);
+    plat::FileInfo st = plat::host().fs.stat(host);
     memset(M + fd_va, 0, 320);
-    WR32(fd_va + 0, S_ISDIR(st.st_mode) ? 0x10 : 0x80);
-    uint64_t ft = unix_to_filetime(st.st_mtime);
+    WR32(fd_va + 0, st.is_dir ? 0x10 : 0x80);
+    uint64_t ft = unix_to_filetime(st.mtime);
     for (int k = 0; k < 3; k++) { WR32(fd_va + 4 + 8 * k, (uint32_t)ft); WR32(fd_va + 8 + 8 * k, (uint32_t)(ft >> 32)); }
     WR32(fd_va + 28, 0);
-    WR32(fd_va + 32, static_cast<uint32_t>(st.st_size));
+    WR32(fd_va + 32, static_cast<uint32_t>(st.size));
     write_cstr(fd_va + 44, name, 260);
     write_cstr(fd_va + 304, name.size() <= 12 ? name : name.substr(0, 12), 14);
 }
@@ -482,22 +491,26 @@ STDCALL(KERNEL32, CreateFileA, 7) {
     std::string gp = read_cstr(arg(0));
     std::string hp = host_path(gp);
     uint32_t access = arg(1), disp = arg(4);
-    int flags = (access & 0x40000000) ? ((access & 0x80000000) ? O_RDWR : O_WRONLY) : O_RDONLY;
+    bool wr = access & 0x40000000;
+    bool rd = !wr || (access & 0x80000000);
+    plat::Disposition d = plat::Disposition::OpenExisting;
     switch (disp) {
-    case 1: flags |= O_CREAT | O_EXCL; break;    // CREATE_NEW
-    case 2: flags |= O_CREAT | O_TRUNC; break;   // CREATE_ALWAYS
-    case 4: flags |= O_CREAT; break;             // OPEN_ALWAYS
-    case 5: flags |= O_TRUNC; break;             // TRUNCATE_EXISTING
-    default: break;                              // OPEN_EXISTING
+    case 1: d = plat::Disposition::CreateNew; break;
+    case 2: d = plat::Disposition::CreateAlways; break;
+    case 4: d = plat::Disposition::OpenAlways; break;
+    case 5: d = plat::Disposition::TruncateExisting; break;
+    default: break;   // OPEN_EXISTING
     }
-    int fd = open(hp.c_str(), flags, 0644);
-    if (trace_imports || fd < 0) log("CreateFileA(\"%s\" -> %s) = %s\n", gp.c_str(), hp.c_str(), fd < 0 ? "FAIL" : "ok");
-    if (fd < 0) {
-        set_last_error(errno == EEXIST ? ERROR_FILE_EXISTS : errno == EACCES ? ERROR_ACCESS_DENIED : ERROR_FILE_NOT_FOUND);
+    plat::FileError err;
+    auto hf = plat::host().fs.open(hp, rd, wr, d, &err);
+    if (trace_imports || !hf) log("CreateFileA(\"%s\" -> %s) = %s\n", gp.c_str(), hp.c_str(), hf ? "ok" : "FAIL");
+    if (!hf) {
+        set_last_error(err == plat::FileError::Exists ? ERROR_FILE_EXISTS
+                       : err == plat::FileError::AccessDenied ? ERROR_ACCESS_DENIED : ERROR_FILE_NOT_FOUND);
         return INVALID_HANDLE;
     }
     auto f = std::make_unique<File>();
-    f->fd = fd;
+    f->host = std::move(hf);
     f->path = hp;
     set_last_error(0);
     return handle_add(std::move(f));
@@ -506,7 +519,7 @@ STDCALL(KERNEL32, CreateFileA, 7) {
 STDCALL(KERNEL32, ReadFile, 5) {
     File *f = handle_as<File>(arg(0));
     if (!f) { set_last_error(ERROR_INVALID_HANDLE); return 0; }
-    ssize_t n = read(f->fd, M + arg(1), arg(2));
+    int64_t n = f->host->read(M + arg(1), arg(2));
     if (arg(3)) WR32(arg(3), n < 0 ? 0 : static_cast<uint32_t>(n));
     return n >= 0;
 }
@@ -514,7 +527,7 @@ STDCALL(KERNEL32, ReadFile, 5) {
 STDCALL(KERNEL32, WriteFile, 5) {
     File *f = handle_as<File>(arg(0));
     if (!f) { set_last_error(ERROR_INVALID_HANDLE); return 0; }
-    ssize_t n = write(f->fd, M + arg(1), arg(2));
+    int64_t n = f->host->write(M + arg(1), arg(2));
     if (arg(3)) WR32(arg(3), n < 0 ? 0 : static_cast<uint32_t>(n));
     return n >= 0;
 }
@@ -524,7 +537,7 @@ STDCALL(KERNEL32, SetFilePointer, 4) {
     if (!f) { set_last_error(ERROR_INVALID_HANDLE); return 0xFFFFFFFF; }
     int64_t off = static_cast<int32_t>(arg(1));
     if (arg(2)) off = static_cast<int64_t>((static_cast<uint64_t>(RD32(arg(2))) << 32) | arg(1));
-    off_t r = lseek(f->fd, off, arg(3) == 0 ? SEEK_SET : arg(3) == 1 ? SEEK_CUR : SEEK_END);
+    int64_t r = f->host->seek(off, arg(3) == 0 ? plat::Seek::Begin : arg(3) == 1 ? plat::Seek::Current : plat::Seek::End);
     if (r < 0) return 0xFFFFFFFF;
     if (arg(2)) WR32(arg(2), static_cast<uint32_t>(static_cast<uint64_t>(r) >> 32));
     return static_cast<uint32_t>(r);
@@ -533,10 +546,8 @@ STDCALL(KERNEL32, SetFilePointer, 4) {
 STDCALL(KERNEL32, GetFileSize, 2) {
     File *f = handle_as<File>(arg(0));
     if (!f) return 0xFFFFFFFF;
-    struct stat st;
-    fstat(f->fd, &st);
     if (arg(1)) WR32(arg(1), 0);
-    return static_cast<uint32_t>(st.st_size);
+    return static_cast<uint32_t>(f->host->info().size);
 }
 
 STDCALL(KERNEL32, GetFileType, 1) { return handle_as<File>(arg(0)) ? 1 : 0; }
@@ -544,9 +555,7 @@ STDCALL(KERNEL32, GetFileType, 1) { return handle_as<File>(arg(0)) ? 1 : 0; }
 STDCALL(KERNEL32, GetFileTime, 4) {
     File *f = handle_as<File>(arg(0));
     if (!f) return 0;
-    struct stat st;
-    fstat(f->fd, &st);
-    uint64_t ft = unix_to_filetime(st.st_mtime);
+    uint64_t ft = unix_to_filetime(f->host->info().mtime);
     for (int k = 1; k <= 3; k++)
         if (arg(k)) { WR32(arg(k), static_cast<uint32_t>(ft)); WR32(arg(k) + 4, static_cast<uint32_t>(ft >> 32)); }
     return 1;
@@ -555,17 +564,19 @@ STDCALL(KERNEL32, GetFileTime, 4) {
 STDCALL(KERNEL32, FileTimeToLocalFileTime, 2) { WR64(arg(1), RD64(arg(0))); return 1; }
 
 STDCALL(KERNEL32, FileTimeToSystemTime, 2) {
-    time_t t = static_cast<time_t>((RD64(arg(0)) - EPOCH_DIFF_100NS) / 10000000ull);
-    struct tm tm;
-    gmtime_r(&t, &tm);
+    using namespace std::chrono;
+    sys_seconds t{seconds{static_cast<int64_t>((RD64(arg(0)) - EPOCH_DIFF_100NS) / 10000000ull)}};
+    sys_days day = floor<days>(t);
+    year_month_day ymd{day};
+    hh_mm_ss<seconds> hms{t - day};
     uint32_t p = arg(1);
-    WR16(p + 0, static_cast<uint16_t>(tm.tm_year + 1900));
-    WR16(p + 2, static_cast<uint16_t>(tm.tm_mon + 1));
-    WR16(p + 4, static_cast<uint16_t>(tm.tm_wday));
-    WR16(p + 6, static_cast<uint16_t>(tm.tm_mday));
-    WR16(p + 8, static_cast<uint16_t>(tm.tm_hour));
-    WR16(p + 10, static_cast<uint16_t>(tm.tm_min));
-    WR16(p + 12, static_cast<uint16_t>(tm.tm_sec));
+    WR16(p + 0, static_cast<uint16_t>(static_cast<int>(ymd.year())));
+    WR16(p + 2, static_cast<uint16_t>(static_cast<unsigned>(ymd.month())));
+    WR16(p + 4, static_cast<uint16_t>(weekday{day}.c_encoding()));
+    WR16(p + 6, static_cast<uint16_t>(static_cast<unsigned>(ymd.day())));
+    WR16(p + 8, static_cast<uint16_t>(hms.hours().count()));
+    WR16(p + 10, static_cast<uint16_t>(hms.minutes().count()));
+    WR16(p + 12, static_cast<uint16_t>(hms.seconds().count()));
     WR16(p + 14, 0);
     return 1;
 }
@@ -578,7 +589,7 @@ STDCALL(KERNEL32, UnlockFile, 5) { return 1; }
 STDCALL(KERNEL32, SetEndOfFile, 1) {
     File *f = handle_as<File>(arg(0));
     if (!f) return 0;
-    return ftruncate(f->fd, lseek(f->fd, 0, SEEK_CUR)) == 0;
+    return f->host->truncate_at_position();
 }
 
 STDCALL(KERNEL32, DuplicateHandle, 7) {
@@ -586,13 +597,12 @@ STDCALL(KERNEL32, DuplicateHandle, 7) {
     return 1;
 }
 
-STDCALL(KERNEL32, DeleteFileA, 1) { return unlink(host_path(read_cstr(arg(0))).c_str()) == 0; }
+STDCALL(KERNEL32, DeleteFileA, 1) { return plat::host().fs.remove_file(host_path(read_cstr(arg(0)))); }
 
 STDCALL(KERNEL32, GetFileAttributesA, 1) {
-    struct stat st;
-    std::string hp = host_path(read_cstr(arg(0)));
-    if (stat(hp.c_str(), &st) != 0) { set_last_error(ERROR_FILE_NOT_FOUND); return 0xFFFFFFFF; }
-    return S_ISDIR(st.st_mode) ? 0x10 : 0x80;
+    plat::FileInfo st = plat::host().fs.stat(host_path(read_cstr(arg(0))));
+    if (!st.exists) { set_last_error(ERROR_FILE_NOT_FOUND); return 0xFFFFFFFF; }
+    return st.is_dir ? 0x10 : 0x80;
 }
 STDCALL(KERNEL32, SetFileAttributesA, 2) { return 1; }
 
@@ -624,14 +634,8 @@ STDCALL(KERNEL32, FindFirstFileA, 2) {
     std::string dir = full.substr(0, slash), mask = full.substr(slash + 1);
     auto fs = std::make_unique<FindState>();
     fs->host_dir = host_path(dir);
-    if (DIR *d = opendir(fs->host_dir.c_str())) {
-        while (dirent *e = readdir(d)) {
-            std::string n = e->d_name;
-            if (n == "." || n == "..") continue;
-            if (fnmatch(mask == "*.*" ? "*" : mask.c_str(), n.c_str(), FNM_CASEFOLD) == 0) fs->names.push_back(n);
-        }
-        closedir(d);
-    }
+    for (std::string &n : plat::host().fs.list_dir(fs->host_dir))
+        if (wildcard_match(mask == "*.*" ? "*" : mask.c_str(), n.c_str())) fs->names.push_back(std::move(n));
     if (fs->names.empty()) { set_last_error(ERROR_FILE_NOT_FOUND); return INVALID_HANDLE; }
     find_next_into(fs.get(), arg(1));
     return handle_add(std::move(fs));
@@ -698,7 +702,7 @@ STDCALL(KERNEL32, WritePrivateProfileStringA, 4) {
     if (!arg(1)) ini.erase(sec);
     else if (!arg(2)) ini[sec].erase(lower(read_cstr(arg(1))));
     else ini[sec][lower(read_cstr(arg(1)))] = read_cstr(arg(2));
-    mkdir("windows", 0755);
+    plat::host().fs.make_dir("windows");
     std::ofstream out(path);
     for (auto &[s, kv] : ini) {
         out << "[" << s << "]\r\n";

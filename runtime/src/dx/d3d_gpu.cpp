@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "ddraw_internal.h"
+#include "gpu/shaders.h"
 #include "host_gpu.h"
 #include "host_video.h"
 #include "settings.h"
@@ -33,86 +34,7 @@ enum : uint32_t {
     RS_COLORKEYENABLE = 41,
 };
 
-const char *kShaders = R"MSL(
-#include <metal_stdlib>
-using namespace metal;
-
-struct VIn {
-    float4 pos   [[attribute(0)]];
-    float4 color [[attribute(1)]];   // D3DCOLOR bytes B,G,R,A
-    float4 spec  [[attribute(2)]];
-    float2 uv    [[attribute(3)]];
-};
-struct VOut {
-    float4 pos [[position]];
-    float4 color;
-    float4 spec;
-    float2 uv;
-};
-
-struct VertUniforms { float4 offset; };   // xy: clip-space shift per unit w
-
-vertex VOut vs_main(VIn in [[stage_in]], constant VertUniforms &vu [[buffer(0)]]) {
-    VOut o;
-    o.pos = in.pos;
-    o.pos.xy += vu.offset.xy * in.pos.w;
-    o.color = in.color.zyxw;
-    o.spec = in.spec.zyxw;
-    o.uv = in.uv;
-    return o;
-}
-
-struct FragUniforms {
-    float4 fog_color;
-    float4 mode;     // x: textured, y: TEXTUREMAPBLEND, z: fog, w: specular
-    float4 alpha;    // x: alpha test on, y: ref (0..1), z: colour key on, w: texture format has alpha
-    float4 snap;     // x: sample at the original pixel centre, y: magnification, zw: grid origin (px)
-};
-
-fragment float4 fs_main(VOut in [[stage_in]], constant FragUniforms &u [[buffer(0)]],
-                        texture2d<float> tex [[texture(0)]], sampler smp [[sampler(0)]]) {
-    float4 c = in.color;
-    if (u.mode.x > 0.5) {
-        float2 uv = in.uv;
-        if (u.snap.x > 0.5) {
-            // Flat 2D element (HUD/text): use the texture coordinate the original 640x480 frame
-            // sampled for this pixel, so glyph atlases don't bleed at high resolution.
-            // Unshifted geometry: D3D's sample point for original pixel i is edge coordinate i.
-            float2 gpos = (in.pos.xy - u.snap.zw) / u.snap.y;
-            float2 d = (floor(gpos) - gpos) * u.snap.y;
-            uv += dfdx(in.uv) * d.x + dfdy(in.uv) * d.y;
-        }
-        float4 t = tex.sample(smp, uv);
-        if (u.alpha.z > 0.5 && t.a < 0.5) discard_fragment();
-        int blend = int(u.mode.y + 0.5);
-        if (blend == 1 || blend == 7)       c = t;                                  // DECAL / COPY
-        else if (blend == 3)                c = float4(mix(c.rgb, t.rgb, t.a), c.a); // DECALALPHA
-        else if (blend == 4)                c = c * t;                              // MODULATEALPHA
-        else if (blend == 8)                c = float4(c.rgb + t.rgb, c.a);         // ADD
-        else                                c = float4(c.rgb * t.rgb, u.alpha.w > 0.5 ? t.a : c.a); // MODULATE
-    }
-    if (u.mode.w > 0.5) c.rgb = saturate(c.rgb + in.spec.rgb);
-    if (u.mode.z > 0.5) c.rgb = mix(u.fog_color.rgb, c.rgb, in.spec.a);
-    if (u.alpha.x > 0.5 && c.a <= u.alpha.y) discard_fragment();
-    return c;
-}
-
-// Full-screen overlay: pixels the CPU changed in the 640x480 back buffer, drawn over the
-// high-resolution render target (alpha = changed mask).
-struct OOut { float4 pos [[position]]; float2 uv; };
-vertex OOut ov_vs(uint vid [[vertex_id]]) {
-    float2 p = float2((vid << 1) & 2, vid & 2);
-    OOut o;
-    o.pos = float4(p * 2.0 - 1.0, 0.0, 1.0);
-    o.uv = float2(p.x, 1.0 - p.y);
-    return o;
-}
-fragment float4 ov_fs(OOut in [[stage_in]], texture2d<float> tex [[texture(0)]], sampler smp [[sampler(0)]]) {
-    float4 t = tex.sample(smp, in.uv);
-    if (t.a < 0.5) discard_fragment();
-    return float4(t.rgb, 1.0);
-}
-)MSL";
+// Shaders: runtime/shaders/d3d.{vert,frag} and overlay.{vert,frag} (gpu/shaders.h).
 
 struct GpuVertex {
     float x, y, z, w;
@@ -665,26 +587,10 @@ bool init() {
     if (dev) return true;
     if (failed) return false;
     dev = host::gpu::device();
-    SDL_GPUShaderCreateInfo sci{};
-    sci.code = reinterpret_cast<const Uint8 *>(kShaders);
-    sci.code_size = strlen(kShaders);
-    sci.format = SDL_GPU_SHADERFORMAT_MSL;
-    sci.entrypoint = "vs_main";
-    sci.stage = SDL_GPU_SHADERSTAGE_VERTEX;
-    sci.num_uniform_buffers = 1;
-    vs = SDL_CreateGPUShader(dev, &sci);
-    sci.entrypoint = "fs_main";
-    sci.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
-    sci.num_samplers = 1;
-    sci.num_uniform_buffers = 1;
-    fs = SDL_CreateGPUShader(dev, &sci);
-    sci.entrypoint = "ov_fs";
-    ofs = SDL_CreateGPUShader(dev, &sci);
-    sci.entrypoint = "ov_vs";
-    sci.stage = SDL_GPU_SHADERSTAGE_VERTEX;
-    sci.num_samplers = 0;
-    sci.num_uniform_buffers = 0;
-    ovs = SDL_CreateGPUShader(dev, &sci);
+    vs = gpu_shaders::create(dev, gpu_shaders::Program::D3dVertex);
+    fs = gpu_shaders::create(dev, gpu_shaders::Program::D3dFragment);
+    ovs = gpu_shaders::create(dev, gpu_shaders::Program::OverlayVertex);
+    ofs = gpu_shaders::create(dev, gpu_shaders::Program::OverlayFragment);
     if (!vs || !fs || !ovs || !ofs) fatal("d3d gpu: shader compile failed: %s", SDL_GetError());
     {
         SDL_GPUColorTargetDescription color{};

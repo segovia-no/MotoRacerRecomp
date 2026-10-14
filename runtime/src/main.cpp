@@ -3,13 +3,9 @@
 // usage: motoracer [--game-dir DIR] [--trace] [-- game arguments...]
 //
 // The game directory (GOG install contents: game.EXE, data/, NN.wav) is searched in order:
-//   --game-dir DIR, $MOTORACER_GAME_DIR, ~/Library/Application Support/MotoRacerRecomp/game,
-//   ./extracted/app (development checkout).
+//   --game-dir DIR, $MOTORACER_GAME_DIR, <per-user data dir>/game (plat::HostPaths: on macOS
+//   ~/Library/Application Support/MotoRacerRecomp/game), ./extracted/app (development checkout).
 // Game arguments default to Params= from <game dir>/motoracer.ini (GOG's launcher config).
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -17,14 +13,13 @@
 
 #include <SDL3/SDL.h>
 
+#include "platform/platform.h"
 #include "runtime.h"
 #include "settings.h"
 
 namespace rt {
 void install_crash_handlers();
 }
-
-extern "C" void call_on_stack(void *stack_top, void (*fn)(void));
 
 using namespace rt;
 
@@ -37,16 +32,14 @@ void run_game() {
 }
 
 bool has_game(const std::string &dir) {
-    struct stat st;
-    return !dir.empty() && stat((dir + "/game.EXE").c_str(), &st) == 0;
+    return !dir.empty() && plat::host().fs.stat(dir + "/game.EXE").exists;
 }
 
 std::string find_game_dir(const std::string &explicit_dir) {
     std::vector<std::string> candidates;
     if (!explicit_dir.empty()) return explicit_dir;
     if (const char *e = getenv("MOTORACER_GAME_DIR")) candidates.push_back(e);
-    if (const char *home = getenv("HOME"))
-        candidates.push_back(std::string(home) + "/Library/Application Support/MotoRacerRecomp/game");
+    if (std::string data = plat::host().paths.data_dir(); !data.empty()) candidates.push_back(data + "/game");
     candidates.push_back("extracted/app");
     for (auto &c : candidates)
         if (has_game(c)) return c;
@@ -94,15 +87,12 @@ int main(int argc, char **argv) {
 
     memory_init();
     load_image(game_dir + "/game.EXE");
-    if (chdir(game_dir.c_str()) != 0) fatal("cannot chdir to %s", game_dir.c_str());
+    if (!plat::host().fs.set_current_dir(game_dir)) fatal("cannot chdir to %s", game_dir.c_str());
     setup_thread_environment("game.EXE " + game_args);
 
     install_crash_handlers();
     // Recompiled code nests one host frame per guest call; give it a deep stack, but stay
     // on the main thread because Cocoa (and so SDL video/events) requires it.
-    const size_t stack_size = 512u << 20;
-    void *stack = mmap(nullptr, stack_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
-    if (stack == MAP_FAILED) fatal("cannot allocate host stack");
-    call_on_stack(static_cast<char *>(stack) + stack_size, run_game);
+    if (!plat::host().execution.run_on_large_stack(512ull << 20, run_game)) fatal("cannot allocate host stack");
     return 0;
 }

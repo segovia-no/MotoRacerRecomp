@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "gpu/shaders.h"
 #include "runtime.h"
 #include "settings.h"
 
@@ -32,7 +33,7 @@ int ws_score = 0;   // >0: recent checks saw black letterbox bars
 SDL_GPUDevice *device() {
     if (dev) return dev;
     win = ensure_window();
-    dev = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_MSL, false, nullptr);
+    dev = SDL_CreateGPUDevice(gpu_shaders::formats(), false, nullptr);
     if (!dev) fatal("SDL_CreateGPUDevice failed: %s", SDL_GetError());
     if (!SDL_ClaimWindowForGPUDevice(dev, win)) fatal("SDL_ClaimWindowForGPUDevice failed: %s", SDL_GetError());
     SDL_GPUPresentMode mode = SDL_GPU_PRESENTMODE_VSYNC;

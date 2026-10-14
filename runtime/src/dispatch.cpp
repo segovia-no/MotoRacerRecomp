@@ -1,10 +1,5 @@
 // Indirect-call dispatch, host thunks, traps, logging and crash reporting.
-#include <execinfo.h>
-#include <signal.h>
-#include <unistd.h>
-
 #include <SDL3/SDL.h>
-#include <sys/stat.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -12,6 +7,7 @@
 #include <cstdlib>
 #include <vector>
 
+#include "platform/platform.h"
 #include "runtime.h"
 
 extern "C" {
@@ -51,14 +47,17 @@ void out(const char *fmt, ...) {
 }
 }  // namespace
 
-// ~/Library/Logs/MotoRacerRecomp/motoracer.log (previous run kept as .log.1).
+// <log dir>/motoracer.log (previous run kept as .log.1); on macOS the log dir is
+// ~/Library/Logs/MotoRacerRecomp (plat::HostPaths).
 void open_log_file() {
-    const char *home = getenv("HOME");
-    if (!home) return;
-    std::string dir = std::string(home) + "/Library/Logs/MotoRacerRecomp";
-    mkdir(dir.c_str(), 0755);
+    auto &h = plat::host();
+    std::string dir = h.paths.log_dir();
+    if (dir.empty()) return;
+    std::string parent = dir.substr(0, dir.find_last_of('/'));
+    h.fs.make_dir(parent);   // XDG state dir may not exist yet
+    h.fs.make_dir(dir);
     log_path = dir + "/motoracer.log";
-    rename(log_path.c_str(), (log_path + ".1").c_str());
+    h.fs.rename(log_path, log_path + ".1");
     log_file = fopen(log_path.c_str(), "w");
     if (log_file) setvbuf(log_file, nullptr, _IOLBF, 1 << 16);
 }
@@ -95,12 +94,9 @@ void dump_state() {
         out("    [%08x] %s!%s(%x, %x, %x, ...)\n", r.ret, r.dll, r.name, r.a0, r.a1, r.a2);
     }
     out("  host backtrace (f_XXXXXXXX = guest function VA):\n");
-    void *frames[48];
-    int fn = backtrace(frames, 48);
-    backtrace_symbols_fd(frames, fn, 2);
+    plat::host().crash.write_backtrace(stderr);
     if (log_file) {
-        fflush(log_file);
-        backtrace_symbols_fd(frames, fn, fileno(log_file));
+        plat::host().crash.write_backtrace(log_file);
         fflush(log_file);
     }
 }
@@ -115,7 +111,7 @@ void fatal(const char *fmt, ...) {
     dump_state();
     std::string box = std::string(msg) + "\n\nDetails were written to:\n" + log_path;
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Moto Racer crashed", box.c_str(), nullptr);
-    _exit(1);
+    std::_Exit(1);
 }
 
 void trace_call(const char *dll, const char *name, int nargs) {
@@ -189,9 +185,7 @@ void import_unimplemented(const char *dll, const char *name) {
 
 void x86_rdtsc(void) {
     // ~200 MHz Pentium-class clock derived from the host monotonic clock.
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    uint64_t t = (uint64_t)ts.tv_sec * 200000000ull + (uint64_t)ts.tv_nsec / 5;
+    uint64_t t = SDL_GetTicksNS() / 5;
     R.eax = (uint32_t)t;
     R.edx = (uint32_t)(t >> 32);
 }
@@ -215,33 +209,17 @@ void x86_unimpl(uint32_t va, const char *what) { fatal("unimplemented at 0x%08x:
 
 namespace rt {
 
-static void on_segv(int sig, siginfo_t *si, void *) {
-    uintptr_t a = reinterpret_cast<uintptr_t>(si->si_addr);
+static void on_fault(const plat::Fault &f) {
     uintptr_t base = reinterpret_cast<uintptr_t>(M);
-    if (a >= base && a < base + (1ull << 32))
-        out("FATAL: guest memory fault at guest address 0x%08lx (signal %d)\n", (unsigned long)(a - base), sig);
-    else if (sig == SIGABRT)
-        out("FATAL: host abort (signal %d) - see backtrace (Metal/SDL validation, assertion)\n", sig);
+    if (f.kind == plat::Fault::MemoryAccess && f.address >= base && f.address < base + (1ull << 32))
+        out("FATAL: guest memory fault at guest address 0x%08x (code %d)\n", static_cast<uint32_t>(f.address - base), f.code);
+    else if (f.kind == plat::Fault::Abort)
+        out("FATAL: host abort (code %d) - see backtrace (GPU/SDL validation, assertion)\n", f.code);
     else
-        out("FATAL: host fault at %p (signal %d)\n", si->si_addr, sig);
+        out("FATAL: host fault at 0x%llx (code %d)\n", static_cast<unsigned long long>(f.address), f.code);
     dump_state();
-    _exit(2);
 }
 
-void install_crash_handlers() {
-    static char altstack[1 << 16];
-    stack_t ss{};
-    ss.ss_sp = altstack;
-    ss.ss_size = sizeof altstack;
-    sigaltstack(&ss, nullptr);
-    struct sigaction sa{};
-    sa.sa_sigaction = on_segv;
-    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
-    sigaction(SIGSEGV, &sa, nullptr);
-    sigaction(SIGBUS, &sa, nullptr);
-    sigaction(SIGABRT, &sa, nullptr);   // Metal/SDL assertions, C++ aborts
-    sigaction(SIGILL, &sa, nullptr);
-    sigaction(SIGFPE, &sa, nullptr);
-}
+void install_crash_handlers() { plat::host().crash.install(on_fault); }
 
 }  // namespace rt

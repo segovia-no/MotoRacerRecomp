@@ -1,13 +1,14 @@
 // Guest address space and allocators.
 //
-// The whole 4 GB guest space is one lazily-committed host mapping. Win32 heap APIs share one
-// best-fit allocator over [HEAP_LO, HEAP_HI); VirtualAlloc hands out 64 KB-aligned regions
-// from [VALLOC_LO, VALLOC_HI). Bookkeeping lives on the host so guest corruption can't break it.
-#include <sys/mman.h>
-
+// The whole 4 GB guest space is one host reservation (plat::VirtualMemory). The fixed low
+// region and the TEB are committed at start; arena blocks are committed as they are handed out.
+// Win32 heap APIs share one best-fit allocator over [HEAP_LO, HEAP_HI); VirtualAlloc hands out
+// 64 KB-aligned regions from [VALLOC_LO, VALLOC_HI). Bookkeeping lives on the host so guest
+// corruption can't break it.
 #include <map>
 #include <unordered_map>
 
+#include "platform/platform.h"
 #include "runtime.h"
 
 namespace rt {
@@ -15,6 +16,10 @@ namespace rt {
 namespace {
 
 constexpr uint32_t ALIGN = 16;
+
+void commit(uint32_t va, uint32_t size) {
+    if (!plat::host().memory.commit(M + va, size)) fatal("cannot commit guest memory 0x%08x+0x%x", va, size);
+}
 
 struct Arena {
     std::map<uint32_t, uint32_t> free_by_addr;          // addr -> size
@@ -46,6 +51,7 @@ struct Arena {
             uint32_t end = start + need;
             if (a + s > end) insert_free(end, a + s - end);
             live[start] = need;
+            commit(start, need);
             return start;
         }
         return 0;
@@ -81,11 +87,13 @@ Arena heap, varena;
 }  // namespace
 
 void memory_init() {
-    void *p = mmap(nullptr, 1ull << 32, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE,
-                   -1, 0);
-    if (p == MAP_FAILED) fatal("cannot reserve 4 GB guest address space");
-    M = static_cast<uint8_t *>(p);
-    mprotect(M, NULL_GUARD, PROT_NONE);
+    auto &vm = plat::host().memory;
+    M = vm.reserve(1ull << 32);
+    if (!M) fatal("cannot reserve 4 GB guest address space");
+    commit(NULL_GUARD, HEAP_LO - NULL_GUARD);   // stack, image, relocated engine tables
+    commit(TEB_VA, 0x2000);                     // TEB + PEB
+    commit(THUNK_LO, THUNK_HI - THUNK_LO);      // host thunk addresses stay readable, as before
+    vm.make_inaccessible(M, NULL_GUARD);
     heap.init(HEAP_LO, HEAP_HI);
     varena.init(VALLOC_LO, VALLOC_HI);
 }
@@ -130,6 +138,7 @@ uint32_t valloc_reserve(uint32_t addr, uint32_t size) {
         if (addr > a) varena.insert_free(a, addr - a);
         if (a + s > addr + size) varena.insert_free(addr + size, a + s - (addr + size));
         varena.live[addr] = size;
+        commit(addr, size);
         return addr;
     }
     return varena.alloc(size, 0x10000);

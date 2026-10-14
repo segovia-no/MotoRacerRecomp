@@ -36,27 +36,52 @@ setup command on their own machine. No prebuilt game binaries. Targets:
 
 ## Phases
 
-### P0: portability layer on macOS (no behaviour change)
-1. Add `runtime/src/platform/platform.h` with one implementation file per OS (`platform_posix.cpp`,
-   `platform_win32.cpp`). It covers:
-   - guest reserve and commit;
-   - stack allocation and `call_on_stack`;
-   - data and log directories, using `SDL_GetPrefPath` on Linux and Windows;
-   - crash handlers.
-   `memory.cpp`, `main.cpp` and `dispatch.cpp` call only this layer.
-2. **Shaders:**
-   - Rewrite the 4 entry points once in HLSL in `runtime/shaders/*.hlsl`.
-   - Compile them offline with **SDL_shadercross** to MSL, SPIR-V and DXIL.
-   - Commit the outputs as C headers in `runtime/shaders/gen/`. They are our own code (MIT), so this is allowed.
-   - Add `tools/build_shaders.sh` to regenerate them.
-   - Create the device with every format we have and pick the matching blob at runtime from
-     `SDL_GetGPUShaderFormats`.
-   - Check the shadercross binding layout: vertex uniforms in space1, fragment uniforms in space3,
-     sampler/texture in space2.
-3. Move the arm64 asm under `runtime/src/platform/` and select it by CMake system and processor.
-4. **Verification:** the macOS E2E scenarios (menus, race at 1920×1080 16/9, software renderer) must give
-   snapshots identical to the pre-change ones (`tools/e2e_sheet.py` side by side, plus a pixel diff). The difftest
-   must show 0 failures.
+### P0: portability layer on macOS — done 2026-10-14
+Adapter pattern: the runtime calls interfaces, and each OS supplies adapter classes behind them.
+
+**`runtime/src/platform/platform.h`** defines five interfaces. `plat::host()` returns the build's adapters.
+
+| Interface | Used by | POSIX adapter (`posix.cpp`) | Windows adapter (P3) |
+|---|---|---|---|
+| `VirtualMemory`: reserve / commit / make_inaccessible | memory.cpp | `mmap` NORESERVE; commit is a no-op | `VirtualAlloc` reserve + commit |
+| `Execution`: run_on_large_stack | main.cpp | `mmap` stack + `call_on_stack` (`stack_arm64.S`, `stack_x86_64_sysv.S`) | thread or fiber with a big stack |
+| `CrashReporter`: install / write_backtrace | dispatch.cpp | `sigaction` + `sigaltstack`, `backtrace_symbols_fd` | vectored exception handler |
+| `FileSystem` + `File` | kernel32.cpp, support.cpp, main.cpp, dispatch.cpp | `open`/`read`/`lseek`/`ftruncate`, `opendir`, `stat` | `CreateFileW` etc. (UTF-8 → UTF-16) |
+| `HostPaths`: data_dir / log_dir | main.cpp, dispatch.cpp | `paths_macos.cpp` (~/Library/…), `paths_xdg.cpp` (XDG) | `%APPDATA%` |
+
+- CMake picks the adapter files from the OS and CPU. An unknown OS or CPU stops the configure step with a pointer
+  to this document.
+- Outside `platform/`, the runtime contains no POSIX or macOS headers or calls. Exceptions:
+  - standard C/C++ (`fopen`, `<fstream>`, `strcasecmp`);
+  - SDL, for timing: `x86_rdtsc` now uses `SDL_GetTicksNS`.
+- Other host-independent replacements:
+  - the Win32 `FindFirstFile` wildcard is our own matcher in place of `fnmatch`;
+  - `FileTimeToSystemTime` uses `std::chrono` calendar types in place of `gmtime_r`.
+- **Guest memory commits:**
+  - at start: the fixed low region (stack, image, relocated tables), TEB/PEB and the thunk range;
+  - heap and VirtualAlloc blocks, as they are handed out.
+  This is a no-op on POSIX. Windows needs it so that the 1.8 GB arenas are not committed up front.
+
+**Shaders:**
+- The 4 programs are now GLSL 450 in SDL_GPU's binding layout:
+  - vertex: uniforms in set 1;
+  - fragment: sampler in set 2, uniforms in set 3.
+- Sources: `runtime/shaders/{d3d,overlay}.{vert,frag}`.
+- `tools/build_shaders.sh` (glslang + spirv-cross, dev only) writes the committed
+  `runtime/src/gpu/shaders_gen.h`. It holds SPIR-V and MSL; MSL uses `--msl-decoration-binding`, so
+  buffer/texture/sampler index = binding.
+- `gpu/shaders.{h,cpp}` holds one `ShaderBackend` adapter per format. `create()` picks the first format that
+  `SDL_GetGPUShaderFormats(dev)` accepts. The device is created with every shipped format: Metal on macOS,
+  Vulkan elsewhere.
+- DXIL can be added later as one more backend.
+
+**Verification (macOS):**
+- An E2E race (`p0_base` = old build from a worktree, `p0_new`) at 1920×1080 16/9, D3D FILTERED.
+- Static frames are pixel-identical: title, select race, track and HUD during the countdown. The remaining diffs
+  are only animated objects (balloon, birds, water, countdown blink) from run timing.
+- A software-renderer menu run is fine.
+- Measured memory in a race: about 180 MB resident, about 410 MB physical footprint including Metal buffers.
+  The "4 GB" is reserved *address space*, not RAM.
 
 ### P1: Linux desktop (also the base for Steam Deck)
 1. Add `stack_switch_x86_64.S` (SysV: save `rsp` and the frame, switch, call, restore). Also build the ELF
@@ -155,7 +180,7 @@ independent after P0.
   real devices.
 
 ## Status
-- [ ] P0 portability layer + cross-compiled shaders
+- [x] P0 portability layer + cross-compiled shaders
 - [ ] P1 Linux
 - [ ] P2 Steam Deck
 - [ ] P3 Windows
