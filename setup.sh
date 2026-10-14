@@ -22,7 +22,8 @@ say() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nerror: %s\n' "$*" >&2; exit 1; }
 
 # --- platform -------------------------------------------------------------------------------
-[ "$(uname -s)" = Darwin ] || die "this setup is for macOS (Linux and Windows ports are planned)"
+[ "$(uname -s)" = Linux ] && exec "$HERE/tools/linux/setup_linux.sh" "$@"   # Linux / Steam Deck
+[ "$(uname -s)" = Darwin ] || die "this setup is for macOS and Linux (a Windows port is planned)"
 [ "$(uname -m)" = arm64 ] || die "an Apple Silicon Mac (arm64) is required for now"
 xcode-select -p >/dev/null 2>&1 || die "Xcode Command Line Tools are missing: run 'xcode-select --install' and re-run this script"
 command -v brew >/dev/null 2>&1 || die "Homebrew is required: see https://brew.sh, then re-run this script"
@@ -51,7 +52,7 @@ fi
 
 say "Preparing the recompiler (Python virtual environment)"
 [ -x "$HERE/.venv/bin/python" ] || python3 -m venv "$HERE/.venv"
-"$HERE/.venv/bin/python" -m pip install --quiet --disable-pip-version-check pefile capstone
+"$HERE/.venv/bin/python" -m pip install --quiet --disable-pip-version-check -r "$HERE/tools/recomp/requirements.txt"
 
 # --- game files ----------------------------------------------------------------------------------
 if [ -n "$SETUP" ]; then
@@ -65,17 +66,7 @@ fi
 INI="$GAME_DIR/motoracer.ini"
 if [ -f "$INI" ] && ! grep -q '^\[Recomp\]' "$INI"; then
     say "Writing default settings to motoracer.ini"
-    cat >>"$INI" <<'EOF'
-
-[Recomp]
-; Moto Racer Recomp settings - see README.md. Cmd+F / Alt+Enter toggles fullscreen.
-Fullscreen=1
-VSync=1
-DrawDistance=2
-HudScale=auto
-ControllerMenus=1
-ControllerPreset=1
-EOF
+    cat "$HERE/tools/default_settings.ini" >>"$INI"
 fi
 
 # --- build -----------------------------------------------------------------------------------------

@@ -2,7 +2,8 @@
 # Extracts the GOG Moto Racer installer into the folder the game looks in by default.
 #
 # usage: tools/install_game.sh <setup_moto_racer_2.1.0.11.exe> [destination]
-#   destination defaults to ~/Library/Application Support/MotoRacerRecomp/game
+#   destination defaults to ~/Library/Application Support/MotoRacerRecomp/game (macOS) or
+#   ~/.local/share/MotoRacerRecomp/game (Linux)
 set -eu
 
 if [ $# -lt 1 ]; then
@@ -10,10 +11,12 @@ if [ $# -lt 1 ]; then
     exit 2
 fi
 SETUP=$1
-DEST=${2:-"$HOME/Library/Application Support/MotoRacerRecomp/game"}
+if [ "$(uname -s)" = Darwin ]; then DEFAULT="$HOME/Library/Application Support/MotoRacerRecomp/game"
+else DEFAULT="${XDG_DATA_HOME:-$HOME/.local/share}/MotoRacerRecomp/game"; fi
+DEST=${2:-$DEFAULT}
 
 if ! command -v innoextract >/dev/null 2>&1; then
-    echo "innoextract not found: install it with 'brew install innoextract'" >&2
+    echo "innoextract not found: install it with 'brew install innoextract' (macOS) or your package manager" >&2
     exit 1
 fi
 

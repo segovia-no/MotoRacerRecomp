@@ -83,45 +83,71 @@ Adapter pattern: the runtime calls interfaces, and each OS supplies adapter clas
 - Measured memory in a race: about 180 MB resident, about 410 MB physical footprint including Metal buffers.
   The "4 GB" is reserved *address space*, not RAM.
 
-### P1: Linux desktop (also the base for Steam Deck)
-1. Add `stack_switch_x86_64.S` (SysV: save `rsp` and the frame, switch, call, restore). Also build the ELF
-   aarch64 variant.
-2. CMake: on non-Apple systems, drop the `app` target and add an `install` target:
-   - `~/.local/share/MotoRacerRecomp/bin/motoracer`;
-   - a `.desktop` entry;
-   - an icon extracted from the GOG `.ico` with a small Python ICO→PNG step in place of `sips`.
-3. Make `setup.sh` multi-OS:
-   - detect `apt` / `dnf` / `pacman` for cmake, clang, python3-venv and innoextract;
-   - if `find_package(SDL3)` fails, build SDL3 with CMake `FetchContent` from a pinned release tag. This is
-     needed for older distros such as Ubuntu 24.04 and Debian 12.
-4. `install_game.sh`: the default destination comes from the OS.
-5. **Verification without Linux hardware, on this Mac:**
-   - run Docker/OrbStack `linux/arm64` containers with Mesa **lavapipe** (software Vulkan) and `xvfb-run`;
-   - run the same E2E scenarios headless and diff the snapshots against macOS;
-   - then repeat in a `linux/amd64` container under Rosetta to cover the x86-64 asm and build.
+### P1 + P2: Linux and Steam Deck — implemented 2026-10-14 (awaiting test on the owner's Deck)
+**Build environment: Valve's Steam Runtime 3 "sniper" SDK** (`registry.gitlab.steamos.cloud/steamrt/sniper/sdk`)
 
-### P2: Steam Deck
-SteamOS has a read-only root and no compilers, but it ships **podman** (with distrobox on 3.5 and later).
-1. `setup.sh --steamdeck` (or auto-detect `/etc/os-release` `ID=steamos`) runs the build inside the
-   **Steam Runtime 3 "sniper" SDK** image (`registry.gitlab.steamos.cloud/steamrt/sniper/sdk`, glibc 2.31):
-   - SDL3 is built from source and bundled as `libSDL3.so` with `RPATH=$ORIGIN`, so the binary runs on any
-     SteamOS 3.x;
-   - innoextract, pefile and capstone are installed inside the container only.
-2. Install the game to `~/.local/share/MotoRacerRecomp/` and add it to Steam as a non-Steam game:
-   - use `steamos-add-to-steam` where available, otherwise print the Desktop Mode steps;
-   - optionally set the "Steam Linux Runtime 3.0 (sniper)" compatibility tool for guaranteed libraries.
-3. Deck defaults:
-   - **First-run resolution:** choose the largest 16:9 band that fits the display. Today the code assumes
-     ≥1080 and falls back to 1920×1080. The Deck panel is 1280×800, so it must get 1280×720. Fix this in
-     game_hooks.cpp; it helps small laptops too.
-   - Always fullscreen (gamescope forces it anyway); `ControllerPreset=1`; VSync 60.
-   - Steam Input: the default "Gamepad" template exposes an Xbox pad to SDL, so our preset applies. Esc is
-     Start/B, which already works.
-   - **Check:** keyboard-only screens (best-lap name entry?). Steam's on-screen keyboard (Steam+X) types
-     through SDL key events. Test it.
-4. **Later (roadmap):** a native **16:10** picture (1280×800) in place of 1280×720 letterboxed.
-5. **Verification:** the sniper SDK container runs on any x86-64 Linux, including the P1 `linux/amd64` setup. A
-   final check on real Deck hardware needs the owner's Deck.
+| Item | What it has | How we handle it |
+|---|---|---|
+| Base | Debian 11, glibc 2.31 | — |
+| CMake | 3.25 | — |
+| C/C++ compiler | gcc-14 (libstdc++ linked statically by default) | `gcc-14`; its clang 11 is too old |
+| SDL3 | 3.4.16, but linked straight to about 50 desktop libraries | not used; `MOTORACER_BUNDLED_SDL=ON` builds SDL3 3.4.16 from the release tarball (SHA-256 pinned) as a static library |
+| Python | 3.9, no pip | `tools/linux/sdk_build.sh` creates a venv `--without-pip` and bootstraps pip with get-pip.py |
+
+- The bundled SDL loads X11, Wayland, libdecor, PipeWire, PulseAudio, ALSA, Vulkan, udev and dbus with
+  `dlopen`. Result: one binary that needs only glibc ≥ 2.29 and runs directly on SteamOS (glibc 2.41) and other
+  distributions, with no Steam Linux Runtime needed.
+- Recompiler dependencies are pinned in `tools/recomp/requirements.txt`: pefile 2024.8.26, capstone 5.0.9.
+
+**Portability fixes found by gcc/libstdc++:** a missing `#include <memory>` (dsound.cpp; libc++ had included
+it indirectly). Nothing else; the generated C compiles with gcc-14 unchanged.
+
+**Setup** (`./setup.sh` → `tools/linux/setup_linux.sh`): podman (rootless, preinstalled on SteamOS 3.5+) or docker.
+1. Unpack the installer: with the host's innoextract if present, otherwise innoextract from a throwaway
+   `debian:bookworm-slim` container.
+2. Append the `[Recomp]` defaults (`tools/default_settings.ini`, shared with macOS).
+3. Build in the SDK container; the log goes to `build/linux/build.log`.
+4. Install:
+   - binary at `~/.local/share/MotoRacerRecomp/bin/motoracer` (debug info stripped);
+   - icon `motoracer.png`, taken from the GOG `.ico`'s 256 px PNG (`tools/linux/ico_to_png.py`);
+   - menu entry `~/.local/share/applications/motoracer-recomp.desktop`;
+   - Steam library entry via `steamos-add-to-steam` (`NO_STEAM=1` skips it).
+
+**Platform adapters added:**
+- `paths_xdg.cpp` (data `$XDG_DATA_HOME`, log `$XDG_STATE_HOME`; parents created);
+- `stack_x86_64_sysv.S`;
+- `HostInfo::is_steam_deck()`: `SteamDeck=1`, which Steam sets on a Deck, or `ID=steamos` in `/etc/os-release`.
+
+**16:10 screen modes** (needed for the Deck's native 1280×800):
+- The 16/9 MODE list now holds both shapes: 1280×720, 1280×800, 1920×1080, 1920×1200, 2560×1440, 2560×1600 and
+  3840×2160.
+- The game computes the band once, in the viewport setup `0x499b80`, on two paths (`lea eax,[eax+eax*8]` =
+  `(W/16)·9`, then `round(band·4/3·H/W)` by ftol). The viewport height `0x68b008`, centre `0x624f88` and bar offset
+  `0x6d1040` all derive from the result.
+- Hook `game_hook_band` at `0x499C8D` / `0x499CF8` (eax = rounded band, ebp = W, edi = H) sets W·10/16 for
+  16:10 entries.
+- The game keys modes by area, so a 16:10 entry uses its 4:3 mode plus 2 rows (1280×962 ↔ 1280×800). Pixels are
+  then 0.2% off square (focal lengths ∝ H/480), which is invisible.
+- `present_blt` accepts 16:10 bands.
+- The HUD follows the band edges with no changes.
+
+**First-run defaults:**
+- **Resolution:** the largest band, at least 1280 wide and up to 2560, that fits the display in its shape (16:10
+  if the display is nearer 1.6 than 1.78). Deck: 1280×800; 1080p TV: 1920×1080; the owner's 1440p Mac:
+  2560×1440, unchanged.
+- **Input:** on a Steam Deck, CONTROLLER = JOYSTICK even if the pad isn't enumerated yet; the Xbox preset then
+  applies.
+
+**Verification:**
+- **macOS:** E2E race at 1920×1200 16:10. The label reads 1920*1200, the render target is 1920×1200, and the
+  frame is full 16:10 with the HUD at the edges.
+- **Linux x86-64, headless** (Docker amd64 on the Mac, Xvfb + Mesa lavapipe Vulkan):
+  - menus and a full race on Vulkan with the SPIR-V shaders;
+  - simulated Deck first run (1280×800 screen, `SteamDeck=1`, no state): JOYSTICK, 16/9 MODE at 1280×800,
+    a 1280×800 render target.
+  - The Xbox preset needs a real pad: the container has none, so the game fell back to the keyboard.
+- **Container extraction:** produces the GOG `game.EXE` (hash checked).
+- **Still open:** a real Steam Deck run (Game Mode, Steam Input, `steamos-add-to-steam`, performance).
 
 ### P3: Windows
 1. **Toolchain: MSYS2 CLANG64.** Reasons:
@@ -181,7 +207,7 @@ independent after P0.
 
 ## Status
 - [x] P0 portability layer + cross-compiled shaders
-- [ ] P1 Linux
-- [ ] P2 Steam Deck
+- [x] P1 Linux (container build, headless-verified)
+- [ ] P2 Steam Deck — implemented, waiting for an on-device test
 - [ ] P3 Windows
 - [ ] P4 CI
