@@ -53,8 +53,8 @@ void open_log_file() {
     auto &h = plat::host();
     std::string dir = h.paths.log_dir();
     if (dir.empty()) return;
-    std::string parent = dir.substr(0, dir.find_last_of('/'));
-    h.fs.make_dir(parent);   // XDG state dir may not exist yet
+    for (size_t i = dir.find('/', 1); i != std::string::npos; i = dir.find('/', i + 1))
+        h.fs.make_dir(dir.substr(0, i));   // parents, e.g. ~/.local/state on a fresh Linux account
     h.fs.make_dir(dir);
     log_path = dir + "/motoracer.log";
     h.fs.rename(log_path, log_path + ".1");

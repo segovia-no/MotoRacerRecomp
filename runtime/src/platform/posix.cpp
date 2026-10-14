@@ -8,6 +8,8 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstdlib>
+#include <cstring>
 
 #include "platform.h"
 
@@ -146,6 +148,22 @@ public:
     bool set_current_dir(const std::string &path) override { return chdir(path.c_str()) == 0; }
 };
 
+class PosixHostInfo final : public HostInfo {
+public:
+    bool is_steam_deck() override {
+        // Steam sets SteamDeck=1 for everything it launches on a Deck; SteamOS also identifies itself.
+        if (const char *e = getenv("SteamDeck"); e && !strcmp(e, "1")) return true;
+        bool steamos = false;
+        if (FILE *f = fopen("/etc/os-release", "r")) {
+            char line[256];
+            while (fgets(line, sizeof line, f))
+                if (!strncmp(line, "ID=steamos", 10)) steamos = true;
+            fclose(f);
+        }
+        return steamos;
+    }
+};
+
 }  // namespace
 
 Host &host() {
@@ -153,7 +171,8 @@ Host &host() {
     static PosixExecution execution;
     static PosixCrashReporter crash;
     static PosixFileSystem fs;
-    static Host h{memory, execution, crash, fs, os_paths()};
+    static PosixHostInfo info;
+    static Host h{memory, execution, crash, fs, os_paths(), info};
     return h;
 }
 

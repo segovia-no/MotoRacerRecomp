@@ -75,6 +75,10 @@ GAME_HOOKS = {
     # Opponent bike LOD (0x45f160): ST(0) = distance / FOV, about to be compared with the
     # hardcoded thresholds 1000 / 2500 / 3000 (full model / reduced models / sprite).
     0x45F1E0: "game_hook_bike_lod",
+    # Viewport setup (0x499b80), 16/9 MODE: eax = the rounded band height (W/16*9 scaled by H/W*4/3)
+    # just returned by ftol, on both paths; the runtime makes it W*10/16 for its 16:10 modes.
+    0x499C8D: "game_hook_band",
+    0x499CF8: "game_hook_band",
 }
 
 

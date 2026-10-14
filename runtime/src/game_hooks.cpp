@@ -5,10 +5,14 @@
 // modes it built from EnumDisplayModes (0x5d8954, 36-byte entries, count at 0x4ee984), ordered by
 // area. The runtime owns that table and shows one of two curated lists:
 //  - 16/9 MODE off: 4:3 modes 320x240 .. 1920x1440.
-//  - 16/9 MODE on: modes whose 16:9 band is a common resolution. The game's 16/9 mode keeps a 4:3
+//  - 16/9 MODE on: modes whose wide band is a common resolution. The game's 16/9 mode keeps a 4:3
 //    display mode and renders a w x w*9/16 band into an offscreen target, so 1920x1440 renders a
 //    native 1920x1080 picture. The label hook shows every entry as its band (1920*1080, and the
 //    original 640x480 as 640*360).
+//  - 16:10 entries in the same list (1280*800 for the Steam Deck, 1920*1200, 2560*1600): the band
+//    height is computed once in the viewport setup (0x499b80); game_hook_band makes it w*10/16.
+//    The game keys modes by area, so a 16:10 entry uses its 4:3 mode made 2 rows taller (1280x962):
+//    distinct from the 16:9 entry, 0.2% off square pixels (focal lengths scale with H/480).
 // The original 320x240 / 512x384 / 640x480 stay in both lists: the menus and the game's own
 // fallbacks set those modes and require them in the table (0x474ca0).
 //
@@ -26,6 +30,7 @@
 #include <vector>
 
 #include "game_hooks.h"
+#include "platform/platform.h"
 #include "runtime.h"
 #include "settings.h"
 
@@ -53,8 +58,16 @@ constexpr uint32_t DETAIL_TABLE = 0x51d1b8;
 struct Mode { uint32_t w, h; };
 const std::vector<Mode> kModes43 = {{320, 240},  {512, 384},   {640, 480},   {800, 600},
                                     {1024, 768}, {1280, 960},  {1600, 1200}, {1920, 1440}};
-const std::vector<Mode> kModes169 = {{320, 240},  {512, 384},   {640, 480},  {1280, 960},
-                                     {1920, 1440}, {2560, 1920}, {3840, 2880}};
+// 16:10 marker: 2 extra rows on the 4:3 internal mode (see the top of this file).
+constexpr uint32_t ROWS_1610 = 2;
+constexpr Mode wide_mode(uint32_t w, bool w1610) { return {w, w * 3 / 4 + (w1610 ? ROWS_1610 : 0)}; }
+bool is_1610(Mode m) { return m.h == m.w * 3 / 4 + ROWS_1610; }
+uint32_t band_height(Mode m) { return is_1610(m) ? m.w * 10 / 16 : m.w * 9 / 16; }
+const std::vector<Mode> kModes169 = {{320, 240},  {512, 384},   {640, 480},
+                                     wide_mode(1280, false), wide_mode(1280, true),
+                                     wide_mode(1920, false), wide_mode(1920, true),
+                                     wide_mode(2560, false), wide_mode(2560, true),
+                                     wide_mode(3840, false)};
 const std::vector<Mode> kModesOriginal = {{320, 240}, {512, 384}, {640, 480}};
 const Mode kDefault169 = {1920, 1440};   // 1920x1080 band
 enum List { LIST_43 = 0, LIST_169 = 1, LIST_ORIGINAL = 2 };
@@ -93,7 +106,9 @@ void save_state() {
 }
 
 // First run (no Defaults=1 in recomp_state.txt): a fresh GOG install starts at 640x480 4:3. Turn
-// on the game's 16/9 MODE and pick 2560x1440 if the display is at least that tall, else 1920x1080. The game saves its
+// on the game's 16/9 MODE and pick the largest band that fits the display, in the display's
+// shape (16:10 if it is nearer 1.6 than 1.78): Steam Deck 1280x800, 1080p 1920x1080, 1440p
+// 2560x1440; at least 1280 wide, 4K stays a manual choice (slower machines). The game saves its
 // options when it exits, so this happens once; later choices are the player's.
 // Controller bindings: {keyboard VK, joystick input} per action at 0x53eae0, in the order of the
 // game's control settings screen (Accelerate, Brake, Turn Left, Turn Right, Higher Gear, Lower Gear,
@@ -116,18 +131,23 @@ void apply_controller_preset() {
 }
 
 void apply_first_run_defaults() {
-    int display_h = 1080;
+    uint32_t dw = 1920, dh = 1080;
     if (SDL_DisplayID d = SDL_GetPrimaryDisplay())
-        if (const SDL_DisplayMode *m = SDL_GetCurrentDisplayMode(d))
-            display_h = static_cast<int>(m->h * (m->pixel_density > 0 ? m->pixel_density : 1.f));
-    Mode pick = kDefault169;
-    if (2560 * 9 / 16 <= display_h) pick = {2560, 1920};   // 4K stays a manual choice (slower Macs)
+        if (const SDL_DisplayMode *m = SDL_GetCurrentDisplayMode(d)) {
+            float density = m->pixel_density > 0 ? m->pixel_density : 1.f;
+            dw = static_cast<uint32_t>(m->w * density);
+            dh = static_cast<uint32_t>(m->h * density);
+        }
+    bool w1610 = dw * 100 < dh * 169;
+    Mode pick = wide_mode(1280, w1610);
+    for (uint32_t w : {1920u, 2560u})
+        if (w <= dw && band_height(wide_mode(w, w1610)) <= dh) pick = wide_mode(w, w1610);
     WR32(MODE_169, 1);
     if (!remembered[1].w) remembered[1] = pick;
     defaults_applied = true;
     save_state();
-    log("first run: 16/9 MODE on, screen mode %ux%u (display %d px tall)\n", remembered[1].w, remembered[1].w * 9 / 16,
-        display_h);
+    log("first run: 16/9 MODE on, screen mode %ux%u (display %ux%u px)\n", remembered[1].w,
+        band_height(remembered[1]), dw, dh);
 }
 
 uint32_t size_class(uint32_t area) { return area < 0x30000 ? 0 : area == 0x30000 ? 1 : 2; }
@@ -146,7 +166,7 @@ Mode mode_at(int i) {
 
 void write_label(Mode m, bool wide) {
     char text[32];
-    snprintf(text, sizeof text, "%u*%u", m.w, wide ? m.w * 9 / 16 : m.h);
+    snprintf(text, sizeof text, "%u*%u", m.w, wide ? band_height(m) : m.h);
     for (size_t i = 0; i <= strlen(text); i++) WR8(MODE_LABEL + static_cast<uint32_t>(i), static_cast<uint8_t>(text[i]));
 }
 
@@ -212,9 +232,10 @@ extern "C" void game_hook_input_loaded(void) {
     load_state();
     if (defaults_applied || !settings::get().controller_preset) return;
     SDL_InitSubSystem(SDL_INIT_GAMEPAD);
-    if (SDL_HasGamepad() && RD32(INPUT_DEVICE) != 2) {
+    bool deck = plat::host().info.is_steam_deck();   // built-in controls, even if not enumerated yet
+    if ((SDL_HasGamepad() || deck) && RD32(INPUT_DEVICE) != 2) {
         WR32(INPUT_DEVICE, 2);
-        log("first run: gamepad found, CONTROLLER set to JOYSTICK\n");
+        log("first run: %s, CONTROLLER set to JOYSTICK\n", deck ? "Steam Deck" : "gamepad found");
     }
 }
 
@@ -227,7 +248,16 @@ extern "C" void game_hook_screen_mode_loaded(void) {
 // Before sprintf(label, "%d*%d", w, h) on the Options page: in 16/9 mode show the band.
 extern "C" void game_hook_mode_label(void) {
     if (!active() || !RD32(MODE_169) || RD32(D3D_OFF)) return;
-    WR32(R.esp + 12, RD32(R.esp + 8) * 9 / 16);
+    WR32(R.esp + 12, band_height({RD32(R.esp + 8), RD32(R.esp + 12)}));
+}
+
+// Viewport setup in 16/9 mode, eax = band height just rounded from (W/16*9) * 4/3 * H/W; ebp = W,
+// edi = H of the display mode. A 16:10 entry gets a W*10/16 band; everything after (viewport,
+// centre, bar offset 0x6d1040) derives from it.
+extern "C" void game_hook_band(void) {
+    if (!active()) return;
+    Mode m{R.ebp, R.edi};
+    if (is_1610(m)) R.eax = band_height(m);
 }
 
 namespace game {

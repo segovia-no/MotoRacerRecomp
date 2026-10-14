@@ -95,12 +95,21 @@ public:
     virtual std::string log_dir() = 0;    // where motoracer.log goes
 };
 
+// ---------- device ----------
+class HostInfo {
+public:
+    virtual ~HostInfo() = default;
+    // Steam Deck / SteamOS handheld: built-in gamepad, possibly not enumerated at the first look.
+    virtual bool is_steam_deck() = 0;
+};
+
 struct Host {
     VirtualMemory &memory;
     Execution &execution;
     CrashReporter &crash;
     FileSystem &fs;
     HostPaths &paths;
+    HostInfo &info;
 };
 
 // The adapters for the OS this binary was built for.

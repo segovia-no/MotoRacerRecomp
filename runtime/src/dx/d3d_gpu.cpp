@@ -930,8 +930,10 @@ bool present_blt(Surface *src, Surface *dst, int32_t x, int32_t y, uint32_t w, u
     if (x < 0 || y < 0 || x + w > dst->w || y + h > dst->h) return false;
     host::gpu::Crop placed{static_cast<uint32_t>(x), static_cast<uint32_t>(y), w, h};
     host::gpu::Crop frame{0, 0, dst->w, dst->h};
-    // Widescreen: the game's 16/9 mode blits a 16:9 band; show just that band.
-    host::gpu::Crop crop = (settings::get().widescreen && w * 9 == h * 16) ? placed : frame;
+    // Widescreen: the game's 16/9 mode blits a 16:9 band (16:10 for the runtime's 16:10 modes, see
+    // game_hooks.cpp); show just that band.
+    bool band = w * 9 == h * 16 || w * 10 == h * 16;
+    host::gpu::Crop crop = (settings::get().widescreen && band) ? placed : frame;
     host::gpu::set_game_size(dst->w, dst->h);
     // Render queued work and present the target where the game put it.
     SDL_GPUCommandBuffer *cmd = nullptr;

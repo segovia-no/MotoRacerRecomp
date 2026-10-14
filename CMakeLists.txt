@@ -43,7 +43,25 @@ add_library(gamecode OBJECT ${GEN_SOURCES})
 target_include_directories(gamecode PRIVATE runtime/include "${GEN_DIR}")
 target_compile_options(gamecode PRIVATE -w -O1 -fno-strict-aliasing)
 
-find_package(SDL3 REQUIRED CONFIG)
+# SDL3: the system package by default. MOTORACER_BUNDLED_SDL builds a pinned release and links it
+# statically; SDL then loads X11/Wayland/Vulkan/audio libraries at run time, so the binary needs
+# only glibc (Steam Deck / any Linux, see docs/15-ports-plan.md).
+option(MOTORACER_BUNDLED_SDL "Build SDL3 from source and link it statically" OFF)
+if(MOTORACER_BUNDLED_SDL)
+  include(FetchContent)
+  set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+  set(SDL_STATIC ON CACHE BOOL "" FORCE)
+  set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+  set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(SDL3
+    URL https://github.com/libsdl-org/SDL/releases/download/release-3.4.16/SDL3-3.4.16.tar.gz
+    URL_HASH SHA256=7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68)
+  FetchContent_MakeAvailable(SDL3)
+  set(SDL3_TARGET SDL3::SDL3-static)
+else()
+  find_package(SDL3 REQUIRED CONFIG)
+  set(SDL3_TARGET SDL3::SDL3)
+endif()
 
 file(GLOB RUNTIME_SOURCES CONFIGURE_DEPENDS
   runtime/src/*.cpp runtime/src/*.c runtime/src/win32/*.cpp runtime/src/dx/*.cpp runtime/src/gpu/*.cpp)
@@ -69,12 +87,14 @@ add_executable(motoracer ${RUNTIME_SOURCES} $<TARGET_OBJECTS:gamecode>)
 target_include_directories(motoracer PRIVATE runtime/include runtime/src runtime/src/win32 runtime/src/dx "${GEN_DIR}")
 target_compile_options(motoracer PRIVATE
   $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-unused-parameter>)
-target_link_libraries(motoracer PRIVATE SDL3::SDL3)
+target_link_libraries(motoracer PRIVATE ${SDL3_TARGET})
 
 # `cmake --build build/cmake --target app` -> build/cmake/MotoRacer.app
 get_filename_component(GAME_DIR_FOR_ICON "${GAME_EXE}" DIRECTORY)
-add_custom_target(app
+if(APPLE)
+  add_custom_target(app
   COMMAND "${CMAKE_SOURCE_DIR}/tools/make_app.sh" "$<TARGET_FILE:motoracer>" "${CMAKE_BINARY_DIR}" "${GAME_DIR_FOR_ICON}"
   DEPENDS motoracer
   COMMENT "Assembling MotoRacer.app"
   VERBATIM)
+endif()

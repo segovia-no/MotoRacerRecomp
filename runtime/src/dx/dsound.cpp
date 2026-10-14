@@ -7,6 +7,7 @@
 #include <SDL3/SDL.h>
 
 #include <cmath>
+#include <memory>
 #include <mutex>
 #include <vector>
 
