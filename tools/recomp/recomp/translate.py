@@ -95,6 +95,15 @@ GAME_HOOKS = {
     0x444405: "game_hook_options_button_nav",
     0x44443B: "game_hook_options_button_nav",
     0x44448A: "game_hook_options_button_nav",
+    # Main menu page (3) init (dev unlock override) and its six button registrations (0x40bef0, nav
+    # mask at [esp+8]): the unlocked Pocket / Reverse toggles get keyboard navigation (recomp_menu.cpp).
+    0x4422C0: "game_hook_main_menu_init",
+    0x442522: "game_hook_main_menu_button_nav",
+    0x44254D: "game_hook_main_menu_button_nav",
+    0x442572: "game_hook_main_menu_button_nav",
+    0x44259D: "game_hook_main_menu_button_nav",
+    0x4425F4: "game_hook_main_menu_button_nav",
+    0x442640: "game_hook_main_menu_button_nav",
 }
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function).

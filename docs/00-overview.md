@@ -36,6 +36,7 @@ Not yet: Linux / Steam Deck, Windows, multiplayer (stubbed by decision), GDI tex
 - [14-draw-distance.md](14-draw-distance.md) — track sections drawn ahead, per-detail-level table (bike LOD, culling), DrawDistance
 - [16-frame-rate.md](16-frame-rate.md) — game frame timing (limiter, frame time, replays), higher frame rates: measurements and engine assumptions
 - [17-recomp-menu.md](17-recomp-menu.md) — Options page internals (pages, items, dispatch), Info → Recomp settings submenu plan
+- [18-main-menu-modes.md](18-main-menu-modes.md) — Reverse / Pocket mode toggles (unlocks, cheat codes), keyboard/gamepad navigation fix
 - [13-e2e-testing.md](13-e2e-testing.md) — unattended E2E runs: scripted keys, snapshots, contact sheets, menu navigation facts
 - [15-ports-plan.md](15-ports-plan.md) — Linux / Steam Deck / Windows ports: plan, platform adapters (P0 done), shader pipeline, risks
 

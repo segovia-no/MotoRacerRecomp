@@ -404,3 +404,48 @@ extern "C" void game_hook_options_button_nav(void) {
     else return;
     WR32(R.esp + 8, (nav & 0xffff0000u) | right << 8 | left);
 }
+
+// ---------- main menu: Pocket / Reverse toggles ----------
+// Main menu (page 3, init 0x4422c0) items: 0 Solo, 1 Link, 2 Options, 3 Exit, then the Pocket mode
+// toggle (item 4, [0x53f848]) when Pocket bikes are unlocked and the Reverse mode toggle (item 4 or
+// 5, [0x53f4e8]) when Reverse is unlocked. The game registers both toggles with nav mask 0xffffffff
+// and no item links to them, so a keyboard / gamepad cannot reach them, and after a mouse click the
+// cursor stays on the toggle: Enter (gamepad A, meant for Solo) toggled it again. Unlocks: finishing
+// championships ("PocketAvailable" 0x4dc03c, "ReverseAvailable" 0x4dc040) or the cheat codes CTEKCOP /
+// CESREVER (0x4dc054 / 0x4dc050, table at 0x4f1250). Mode flags: Pocket 0x4dc078, Reverse 0x4dc068.
+// Screen: Solo | Link, then Reverse | Pocket (one alone is centred), then Options | Exit.
+constexpr uint32_t POCKET_AVAILABLE = 0x4dc03c, REVERSE_AVAILABLE = 0x4dc040;
+constexpr uint32_t POCKET_CHEAT = 0x4dc054, REVERSE_CHEAT = 0x4dc050;
+
+extern "C" void game_hook_main_menu_init(void) {
+    // dev aid: MOTORACER_UNLOCK=1 (both), pocket or reverse shows the toggles without a finished game
+    static const char *unlock = getenv("MOTORACER_UNLOCK");
+    if (unlock) {
+        if (strcmp(unlock, "reverse")) WR32(POCKET_AVAILABLE, 1);
+        if (strcmp(unlock, "pocket")) WR32(REVERSE_AVAILABLE, 1);
+    }
+}
+
+extern "C" void game_hook_main_menu_button_nav(void) {
+    constexpr uint32_t SOLO = 0, LINK = 1, OPTIONS = 2, EXIT = 3, NONE = 0xff;
+    bool pocket = RD32(POCKET_AVAILABLE) || RD32(POCKET_CHEAT);
+    bool reverse = RD32(REVERSE_AVAILABLE) || RD32(REVERSE_CHEAT);
+    uint32_t pk = pocket ? 4 : NONE, rv = reverse ? (pocket ? 5 : 4) : NONE;
+    // the toggles' row: Reverse on the left, Pocket on the right; a single one is centred
+    uint32_t below_solo = reverse ? rv : pk, below_link = pocket ? pk : rv;
+    uint32_t sprite = RD32(R.esp), up, down, right, left;
+    if (sprite == RD32(0x504890)) { up = NONE; down = below_solo != NONE ? below_solo : OPTIONS; right = LINK; left = NONE; }
+    else if (sprite == RD32(0x504898)) { up = NONE; down = below_link != NONE ? below_link : EXIT; right = NONE; left = SOLO; }
+    else if (sprite == RD32(0x5049ac)) { up = below_solo != NONE ? below_solo : SOLO; down = NONE; right = EXIT; left = NONE; }
+    else if (sprite == RD32(0x5049a4)) { up = below_link != NONE ? below_link : LINK; down = NONE; right = NONE; left = OPTIONS; }
+    else if (sprite == RD32(0x5049e4)) {   // Pocket (first argument: [0x5049e4])
+        bool both = reverse;
+        up = both ? LINK : SOLO; down = both ? EXIT : OPTIONS; right = NONE; left = both ? rv : NONE;
+    } else if (sprite == RD32(0x5049ec)) {   // Reverse (first argument: [0x5049ec])
+        up = SOLO; down = OPTIONS; right = pocket ? pk : NONE; left = NONE;
+    } else {
+        return;
+    }
+    WR32(R.esp + 8, up << 24 | down << 16 | right << 8 | left);
+}
+
