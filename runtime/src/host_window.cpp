@@ -3,8 +3,10 @@
 #include <SDL3/SDL.h>
 
 #include <cctype>
+#include <cstdlib>
 #include <string>
 
+#include "game_hooks.h"
 #include "runtime.h"
 #include "settings.h"
 #include "user32.h"
@@ -152,11 +154,12 @@ void inject_key(uint32_t vk, uint32_t scancode, bool down) {
 // ---------- controller -> keyboard for the menus ----------
 // The menus only read the keyboard/mouse. While the game is not polling the joystick itself
 // (it does in races), the D-pad / left stick act as arrow keys, A as Enter and B as Escape.
-// Start is Escape (pause) everywhere.
+// Start is Escape (pause) everywhere. In races Back is F7, which cycles the speedometer.
 namespace {
 constexpr uint32_t VK_RETURN_ = 0x0D, VK_ESCAPE_ = 0x1B, VK_LEFT_ = 0x25, VK_UP_ = 0x26, VK_RIGHT_ = 0x27,
-                   VK_DOWN_ = 0x28;
+                   VK_DOWN_ = 0x28, VK_F1_ = 0x70, VK_F7_ = 0x76;
 uint32_t nav_scancode(uint32_t vk) {
+    if (vk >= VK_F1_ && vk < VK_F1_ + 10) return 0x3B + (vk - VK_F1_);
     switch (vk) {
     case VK_RETURN_: return 0x1C;
     case VK_ESCAPE_: return 0x01;
@@ -186,6 +189,12 @@ void nav(uint32_t vk, bool down, bool always = false) {
 }  // namespace
 
 void controller_event(const SDL_Event &e) {
+    if ((e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP) &&
+        e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) {
+        bool down = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        if (!down || game::speedometer_button()) nav(VK_F7_, down, true);
+        return;
+    }
     if (!settings::get().controller_menus) return;
     if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP) {
         bool down = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
@@ -214,7 +223,7 @@ void controller_event(const SDL_Event &e) {
 
 // Developer aid for unattended testing: MOTORACER_AUTOKEYS="3000 ENTER 500 DOWN +UP 2000 -UP"
 // waits (numbers, ms) and taps / presses (+) / releases (-) keys: ENTER ESC UP DOWN LEFT RIGHT
-// SPACE or a single letter/digit. Taps are held for 80 ms.
+// SPACE F1..F10 or a single letter/digit. Taps are held for 80 ms.
 namespace {
 void autokeys_tick() {
     static const char *spec = getenv("MOTORACER_AUTOKEYS");
@@ -239,6 +248,10 @@ void autokeys_tick() {
         {"ENTER", VK_RETURN_}, {"ESC", VK_ESCAPE_}, {"UP", VK_UP_}, {"DOWN", VK_DOWN_},
         {"LEFT", VK_LEFT_},    {"RIGHT", VK_RIGHT_}, {"SPACE", 0x20}};
     uint32_t vk = tok.size() == 1 ? static_cast<uint32_t>(toupper(tok[0])) : 0;
+    if (tok.size() >= 2 && tok[0] == 'F' && isdigit(static_cast<unsigned char>(tok[1]))) {
+        int n = atoi(tok.c_str() + 1);
+        if (n >= 1 && n <= 10) vk = VK_F1_ + static_cast<uint32_t>(n - 1);
+    }
     for (auto &[n, v] : names) if (tok == n) vk = v;
     if (!vk) { log("autokeys: unknown key '%s'\n", tok.c_str()); return; }
     log("autokeys: %c%s\n", mode ? mode : ' ', tok.c_str());

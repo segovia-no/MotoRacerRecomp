@@ -97,3 +97,23 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
   - The owner's test (pad works once opened) shows Steam sets it for non-Steam shortcuts too.
 - **Steam Input template:** a new non-Steam shortcut starts with Steam's "Keyboard (WASD) and Mouse" template.
   Choose **Gamepad with Joystick Trackpad** once in the game's controller settings; Steam remembers it per game.
+
+## Speedometer style and the hidden speedometer (owner report, Steam Deck, 2026-10-16)
+- **Symptom:** after some races the speedometer/tachometer was gone, in every later race (also after restarts).
+- **Cause (original game feature):** the in-race key handler (`0x431250`, a switch on the VK code at
+  `0x431460`, jump table `0x4325c4`, index bytes `0x432668`) cycles the speedometer on **F7** (`0x432107`):
+  `CounterType` (`0x4f0dcc`) 1 (analog dials) → 2 (digital KMH readout) → hidden (`ShowCounter` `0x4f0dc8` = 0)
+  → 1. Both are options (read at `0x42b3a1`/`0x42b3c4`), saved to `CONFIG.BPT` on exit, so a hidden
+  speedometer stays hidden. The draw routine `0x484810` returns early when `ShowCounter` is 0. Only this
+  handler writes `ShowCounter` (besides the options load). How F7 reached the game on the Deck is unknown (none of
+  the runtime's gamepad mappings sends it).
+- **Other in-race keys** in the same switch (behaviour not yet documented): Tab, Shift, Ctrl, Pause, Esc,
+  Insert, A, D, F, G, H, J, K, L, P, S, T, U, V, numpad `*` `+` `-` `/`, F1–F12.
+- **Gamepad access:** a pad has no F7, so **Back** (View on Xbox / Steam Deck) sends F7 during races.
+  - "During a race": hook `game_hook_counter` at `0x484833` (in the speedometer routine, before the
+    `ShowCounter` test, every race frame) stamps the time; Back maps to F7 for 300 ms after the last stamp.
+  - Back is left alone if the player bound it to a game action (joystick input 6 in the bindings at `0x53eae0`).
+  - The hook logs each style change: `speedometer: style N` / `speedometer: hidden`.
+- **Verified (E2E, Mac):** three F7 taps in a race gave dials → digital → hidden → dials, with matching log lines.
+  `MOTORACER_AUTOKEYS` now accepts `F1`–`F10`. The Back button path is not E2E-tested (no joystick injection in
+  tests); it uses the same key injection as the menu buttons.

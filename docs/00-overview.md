@@ -30,7 +30,7 @@ Not yet: Linux / Steam Deck, Windows, multiplayer (stubbed by decision), GDI tex
 - [07-translator.md](07-translator.md) — phase 2: x86→C execution model, differential tester vs Unicorn, known gaps
 - [08-runtime.md](08-runtime.md) — phase 3: build/run, runtime layout, address space, Win32/MFC emulation, observed boot sequence
 - [09-ddraw-and-eh.md](09-ddraw-and-eh.md) — phase 4: COM, DirectDraw software path, presentation, C++ exceptions via SEH + setjmp/longjmp
-- [10-input-audio.md](10-input-audio.md) — phase 5: CD audio (MCI) emulation, DirectSound, keyboard/mouse
+- [10-input-audio.md](10-input-audio.md) — phase 5: CD audio (MCI) emulation, DirectSound, keyboard/mouse; speedometer style (F7 / gamepad Back)
 - [11-d3d-plan.md](11-d3d-plan.md) — phase 6 plan: game uses Direct3D v1 execute buffers; Metal backend + resolution scaling
 - [12-roadmap.md](12-roadmap.md) — owner roadmap: QoL (options menu, controller menus, trigger buttons), widescreen, Linux/Steam Deck, Windows
 - [14-draw-distance.md](14-draw-distance.md) — track sections drawn ahead, per-detail-level table (bike LOD, culling), DrawDistance

@@ -268,11 +268,36 @@ extern "C" void game_hook_band(void) {
     if (is_1610(m)) R.eax = band_height(m);
 }
 
+// Speedometer: F7 in a race (key handler 0x431250, case at 0x432107) cycles "CounterType" 1 -> 2 ->
+// hidden ("ShowCounter" = 0) -> 1. Both are options, saved to CONFIG.BPT on exit, so a hidden
+// speedometer stays hidden in every later race. A gamepad has no F7: Back (View on Xbox / Steam Deck)
+// sends it during races unless the player bound Back to a game action (joystick input 6).
+constexpr uint32_t SHOW_COUNTER = 0x4f0dc8, COUNTER_TYPE = 0x4f0dcc;
+constexpr int32_t kJoyBack = 6;
+uint64_t race_hud_ms = 0;
+
+extern "C" void game_hook_counter(void) {
+    race_hud_ms = SDL_GetTicks();
+    static uint32_t logged = ~0u;
+    uint32_t state = RD32(SHOW_COUNTER) ? RD32(COUNTER_TYPE) : 0;
+    if (state == logged) return;
+    logged = state;
+    if (state) log("speedometer: style %u (F7 / gamepad Back cycles it)\n", state);
+    else log("speedometer: hidden (F7 / gamepad Back shows it)\n");
+}
+
 namespace game {
 
 bool first_run() {
     load_state();
     return !defaults_applied;
+}
+
+bool speedometer_button() {
+    if (SDL_GetTicks() - race_hud_ms > 300) return false;
+    for (uint32_t i = 0; i < 7; i++)
+        if (static_cast<int32_t>(RD32(BINDINGS + 8 * i + 4)) == kJoyBack) return false;
+    return true;
 }
 
 void frame_tick() {

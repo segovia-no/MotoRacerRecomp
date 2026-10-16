@@ -79,6 +79,9 @@ GAME_HOOKS = {
     # just returned by ftol, on both paths; the runtime makes it W*10/16 for its 16:10 modes.
     0x499C8D: "game_hook_band",
     0x499CF8: "game_hook_band",
+    # Race HUD, speedometer (0x484810): runs every race frame just before the "ShowCounter" test;
+    # the runtime knows a race is on (gamepad Back cycles the speedometer like F7).
+    0x484833: "game_hook_counter",
 }
 
 

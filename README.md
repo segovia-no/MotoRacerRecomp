@@ -62,7 +62,7 @@ Other Linux PCs (x86-64): same command. It needs `podman` or `docker`; the binar
 3. Start *Moto Racer* from the Start menu. **Alt+Enter** toggles fullscreen.
 
 ## Controls
-**Keyboard** (as in the original; change them in Options › CONTROLLER › config): arrows to steer, accelerate and brake, **A**/**Z** gear up/down, **Space** turbo/stunts, **Esc** pause.
+**Keyboard** (as in the original; change them in Options › CONTROLLER › config): arrows to steer, accelerate and brake, **A**/**Z** gear up/down, **Space** turbo/stunts, **Esc** pause, **F7** speedometer style (dials › digital › hidden).
 
 **Gamepad** (Xbox 360 layout; PlayStation and Switch pads map by button position):
 
@@ -73,6 +73,7 @@ Other Linux PCs (x86-64): same command. It needs `podman` or `docker`; the binar
 | Gear up / down | **RB** / **LB** |
 | Turbo / stunts / wheelie | **A** |
 | Pause | **Start** |
+| Speedometer style (dials › digital › hidden), in a race | **Back** / **View** |
 | Menus | d-pad or left stick, **A** select, **B** back |
 
 A gamepad connected on first start sets the game's CONTROLLER option to JOYSTICK with this layout. Plugged in later? Choose Options › CONTROLLER › JOYSTICK and the layout is applied (it never overwrites bindings you made yourself).
