@@ -104,7 +104,12 @@ if(APPLE)
 elseif(WIN32)
   list(APPEND RUNTIME_SOURCES ${PLAT}/win32.cpp)
 elseif(PSP)
-  list(APPEND RUNTIME_SOURCES ${PLAT}/psp.cpp ${PLAT}/stack_mips.S)
+  # no SDL_GPU on the PSP: the GE backend (runtime/src/psp) replaces the SDL_GPU presenter and
+  # Direct3D backend
+  list(REMOVE_ITEM RUNTIME_SOURCES ${CMAKE_SOURCE_DIR}/runtime/src/host_gpu.cpp
+       ${CMAKE_SOURCE_DIR}/runtime/src/dx/d3d_gpu.cpp ${CMAKE_SOURCE_DIR}/runtime/src/gpu/shaders.cpp)
+  list(APPEND RUNTIME_SOURCES ${PLAT}/psp.cpp ${PLAT}/stack_mips.S runtime/src/psp/ge.cpp
+       runtime/src/psp/gpu_psp.cpp runtime/src/psp/d3d_ge.cpp)
 elseif(UNIX)
   list(APPEND RUNTIME_SOURCES ${PLAT}/posix.cpp ${PLAT}/paths_xdg.cpp)
 else()
@@ -125,6 +130,9 @@ target_include_directories(motoracer PRIVATE runtime/include runtime/src runtime
 target_compile_options(motoracer PRIVATE
   $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-unused-parameter>)
 target_link_libraries(motoracer PRIVATE ${SDL3_TARGET})
+if(PSP)
+  target_link_libraries(motoracer PRIVATE pspgu pspge pspdisplay)
+endif()
 
 get_filename_component(GAME_DIR_FOR_ICON "${GAME_EXE}" DIRECTORY)
 if(WIN32)

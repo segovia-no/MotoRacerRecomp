@@ -82,8 +82,12 @@ const std::vector<Mode> kModes169Base = {{320, 240},  {512, 384},   {640, 480},
 // MOTORACER_PSP_PROFILE=1 (dev, docs/21-psp-feasibility.md): a 480x360 entry whose 16:9 band is
 // 480x270, the PSP screen; selected with 16/9 MODE on and never saved to recomp_state.txt.
 bool psp_profile() {
+#ifdef __PSP__
+    return true;   // the PSP build always renders in this mode (GE target 480x360, docs/25)
+#else
     static const bool on = getenv("MOTORACER_PSP_PROFILE") != nullptr;
     return on;
+#endif
 }
 const std::vector<Mode> &modes169() {
     static const std::vector<Mode> list = [] {

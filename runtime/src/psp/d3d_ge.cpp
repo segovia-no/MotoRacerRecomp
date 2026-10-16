@@ -1,0 +1,357 @@
+// dx::gpu on the PSP (docs/25-psp-port.md): the game's Direct3D triangles drawn by the GE.
+//
+// The render target is the GE draw buffer itself (480x360, 1:1 with the game's PSP-profile mode);
+// TLVERTEX screen positions are used directly in the GE's 2D ("through") mode: colour ARGB -> ABGR,
+// depth sz -> 65535 * (1 - sz) (GE depth range 65535..0, test GEQUAL), uv in texels. Textures are
+// converted once per change to GE formats (R in the low bits). The guest back buffer and the GE
+// buffer are synchronised when the CPU touches it (Lock / Blt), as on the desktop.
+// Not yet: fog and specular, perspective-correct texturing (through mode is affine).
+#include <malloc.h>
+#include <SDL3/SDL.h>
+#include <pspgu.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <map>
+#include <vector>
+
+#include "../dx/d3d_gpu.h"
+#include "../dx/ddraw_internal.h"
+#include "runtime.h"
+#include "ge.h"
+
+namespace dx::gpu {
+
+using namespace rt;
+
+namespace {
+
+enum {
+    RS_TEXTUREADDRESS = 3, RS_ZENABLE = 7, RS_SHADEMODE = 9, RS_ZWRITEENABLE = 14, RS_ALPHATESTENABLE = 15,
+    RS_TEXTUREMAG = 17, RS_TEXTUREMIN = 18, RS_SRCBLEND = 19, RS_DESTBLEND = 20, RS_TEXTUREMAPBLEND = 21,
+    RS_ZFUNC = 23, RS_ALPHAREF = 24, RS_ALPHABLENDENABLE = 27, RS_COLORKEYENABLE = 41,
+};
+
+struct GeVertex {
+    float u, v;
+    uint32_t color;
+    float x, y, z;
+};
+
+struct Texture {
+    uint32_t version = ~0u, pal_version = ~0u;
+    void *data = nullptr;
+    int psm = GU_PSM_5650, tw = 0, th = 0, tbw = 0;
+    bool alpha = false;
+};
+
+Surface *target = nullptr;
+uint32_t g_w = 0, g_h = 0;
+int off_x = 0, off_y = 0;           // the target is centred in the 480x360 buffer
+float scale = 1.f;                  // and scaled down to fit the visible 480x272 window
+uint32_t s_w = 0, s_h = 0;          // its size in the buffer
+bool frame_used = false;            // GE work since the last present
+bool cpu_dirty = false;             // the guest back buffer is newer than the GE buffer
+std::vector<GeVertex> frame_vertices;
+
+// Debug counters, logged every 5 s with MOTORACER_GE_STATS=1.
+struct Stats { uint32_t draws, tris, clears, flips_gpu, flips_cpu, blts_gpu, blts_cpu, downloads, uploads; } st{};
+void stats_tick() {
+    static const bool on = getenv("MOTORACER_GE_STATS") != nullptr;
+    static uint64_t last = 0;
+    if (!on) return;
+    uint64_t now = SDL_GetTicks();
+    if (now - last < 5000) return;
+    last = now;
+    log("ge: draws %u tris %u clears %u flip gpu/cpu %u/%u blt gpu/cpu %u/%u downloads %u uploads %u\n", st.draws,
+        st.tris, st.clears, st.flips_gpu, st.flips_cpu, st.blts_gpu, st.blts_cpu, st.downloads, st.uploads);
+    st = {};
+}
+std::map<Surface *, Texture> textures;
+
+uint32_t argb_to_abgr(uint32_t c) { return (c & 0xFF00FF00u) | ((c >> 16) & 0xFF) | ((c & 0xFF) << 16); }
+
+bool usable() { return target != nullptr; }
+
+// Guest back buffer (RGB565) <-> GE draw buffer (nearest-neighbour when scaled), through a RAM
+// staging buffer and GE block transfers (psp_ge::read_rect / write_rect).
+uint16_t *staging() {
+    static uint16_t *buf = static_cast<uint16_t *>(memalign(64, psp_ge::FB_STRIDE * psp_ge::FB_H * 2));
+    return buf;
+}
+
+void upload_target() {
+    st.uploads++;
+    psp_ge::finish();
+    uint16_t *buf = staging();
+    for (uint32_t y = 0; y < s_h; y++) {
+        uint16_t *dst = buf + y * psp_ge::FB_STRIDE;
+        uint32_t src = target->mem + static_cast<uint32_t>(y / scale) * target->pitch;
+        for (uint32_t x = 0; x < s_w; x++) dst[x] = psp_ge::swap_rb565(RD16(src + 2 * static_cast<uint32_t>(x / scale)));
+    }
+    psp_ge::write_rect(buf, psp_ge::FB_STRIDE, off_x, off_y, static_cast<int>(s_w), static_cast<int>(s_h));
+    cpu_dirty = false;
+}
+
+void download_target() {
+    st.downloads++;
+    uint16_t *buf = staging();
+    psp_ge::read_rect(buf, psp_ge::FB_STRIDE, off_x, off_y, static_cast<int>(s_w), static_cast<int>(s_h));
+    for (uint32_t y = 0; y < g_h; y++) {
+        const uint16_t *src = buf + static_cast<uint32_t>(y * scale) * psp_ge::FB_STRIDE;
+        uint32_t dst = target->mem + y * target->pitch;
+        for (uint32_t x = 0; x < g_w; x++) WR16(dst + 2 * x, psp_ge::swap_rb565(src[static_cast<uint32_t>(x * scale)]));
+    }
+}
+
+void prepare() {
+    if (cpu_dirty) upload_target();
+    psp_ge::begin();
+    frame_used = true;
+}
+
+// ---------- textures ----------
+Texture *texture_for(Surface *s) {
+    if (!s || s->w > 512 || s->h > 512) return nullptr;
+    Texture &t = textures[s];
+    uint32_t pal_version = s->palette ? s->palette->version : 0;
+    if (t.data && t.version == s->version && t.pal_version == pal_version) return &t;
+    t.version = s->version;
+    t.pal_version = pal_version;
+    t.tw = 1;
+    while (static_cast<uint32_t>(t.tw) < s->w) t.tw <<= 1;
+    t.th = 1;
+    while (static_cast<uint32_t>(t.th) < s->h) t.th <<= 1;
+    t.tbw = static_cast<int>((s->w + 7) & ~7u);
+    const bool keyed = s->ckey_src;
+    if (s->bpp == 8) {
+        t.psm = GU_PSM_8888;
+        t.alpha = keyed;
+        free(t.data);
+        t.data = memalign(16, static_cast<size_t>(t.tbw) * s->h * 4);
+        uint32_t pal[256];
+        for (int i = 0; i < 256; i++) {
+            uint32_t e = s->palette ? s->palette->entries[i] : static_cast<uint32_t>(i * 0x010101);
+            pal[i] = (e & 0xFFFFFF) | 0xFF000000u;   // PALETTEENTRY bytes R, G, B = the GE's 8888 order
+        }
+        if (keyed)
+            for (uint32_t i = s->ckey_lo; i <= s->ckey_hi && i < 256; i++) pal[i] &= 0x00FFFFFF;
+        auto *out = static_cast<uint32_t *>(t.data);
+        for (uint32_t y = 0; y < s->h; y++)
+            for (uint32_t x = 0; x < s->w; x++) out[y * t.tbw + x] = pal[RD8(s->mem + y * s->pitch + x)];
+        return &t;
+    }
+    free(t.data);
+    t.data = memalign(16, static_cast<size_t>(t.tbw) * s->h * 2);
+    auto *out = static_cast<uint16_t *>(t.data);
+    const bool is1555 = s->gmask == 0x03E0, is4444 = s->gmask == 0x00F0;
+    t.psm = is4444 ? GU_PSM_4444 : (is1555 || keyed) ? GU_PSM_5551 : GU_PSM_5650;
+    t.alpha = is4444 || keyed || (is1555 && s->amask);
+    for (uint32_t y = 0; y < s->h; y++)
+        for (uint32_t x = 0; x < s->w; x++) {
+            uint16_t p = RD16(s->mem + y * s->pitch + 2 * x), o;
+            bool key = keyed && p >= s->ckey_lo && p <= s->ckey_hi;
+            if (is4444) {
+                o = static_cast<uint16_t>(((p >> 8) & 15) | ((p >> 4) & 15) << 4 | (p & 15) << 8 | ((p >> 12) & 15) << 12);
+            } else if (is1555) {
+                uint16_t a = s->amask ? (p & 0x8000) : 0x8000;
+                if (key) a = 0;
+                o = static_cast<uint16_t>(((p >> 10) & 31) | ((p >> 5) & 31) << 5 | (p & 31) << 10 | a);
+            } else if (keyed) {   // 565 with a colour key -> 5551
+                o = static_cast<uint16_t>(((p >> 11) & 31) | ((p >> 6) & 31) << 5 | (p & 31) << 10 | (key ? 0 : 0x8000));
+            } else {
+                o = psp_ge::swap_rb565(p);
+            }
+            out[y * t.tbw + x] = o;
+        }
+    return &t;
+}
+
+// ---------- render states ----------
+int blend_factor(uint32_t d3d, bool src, unsigned *fix) {
+    switch (d3d) {
+    case 1: *fix = 0; return GU_FIX;                                // ZERO
+    case 2: *fix = 0xFFFFFFFFu; return GU_FIX;                      // ONE
+    case 3: return src ? GU_SRC_COLOR : GU_SRC_COLOR;               // SRCCOLOR (as dst factor)
+    case 4: return GU_ONE_MINUS_SRC_COLOR;                          // INVSRCCOLOR
+    case 5: return GU_SRC_ALPHA;
+    case 6: return GU_ONE_MINUS_SRC_ALPHA;
+    case 7: return GU_DST_ALPHA;
+    case 8: return GU_ONE_MINUS_DST_ALPHA;
+    case 9: return GU_SRC_COLOR;                                    // DESTCOLOR (as src factor)
+    case 10: return GU_ONE_MINUS_SRC_COLOR;                         // INVDESTCOLOR
+    default: *fix = 0xFFFFFFFFu; return GU_FIX;
+    }
+}
+
+int depth_func(uint32_t d3d) {   // depth is inverted (near = 65535)
+    switch (d3d) {
+    case 1: return GU_NEVER;
+    case 2: return GU_GREATER;   // LESS
+    case 3: return GU_EQUAL;
+    case 4: return GU_GEQUAL;    // LESSEQUAL
+    case 5: return GU_LESS;      // GREATER
+    case 6: return GU_NOTEQUAL;
+    case 7: return GU_LEQUAL;    // GREATEREQUAL
+    default: return GU_ALWAYS;
+    }
+}
+
+void apply_states(const uint32_t *rs, Texture *tex) {
+    if (rs[RS_ZENABLE]) {
+        sceGuEnable(GU_DEPTH_TEST);
+        sceGuDepthFunc(depth_func(rs[23]));
+    } else {
+        sceGuDisable(GU_DEPTH_TEST);
+    }
+    sceGuDepthMask(rs[RS_ZWRITEENABLE] ? GU_FALSE : GU_TRUE);
+    if (rs[RS_ALPHABLENDENABLE]) {
+        unsigned sfix = 0, dfix = 0;
+        int s = blend_factor(rs[RS_SRCBLEND], true, &sfix), d = blend_factor(rs[RS_DESTBLEND], false, &dfix);
+        sceGuEnable(GU_BLEND);
+        sceGuBlendFunc(GU_ADD, s, d, sfix, dfix);
+    } else {
+        sceGuDisable(GU_BLEND);
+    }
+    bool keyed = rs[RS_COLORKEYENABLE] && tex && tex->alpha;
+    if (rs[RS_ALPHATESTENABLE] || keyed) {
+        sceGuEnable(GU_ALPHA_TEST);
+        sceGuAlphaFunc(GU_GREATER, rs[RS_ALPHATESTENABLE] ? static_cast<int>(rs[RS_ALPHAREF] & 255) : 0, 0xFF);
+    } else {
+        sceGuDisable(GU_ALPHA_TEST);
+    }
+    sceGuShadeModel(rs[RS_SHADEMODE] == 1 ? GU_FLAT : GU_SMOOTH);
+    if (!tex) {
+        sceGuDisable(GU_TEXTURE_2D);
+        return;
+    }
+    sceGuEnable(GU_TEXTURE_2D);
+    sceGuTexMode(tex->psm, 0, 0, 0);
+    sceGuTexImage(0, tex->tw, tex->th, tex->tbw, tex->data);
+    switch (rs[RS_TEXTUREMAPBLEND]) {
+    case 1: case 7: sceGuTexFunc(GU_TFX_REPLACE, GU_TCC_RGBA); break;   // DECAL / COPY
+    case 3: sceGuTexFunc(GU_TFX_DECAL, GU_TCC_RGBA); break;             // DECALALPHA
+    case 4: sceGuTexFunc(GU_TFX_MODULATE, GU_TCC_RGBA); break;          // MODULATEALPHA
+    case 8: sceGuTexFunc(GU_TFX_ADD, GU_TCC_RGBA); break;               // ADD
+    default: sceGuTexFunc(GU_TFX_MODULATE, tex->alpha ? GU_TCC_RGBA : GU_TCC_RGB); break;   // MODULATE
+    }
+    int filt = rs[RS_TEXTUREMAG] >= 2 ? GU_LINEAR : GU_NEAREST;
+    sceGuTexFilter(rs[RS_TEXTUREMIN] >= 2 ? GU_LINEAR : GU_NEAREST, filt);
+    int wrap = rs[RS_TEXTUREADDRESS] == 3 ? GU_CLAMP : GU_REPEAT;
+    sceGuTexWrap(wrap, wrap);
+    sceGuTexFlush();
+}
+
+void end_frame() {
+    frame_used = false;
+    frame_vertices.clear();
+}
+
+}  // namespace
+
+bool init() {
+    psp_ge::init();
+    return true;
+}
+
+void set_target(Surface *s) {
+    init();
+    if (target == s && g_w == s->w && g_h == s->h) return;
+    if (target && target != s && frame_used) psp_ge::finish();
+    target = s;
+    g_w = s->w;
+    g_h = s->h;
+    // fit the visible 480x272 window (4:3 targets: 640x480 -> 363x272; the 16:9 band 480x270 is 1:1)
+    scale = std::min(1.f, std::min(static_cast<float>(psp_ge::SCREEN_W) / g_w,
+                                   static_cast<float>(psp_ge::SCREEN_H) / g_h));
+    s_w = static_cast<uint32_t>(g_w * scale);
+    s_h = static_cast<uint32_t>(g_h * scale);
+    off_x = (psp_ge::FB_W - static_cast<int>(s_w)) / 2;
+    off_y = (psp_ge::FB_H - static_cast<int>(s_h)) / 2;
+    log("d3d ge: render target %ux%u (scale %.2f)\n", g_w, g_h, scale);
+}
+
+uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
+    uint32_t base = static_cast<uint32_t>(frame_vertices.size());
+    for (uint32_t i = 0; i < n; i++) {
+        const TLVertex &v = verts[i];
+        float z = 65535.f * (1.f - v.sz);
+        z = z < 0.f ? 0.f : z > 65535.f ? 65535.f : z;
+        frame_vertices.push_back({v.tu, v.tv, argb_to_abgr(v.color), v.sx * scale + off_x, v.sy * scale + off_y, z});
+    }
+    return base;
+}
+
+void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, const uint16_t *indices,
+          uint32_t ntri) {
+    if (!usable() || !ntri) return;
+    st.draws++;
+    st.tris += ntri;
+    prepare();
+    Texture *tex = texture_for(texture);
+    apply_states(rs, tex);
+    const float su = tex ? static_cast<float>(texture->w) : 1.f, sv = tex ? static_cast<float>(texture->h) : 1.f;
+    auto *out = static_cast<GeVertex *>(psp_ge::list_memory(ntri * 3 * sizeof(GeVertex)));
+    for (uint32_t t = 0; t < ntri * 3; t++) {
+        uint32_t idx = indices[t];
+        GeVertex v = frame_vertices[base + (idx < nverts ? idx : 0)];
+        v.u *= su;
+        v.v *= sv;
+        out[t] = v;
+    }
+    sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_2D,
+                   static_cast<int>(ntri * 3), nullptr, out);
+}
+
+void clear(uint32_t flags, uint32_t argb, float depth) {
+    if (!usable()) return;
+    st.clears++;
+    prepare();
+    int bits = 0;
+    if (flags & 1) { sceGuClearColor(argb_to_abgr(argb)); bits |= GU_COLOR_BUFFER_BIT; }
+    if (flags & 2) {
+        float z = 65535.f * (1.f - depth);
+        sceGuClearDepth(static_cast<unsigned>(z < 0 ? 0 : z > 65535 ? 65535 : z));
+        bits |= GU_DEPTH_BUFFER_BIT;
+    }
+    if (bits) sceGuClear(bits);
+}
+
+void sync_to_cpu(Surface *s) {
+    if (s && s == target && frame_used && usable()) download_target();
+}
+
+void cpu_wrote(Surface *s) {
+    if (s && s == target) cpu_dirty = true;
+}
+
+void surface_destroyed(Surface *s) {
+    auto it = textures.find(s);
+    if (it != textures.end()) {
+        free(it->second.data);
+        textures.erase(it);
+    }
+    if (s == target) target = nullptr;
+}
+
+bool present_flip(Surface *back) {
+    stats_tick();
+    if (back != target || !frame_used || !usable()) {
+        st.flips_cpu++;
+        return false;
+    }
+    st.flips_gpu++;
+    if (cpu_dirty) upload_target();
+    psp_ge::show();
+    end_frame();
+    return true;
+}
+
+bool present_blt(Surface *src, Surface *, int32_t, int32_t, uint32_t, uint32_t) {
+    bool r = present_flip(src);
+    if (r) { st.flips_gpu--; st.blts_gpu++; } else { st.flips_cpu--; st.blts_cpu++; }
+    return r;
+}
+
+}  // namespace dx::gpu

@@ -60,7 +60,27 @@ std::string find_game_dir(const std::string &explicit_dir) {
 
 }  // namespace
 
+#ifdef __PSP__
+// No environment on the PSP: dev settings (MOTORACER_AUTOKEYS, MOTORACER_SNAPSHOT_DIR, ...) come
+// from psp_env.txt next to the EBOOT, one KEY=VALUE per line (tools/psp/e2e_psp.sh writes it).
+void load_psp_env() {
+    if (FILE *f = fopen((plat::host().paths.data_dir() + "/psp_env.txt").c_str(), "r")) {
+        char line[2048];
+        while (fgets(line, sizeof line, f)) {
+            std::string l = line;
+            while (!l.empty() && (l.back() == '\n' || l.back() == '\r')) l.pop_back();
+            size_t eq = l.find('=');
+            if (eq != std::string::npos && eq > 0) setenv(l.substr(0, eq).c_str(), l.substr(eq + 1).c_str(), 1);
+        }
+        fclose(f);
+    }
+}
+#endif
+
 int main(int argc, char **argv) {
+#ifdef __PSP__
+    load_psp_env();
+#endif
     open_log_file();
     std::string game_dir_arg, game_args;
     bool explicit_args = false;

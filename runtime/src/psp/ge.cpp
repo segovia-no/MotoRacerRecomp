@@ -1,0 +1,142 @@
+// PSP GE context (see ge.h).
+#include "ge.h"
+
+#include <pspdisplay.h>
+#include <pspge.h>
+#include <pspgu.h>
+#include <pspkernel.h>
+
+#include <SDL3/SDL.h>
+
+#include <malloc.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+
+namespace psp_ge {
+
+namespace {
+
+constexpr uint32_t FB_BYTES = FB_STRIDE * FB_H * 2;
+constexpr size_t LIST_BYTES = 512 * 1024;
+alignas(64) unsigned int list[LIST_BYTES / 4];   // commands and vertices; flushed early when half full
+size_t list_used = 0;                            // vertex bytes taken from the open list
+bool inited = false, open = false;
+int cur = 0;                                     // buffer being drawn (0/1); the other one is shown
+
+uint32_t fb_offset(int i) { return FB_BYTES * static_cast<uint32_t>(i); }
+
+// pspgu sizes the drawing region from sceGuDispBuffer (480x272); the buffers have 360 rows.
+void full_region() {
+    sceGuSendCommandi(0x15, 0);                                      // REGION1: x1, y1 = 0
+    sceGuSendCommandi(0x16, (FB_W - 1) | ((FB_H - 1) << 10));       // REGION2: x2, y2
+    sceGuScissor(0, 0, FB_W, FB_H);
+}
+uint8_t *vram_cpu() {
+    return reinterpret_cast<uint8_t *>(reinterpret_cast<uintptr_t>(sceGeEdramGetAddr()) | 0x40000000u);
+}
+
+}  // namespace
+
+void init() {
+    if (inited) return;
+    inited = true;
+    sceGuInit();
+    sceGuStart(GU_DIRECT, list);
+    sceGuDrawBuffer(GU_PSM_5650, reinterpret_cast<void *>(fb_offset(0)), FB_STRIDE);
+    sceGuDispBuffer(SCREEN_W, SCREEN_H, reinterpret_cast<void *>(fb_offset(1) + VIEW_Y0 * FB_STRIDE * 2), FB_STRIDE);
+    sceGuDepthBuffer(reinterpret_cast<void *>(fb_offset(2)), FB_STRIDE);
+    sceGuOffset(2048 - FB_W / 2, 2048 - FB_H / 2);
+    sceGuViewport(2048, 2048, FB_W, FB_H);
+    full_region();
+    sceGuEnable(GU_SCISSOR_TEST);
+    sceGuDepthRange(65535, 0);
+    sceGuClearColor(0);
+    sceGuClearDepth(0);
+    sceGuClear(GU_COLOR_BUFFER_BIT | GU_DEPTH_BUFFER_BIT);
+    sceGuFinish();
+    sceGuSync(0, 0);
+    sceDisplayWaitVblankStart();
+    sceGuDisplay(GU_TRUE);
+}
+
+void begin() {
+    init();
+    if (open) return;
+    sceGuStart(GU_DIRECT, list);
+    sceGuDrawBufferList(GU_PSM_5650, reinterpret_cast<void *>(fb_offset(cur)), FB_STRIDE);
+    full_region();
+    open = true;
+    list_used = 0;
+}
+
+void finish() {
+    if (!open) return;
+    sceKernelDcacheWritebackAll();   // vertices, textures and converted frames are in cached RAM
+    sceGuFinish();
+    sceGuSync(0, 0);
+    open = false;
+}
+
+static uint8_t *vram_abs(uint32_t offset) {   // the address the GE uses for transfers
+    return reinterpret_cast<uint8_t *>(reinterpret_cast<uintptr_t>(sceGeEdramGetAddr()) + offset);
+}
+
+void read_rect(uint16_t *ram, int ram_stride, int x, int y, int w, int h) {
+    begin();
+    sceGuCopyImage(GU_PSM_5650, x, y, w, h, FB_STRIDE, vram_abs(fb_offset(cur)), 0, 0, ram_stride, ram);
+    sceGuTexSync();
+    finish();
+    sceKernelDcacheInvalidateRange(ram, ram_stride * h * 2);
+}
+
+void write_rect(const uint16_t *ram, int ram_stride, int x, int y, int w, int h) {
+    sceKernelDcacheWritebackRange(ram, ram_stride * h * 2);
+    begin();
+    sceGuCopyImage(GU_PSM_5650, 0, 0, w, h, ram_stride, const_cast<uint16_t *>(ram), x, y, FB_STRIDE,
+                   vram_abs(fb_offset(cur)));
+    sceGuTexSync();
+}
+
+// Debug: MOTORACER_SNAPSHOT_DIR saves every MOTORACER_SNAPSHOT_EVERY-th (120) shown frame, the
+// visible 480x272 picture, as gpu_NNNNNN.bmp (the desktop name for GPU frames).
+static void maybe_snapshot(const uint8_t *shown) {
+    static const char *dir = getenv("MOTORACER_SNAPSHOT_DIR");
+    static const uint64_t every = getenv("MOTORACER_SNAPSHOT_EVERY") ? std::max(1, atoi(getenv("MOTORACER_SNAPSHOT_EVERY"))) : 120;
+    static uint64_t n = 0;
+    if (!dir || n++ % every) return;
+    (void)shown;
+    static uint16_t *buf = static_cast<uint16_t *>(memalign(64, FB_STRIDE * SCREEN_H * 2));
+    read_rect(buf, FB_STRIDE, 0, VIEW_Y0, SCREEN_W, SCREEN_H);
+    SDL_Surface *s = SDL_CreateSurfaceFrom(SCREEN_W, SCREEN_H, SDL_PIXELFORMAT_BGR565, buf, FB_STRIDE * 2);
+    if (!s) return;
+    char path[512];
+    snprintf(path, sizeof path, "%s/gpu_%06llu.bmp", dir, static_cast<unsigned long long>(n));
+    SDL_SaveBMP(s, path);
+    SDL_DestroySurface(s);
+}
+
+void show() {
+    init();
+    finish();
+    maybe_snapshot(vram_cpu() + fb_offset(cur) + VIEW_Y0 * FB_STRIDE * 2);
+    sceDisplaySetFrameBuf(vram_cpu() + fb_offset(cur) + VIEW_Y0 * FB_STRIDE * 2, FB_STRIDE,
+                          PSP_DISPLAY_PIXEL_FORMAT_565, PSP_DISPLAY_SETBUF_NEXTFRAME);
+    cur ^= 1;
+}
+
+uint16_t *draw_buffer() {
+    init();
+    return reinterpret_cast<uint16_t *>(vram_cpu() + fb_offset(cur));
+}
+
+void *list_memory(size_t n) {
+    n = (n + 15) & ~size_t{15};
+    if (open && list_used + n > LIST_BYTES / 2) finish();   // the rest of the frame goes into a new list
+    begin();
+    list_used += n;
+    return sceGuGetMemory(static_cast<int>(n));
+}
+
+}  // namespace psp_ge
