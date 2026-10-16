@@ -87,6 +87,20 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   stats); `tools/psp/e2e_psp.sh <name> "<keys>" [secs] [KEY=VALUE...]` stages, runs PPSSPP and makes
   a contact sheet; `MOTORACER_GE_STATS=1` logs draws / presents / transfers / time every 5 s.
 
+## Controls, audio, HUD (2026-10-17)
+- Input: SDL3 exposes the PSP pad as a gamepad ("PSP builtin joypad"); the runtime's gamepad layer
+  applies. PSP layout (instead of the Xbox preset, same rule: only over the game's factory
+  bindings): Cross accelerate, Square brake, nub / D-pad steer, R / L gear up / down, Circle stunts /
+  turbo, Start pause, Select speedometer; menus: D-pad, Cross confirm, Circle back. Every PSP start
+  counts as a first run (no recomp_state.txt), so the controller is set to joystick.
+- Audio: SDL3's PSP audio device opens; DirectSound buffers and the CD music (the WAV tracks, 12 on
+  the virtual disc) are SDL streams as on the desktop. Race frame rate with / without audio
+  (`MOTORACER_NO_AUDIO=1`): 120–186 / 114–132 frames per 5 s — no measurable cost in PPSSPP.
+  `tools/psp/e2e_psp.sh` copies the WAVs with `WITH_MUSIC=1` (~340 MB).
+- HUD (lap times, position, time, gauge backgrounds) was missing / wrong: Direct3D MODULATE takes the
+  alpha from a texture that has an alpha channel, the GE multiplies it with the vertex alpha, and the
+  game's HUD vertices carry alpha 0. Vertex alpha is now forced to 255 for those draws.
+
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).
 - Time per 5 s in the race: Direct3D Execute (parsing + GE backend) 400–660 ms (8–13%), of which the
@@ -107,6 +121,6 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   `SDL_CreateGPUDevice` (no SDL_GPU on the PSP) — next: the GE backend.
 - 2026-10-17: GE backend: intro, title, menus, bike selection, loading and races render correctly in
   PPSSPP (scripted E2E). Race 16–35 fps (emulated).
-- Next candidates: PSP button mapping, audio check, a real PSP, the PSP-1000 memory budget.
+- Next candidates: a real PSP, the PSP-1000 memory budget.
   Writing GE vertices straight from the native vertex loops (skipping Direct3D) would save at most
   the Execute share (~10%).

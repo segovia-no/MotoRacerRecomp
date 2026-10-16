@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 
 #include <atomic>
+#include <cstdlib>
 #include <map>
 #include <memory>
 #include <vector>
@@ -36,6 +37,10 @@ void SDLCALL feed(void *userdata, SDL_AudioStream *stream, int additional, int) 
 bool audio_init() {
     if (tried) return device != 0;
     tried = true;
+    if (getenv("MOTORACER_NO_AUDIO")) {   // dev: measure the cost of audio (e.g. on the PSP)
+        log("audio: off (MOTORACER_NO_AUDIO)\n");
+        return false;
+    }
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
         log("audio: SDL audio init failed: %s\n", SDL_GetError());
         return false;

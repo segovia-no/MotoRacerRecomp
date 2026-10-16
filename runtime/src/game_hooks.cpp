@@ -151,13 +151,22 @@ constexpr uint32_t BINDINGS = 0x53eae0;
 constexpr uint32_t INPUT_DEVICE = 0x4dc11c;   // "InputDevice" (CONTROLLER): 2 = JOYSTICK
 constexpr int32_t kFactoryJoy[7] = {0, 1, -2, -3, 2, 3, -1};
 constexpr int32_t kXboxJoy[7] = {-4, -5, -2, -3, 5, 4, 0};
+// PSP (docs/25): no analog triggers — Cross accelerates, Square brakes (the usual PSP racing layout),
+// the nub / D-pad steer, R / L shift up / down, Circle for stunts / turbo; Start pauses, Select
+// toggles the speedometer (Back, see speedometer_button).
+constexpr int32_t kPspJoy[7] = {0, 2, -2, -3, 5, 4, 1};
 
 void apply_controller_preset() {
     if (!settings::get().controller_preset || RD32(INPUT_DEVICE) != 2) return;
     for (uint32_t i = 0; i < 7; i++)
         if (static_cast<int32_t>(RD32(BINDINGS + 8 * i + 4)) != kFactoryJoy[i]) return;   // player's own
+#ifdef __PSP__
+    for (uint32_t i = 0; i < 7; i++) WR32(BINDINGS + 8 * i + 4, static_cast<uint32_t>(kPspJoy[i]));
+    log("controller: PSP layout applied (Cross/Square throttle/brake, nub/D-pad steer, R/L gears, Circle stunts)\n");
+#else
     for (uint32_t i = 0; i < 7; i++) WR32(BINDINGS + 8 * i + 4, static_cast<uint32_t>(kXboxJoy[i]));
     log("controller: Xbox layout preset applied (RT/LT throttle/brake, LB/RB gears, A stunts)\n");
+#endif
 }
 
 void apply_first_run_defaults() {

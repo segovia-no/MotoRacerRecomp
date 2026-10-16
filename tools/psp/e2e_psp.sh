@@ -13,7 +13,9 @@ shift $(( $# < 3 ? $# : 3 ))
 run=build/psp/run
 game="${MOTORACER_GAME_DIR:-$HOME/Library/Application Support/MotoRacerRecomp/game}"
 mkdir -p "$run/game" build/e2e
-rsync -a --exclude '*.wav' --exclude '__support' "$game/" "$run/game/"
+# WITH_MUSIC=1 also copies the CD-audio WAVs (~340 MB) for the music
+if [ -n "${WITH_MUSIC:-}" ]; then rsync -a --exclude '__support' "$game/" "$run/game/"
+else rsync -a --exclude '*.wav' --exclude '__support' "$game/" "$run/game/"; fi
 cp build/psp/EBOOT.PBP "$run/"
 rm -rf "$run/snap" && mkdir -p "$run/snap"
 {

@@ -159,7 +159,12 @@ void prepare() {
 
 // ---------- textures ----------
 Texture *texture_for(Surface *s) {
-    if (!s || s->w > 512 || s->h > 512) return nullptr;
+    if (!s) return nullptr;
+    if (s->w > 512 || s->h > 512) {
+        static int warned = 0;
+        if (warned++ < 5) log("d3d ge: texture %ux%u is larger than the GE's 512x512, drawn untextured\n", s->w, s->h);
+        return nullptr;
+    }
     Texture &t = textures[s];
     uint32_t pal_version = s->palette ? s->palette->version : 0;
     if (t.data && t.version == s->version && t.pal_version == pal_version) return &t;
@@ -408,11 +413,16 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             for (int k = 0; k < 3; k++) tri_out.push_back(*v[k]);
         }
     }
+    // Direct3D MODULATE takes alpha from the texture alone when it has an alpha channel; the GE's
+    // modulate multiplies it with the vertex alpha, and the game's HUD vertices carry alpha 0.
+    const uint32_t blend = rs[RS_TEXTUREMAPBLEND];
+    const uint32_t force_alpha = (tex && tex->alpha && blend != 3 && blend != 4) ? 0xFF000000u : 0;
     auto *out = static_cast<GeVertex *>(psp_ge::list_memory(tri_out.size() * sizeof(GeVertex)));
     for (size_t i = 0; i < tri_out.size(); i++) {
         GeVertex g = tri_out[i].g;
         g.u *= su;
         g.v *= sv;
+        g.color |= force_alpha;
         out[i] = g;
     }
     st.subdivided += static_cast<uint32_t>(tri_out.size() / 3 - ntri);
