@@ -83,8 +83,12 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
 - Time per 5 s in the race: Direct3D Execute (parsing + GE backend) 400–660 ms (8–13%), of which the
   GE backend 190–300 ms; texture conversions only after loads; waiting for the GE ~0. The rest is
   the game's own code.
-- Menus: ~5 fps — the game draws them with the CPU into the Direct3D back buffer, so every frame
-  downloads and uploads it (GE transfers + format conversion).
+- Menus: were ~5 fps — the game draws them with the CPU into the Direct3D back buffer, so every
+  frame downloaded and uploaded it (GE transfers + format conversion). Fixed (2026-10-17): a Clear
+  with nothing drawn yet is kept pending; when the CPU then touches the back buffer the colour clear
+  is applied to guest memory by the CPU (no readback), and a frame without GE drawing is presented as
+  a CPU frame; 16-bit CPU frames go straight to the GE's 5650 (no RGBA8 detour). Main menu now
+  ~43 fps (215–219 frames per 5 s), menus with 3D (bike selection) 15–31 fps.
 - PPSSPP times the CPU from instruction counts, not cycle-exact; real hardware (cache misses, the
   in-order pipeline) is likely slower.
 
@@ -94,7 +98,7 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   `SDL_CreateGPUDevice` (no SDL_GPU on the PSP) — next: the GE backend.
 - 2026-10-17: GE backend: intro, title, menus, bike selection, loading and races render correctly in
   PPSSPP (scripted E2E). Race 16–35 fps (emulated).
-- Next candidates: the menus' CPU frames (avoid the per-frame download/upload), fog, perspective-
+- Next candidates: fog, perspective-
   correct texturing, PSP button mapping, audio check, a real PSP, the PSP-1000 memory budget.
   Writing GE vertices straight from the native vertex loops (skipping Direct3D) would save at most
   the Execute share (~10%).

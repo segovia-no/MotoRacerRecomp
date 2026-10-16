@@ -167,6 +167,13 @@ void submit(int w, int h) {
 }  // namespace
 
 void present_rgb16(const uint8_t *px, int w, int h, int pitch, bool rgb555) {
+#ifdef __PSP__
+    gpu::present_rgb16(px, static_cast<uint32_t>(w), static_cast<uint32_t>(h), static_cast<uint32_t>(pitch), rgb555);
+    frames++;
+    game::frame_tick();
+    limit_frame_rate();
+    return;
+#endif
     rgba.resize(static_cast<size_t>(w) * h);
     for (int y = 0; y < h; y++) {
         const uint16_t *row = reinterpret_cast<const uint16_t *>(px + static_cast<size_t>(y) * pitch);

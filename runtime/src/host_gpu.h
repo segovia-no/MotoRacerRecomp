@@ -24,6 +24,10 @@ void present_placed(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, 
 
 // Uploads an RGBA8 frame and presents it (software renderer path).
 void present_rgba(const uint32_t *px, uint32_t w, uint32_t h, const Crop &crop);
+#ifdef __PSP__
+// PSP: a 16-bit (565 or 555) frame converted straight to the GE's format (no RGBA8 detour).
+void present_rgb16(const uint8_t *px, uint32_t w, uint32_t h, uint32_t pitch, bool rgb555);
+#endif
 
 // Widescreen detection shared by both renderers: feed one observation per check.
 // Returns the crop to use for the current frame.

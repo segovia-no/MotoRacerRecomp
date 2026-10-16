@@ -51,7 +51,12 @@ uint32_t g_w = 0, g_h = 0;
 int off_x = 0, off_y = 0;           // the target is centred in the 480x360 buffer
 float scale = 1.f;                  // and scaled down to fit the visible 480x272 window
 uint32_t s_w = 0, s_h = 0;          // its size in the buffer
-bool frame_used = false;            // GE work since the last present
+bool frame_used = false;            // GE drawing since the last present / download
+// A Clear with nothing drawn yet is kept here instead of being sent to the GE: menu frames are
+// "Clear, then CPU drawing" — the colour clear is then applied to the guest buffer by the CPU and
+// the frame presented as a CPU frame, without reading the GE buffer back (docs/25).
+uint32_t pending_flags = 0, pending_argb = 0;
+float pending_depth = 1.f;
 bool cpu_dirty = false;             // the guest back buffer is newer than the GE buffer
 std::vector<GeVertex> frame_vertices;
 
@@ -113,9 +118,36 @@ void download_target() {
     }
 }
 
+// Applies a pending colour clear to the guest back buffer (CPU fill).
+void clear_guest() {
+    if (!(pending_flags & 1)) return;
+    uint32_t a = pending_argb;
+    uint16_t c = static_cast<uint16_t>(((a >> 8) & 0xF800) | ((a >> 5) & 0x07E0) | ((a >> 3) & 0x001F));
+    for (uint32_t y = 0; y < g_h; y++) {
+        uint32_t row = target->mem + y * target->pitch;
+        for (uint32_t x = 0; x < g_w; x++) WR16(row + 2 * x, c);
+    }
+    pending_flags &= ~1u;
+    cpu_dirty = true;   // the GE buffer no longer matches
+}
+
+void issue_pending_clear() {
+    if (!pending_flags) return;
+    int bits = 0;
+    if (pending_flags & 1) { sceGuClearColor(argb_to_abgr(pending_argb)); bits |= GU_COLOR_BUFFER_BIT; }
+    if (pending_flags & 2) {
+        float z = 65535.f * (1.f - pending_depth);
+        sceGuClearDepth(static_cast<unsigned>(z < 0 ? 0 : z > 65535 ? 65535 : z));
+        bits |= GU_DEPTH_BUFFER_BIT;
+    }
+    pending_flags = 0;
+    if (bits) sceGuClear(bits);
+}
+
 void prepare() {
     if (cpu_dirty) upload_target();
     psp_ge::begin();
+    issue_pending_clear();
     frame_used = true;
 }
 
@@ -318,19 +350,25 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
 void clear(uint32_t flags, uint32_t argb, float depth) {
     if (!usable()) return;
     st.clears++;
-    prepare();
-    int bits = 0;
-    if (flags & 1) { sceGuClearColor(argb_to_abgr(argb)); bits |= GU_COLOR_BUFFER_BIT; }
-    if (flags & 2) {
-        float z = 65535.f * (1.f - depth);
-        sceGuClearDepth(static_cast<unsigned>(z < 0 ? 0 : z > 65535 ? 65535 : z));
-        bits |= GU_DEPTH_BUFFER_BIT;
+    // a later clear replaces an earlier pending one; after drawing it goes to the GE in order
+    if (flags & 1) pending_argb = argb;
+    if (flags & 2) pending_depth = depth;
+    pending_flags |= flags & 3;
+    if (frame_used) {
+        psp_ge::begin();
+        issue_pending_clear();
     }
-    if (bits) sceGuClear(bits);
 }
 
 void sync_to_cpu(Surface *s) {
-    if (s && s == target && frame_used && usable()) download_target();
+    if (!s || s != target || !usable()) return;
+    if (frame_used) {
+        download_target();
+        frame_used = false;   // the guest buffer now holds the frame; further drawing re-uploads it
+        cpu_dirty = true;
+    } else {
+        clear_guest();
+    }
 }
 
 void cpu_wrote(Surface *s) {
@@ -349,7 +387,9 @@ void surface_destroyed(Surface *s) {
 bool present_flip(Surface *back) {
     stats_tick();
     if (back != target || !frame_used || !usable()) {
+        if (back == target && usable()) clear_guest();   // CPU frame: presented from guest memory
         st.flips_cpu++;
+        end_frame();
         return false;
     }
     st.flips_gpu++;
