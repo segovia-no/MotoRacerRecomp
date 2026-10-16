@@ -7,6 +7,7 @@
 // possible and are saved to motoracer.ini [Recomp].
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -120,7 +121,7 @@ std::vector<Row> make_rows() {
     };
 }
 
-bool open = false;
+bool page_open = false;
 std::vector<Row> rows;
 uint32_t text_mem = 0;   // guest strings and points, stable while the page is shown
 constexpr uint32_t SLOT = 64;
@@ -142,20 +143,20 @@ void set_color(uint32_t color) {
 
 // Back to the Options rows, the cursor on Info.
 void close_page() {
-    open = false;
+    page_open = false;
     WR32(RD32(MENU) + MENU_CURSOR, INFO_ITEM);
     log("recomp menu: closed\n");
 }
 
 }  // namespace
 
-extern "C" void game_hook_options_init(void) { open = false; }
+extern "C" void game_hook_options_init(void) { page_open = false; }
 
 // Info (item 21): open the Recomp page instead of the DIAGNOSTIC page.
 extern "C" int game_hook_options_info(void) {
     if (rows.empty()) rows = make_rows();
     if (!text_mem) text_mem = heap_alloc(SLOT * 64, true);
-    open = true;
+    page_open = true;
     WR32(RD32(MENU) + MENU_CURSOR, 0);
     log("recomp menu: open\n");
     return 1;
@@ -164,7 +165,7 @@ extern "C" int game_hook_options_info(void) {
 // Options frame, first row about to be drawn (ebx = cursor item): draw our rows and Back, then
 // continue after the game's buttons.
 extern "C" int game_hook_options_rows(void) {
-    if (!open) return 0;
+    if (!page_open) return 0;
     // Escape (gamepad B) = Back
     static bool esc_was = false;
     bool esc = w32::key_state(0x1B) & 0x8000;
@@ -199,7 +200,7 @@ extern "C" int game_hook_options_rows(void) {
 
 // Options frame, item dispatch (esi = activated item, -1 = none).
 extern "C" int game_hook_options_action(void) {
-    if (!open) return 0;
+    if (!page_open) return 0;
     int32_t item = static_cast<int32_t>(R.esi);
     if (item < 0) return 1;
     if (static_cast<size_t>(item) < rows.size()) {
