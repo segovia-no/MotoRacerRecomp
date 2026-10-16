@@ -203,3 +203,11 @@ void count_frame() {
 bool window_to_game(float wx, float wy, int *gx, int *gy) { return gpu::window_to_game(wx, wy, gx, gy); }
 
 }  // namespace host
+
+namespace rt {
+void thread_counts(uint64_t *insns, uint64_t *cycles) {
+    host::ThreadCounts c = host::thread_counts();
+    *insns = c.insns;
+    *cycles = c.cycles;
+}
+}  // namespace rt

@@ -78,6 +78,15 @@ so more work per frame than the table above; two alternating rounds):
 | Cycles | 5.61 / 5.02 M | 4.05 / 4.02 M (−20…28%) |
 | Game code (`__text`) | 2.91 MB | 3.09 MB (spill/reload code at calls) |
 
+Other checks (2026-10-16):
+- **Unused flags are already free**: stripping every `pf`/`af` computation from a generated file by
+  hand changed its object size by 12 bytes (120,856 vs 120,868) — the C compiler removes dead flag
+  computations within a function, so no translator flag-liveness pass is needed.
+- **`-O2`** for the game code (CMake `MOTORACER_GUEST_OPT_LEVEL`, now the default; existing build
+  directories keep their cached value, set it with `-DMOTORACER_GUEST_OPT_LEVEL=-O2`): 2–3.5% fewer
+  instructions per frame than `-O1` in two alternating rounds (cycles too noisy to tell), code
+  3.09 → 3.01 MB, full parallel build of the game code ~20 s on an M3 Pro.
+
 ## Benchmarking notes
 - Method: build both variants (`cmake -B build/benchbase -DMOTORACER_GUEST_OPT=OFF …`), run the same
   E2E race alternately with `MOTORACER_FRAME_WORK=1` and compare the game thread's instructions and

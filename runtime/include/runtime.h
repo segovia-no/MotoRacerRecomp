@@ -39,6 +39,7 @@ void heap_free(uint32_t va);
 uint32_t heap_realloc(uint32_t va, uint32_t size, bool zero = false);
 uint32_t heap_size(uint32_t va);   // 0xFFFFFFFF if not a live block
 void memory_stats_log();           // MOTORACER_MEM_STATS
+void thread_counts(uint64_t *insns, uint64_t *cycles);   // this thread's instructions / cycles (macOS; else 0)
 uint32_t valloc_reserve(uint32_t addr, uint32_t size);
 void valloc_release(uint32_t addr);
 

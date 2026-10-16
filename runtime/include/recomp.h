@@ -175,6 +175,10 @@ void game_hook_main_menu_init(void);
 void game_hook_main_menu_button_nav(void);
 void game_hook_ai_speed(void);
 void game_hook_opponents(void);
+/* native versions (runtime/src/native_render.cpp) */
+int native_flat_vertices(void);
+int native_tex_vertices(void);
+void native_vertices_check(void);
 int game_hook_options_rows(void);     /* jump hooks: nonzero = take the jump */
 int game_hook_options_action(void);
 int game_hook_options_info(void);

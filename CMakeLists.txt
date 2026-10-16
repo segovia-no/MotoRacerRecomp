@@ -50,7 +50,8 @@ add_custom_command(
 # Generated guest code: plain C, warnings off (it is machine output).
 add_library(gamecode OBJECT ${GEN_SOURCES})
 target_include_directories(gamecode PRIVATE runtime/include "${GEN_DIR}")
-target_compile_options(gamecode PRIVATE -w -O1 -fno-strict-aliasing)
+set(MOTORACER_GUEST_OPT_LEVEL "-O2" CACHE STRING "Optimisation level for the generated game code")
+target_compile_options(gamecode PRIVATE -w ${MOTORACER_GUEST_OPT_LEVEL} -fno-strict-aliasing)
 if(MOTORACER_GUEST_OPT)
   target_compile_definitions(gamecode PRIVATE RECOMP_GENERATED)
 endif()

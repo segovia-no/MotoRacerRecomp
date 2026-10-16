@@ -112,7 +112,14 @@ GAME_HOOKS = {
     # Race setup (0x47b542): the opponent count 0x542874 has just been chosen (23, 1 with OPPONENTS
     # off, 11 in one mode; -NbComp only applies to another start path); dev override.
     0x47B5AF: "game_hook_opponents",
+    # Render-list flush 0x4af570: where both per-vertex loops end (check mode of the native loops).
+    0x4AF9FE: "native_vertices_check",
 }
+
+# Guest functions with a native version (runtime/src/native_render.cpp, docs/24-native-render.md):
+# f_<va> calls the native function, which returns 0 to run the translated body (kept as f_<va>_t).
+# (0x419d60, the triangle emitter, was tried: no gain over the translated code, docs/24.)
+NATIVE_FUNCS = {}
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function).
 GAME_JUMP_HOOKS = {
@@ -124,6 +131,9 @@ GAME_JUMP_HOOKS = {
     0x444504: ("game_hook_options_action", 0x4449A2),
     # Info button (item 21, would open the DIAGNOSTIC page 13) -> opens the Recomp page
     0x444983: ("game_hook_options_info", 0x4449A2),
+    # Render-list flush 0x4af570: native per-vertex loops (untextured / textured), continuing after them
+    0x4AF89B: ("native_flat_vertices", 0x4AF9FE),
+    0x4AF9AF: ("native_tex_vertices", 0x4AF9FE),
 }
 
 
@@ -591,7 +601,9 @@ class FunctionTranslator:
                 self.tr.x87_local += 1
                 fpu_decl = ("    fpu_t " + ", ".join(f"x{i}" for i in range(depth)) + "; " if depth else "    ") + \
                     "uint32_t fsw = F.sw; (void)fsw;"
-        lines = [f"void {fn_name(self.entry)}(void) {{",
+        native = NATIVE_FUNCS.get(self.entry)
+        name = fn_name(self.entry) + ("_t" if native else "")
+        lines = [f"void {name}(void) {{",
                  "    uint32_t cf = 0, zf = 0, sf = 0, of = 0, pf = 0, af = 0;",
                  "    (void)cf; (void)zf; (void)sf; (void)of; (void)pf; (void)af;"]
         lines.append("    MEM_LOCAL();")
@@ -609,6 +621,8 @@ class FunctionTranslator:
                 continue
             lines.append(ln)
         lines.append("}")
+        if native:
+            lines.append(f"void {fn_name(self.entry)}(void) {{ if (!{native}()) {name}(); }}")
         return "\n".join(lines)
 
     # Returns True if control may fall through to insn.end.
