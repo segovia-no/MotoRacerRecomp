@@ -53,3 +53,10 @@ test. Each run opens a game window for its duration.
 SHEET_GLOB="gpu_00[23]*.bmp" tools/e2e_race.sh race1024 1 50 MOTORACER_D3D_DEBUG=1 MOTORACER_MODES=1024x768
 # -> build/e2e/race1024.png, build/e2e/race1024.log
 ```
+
+## Disk use (2026-10-16)
+- GPU snapshots are full render-target BMPs (~20 MB each at 2560×1920). Never deleted, they had grown
+  to 45 GB in `build/e2e` (3,118 frames; e.g. 5.2 GB for one run with `MOTORACER_SNAPSHOT_EVERY=6`).
+- `tools/e2e.sh` now deletes a run's frames once its contact sheet is made; `KEEP_FRAMES=1` keeps them
+  for closer inspection, and kept frames older than an hour are removed at the start of every run.
+  Sheets (`build/e2e/<name>.png`) and logs (`<name>.log`) stay.

@@ -9,11 +9,17 @@
 # Output: build/e2e/<name>/ (BMP snapshots: gpu_* every 120 GPU frames, frame_* every 60
 # software frames), build/e2e/<name>.png (contact sheet), build/e2e/<name>.log (game log).
 # MOTORACER_BIN=<path> runs another build (default build/cmake/motoracer).
+# Snapshots are full render-target BMPs (~20 MB each at 2560x1920), so they are deleted once the
+# contact sheet is made; KEEP_FRAMES=1 keeps them for closer inspection. Kept frames older than an
+# hour are removed at the start of every run.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 name=$1 keys=$2 secs=${3:-60}
 shift $(( $# < 3 ? $# : 3 ))
 out=build/e2e/$name
+mkdir -p build/e2e
+find build/e2e -mindepth 2 -name '*.bmp' -mmin +60 -delete 2>/dev/null || true
+find build/e2e -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null || true
 rm -rf "$out" && mkdir -p "$out"
 env MOTORACER_SNAPSHOT_DIR="$PWD/$out" MOTORACER_AUTOKEYS="$keys" "$@" \
     perl -e 'alarm shift; exec @ARGV' "$secs" "${MOTORACER_BIN:-build/cmake/motoracer}" >/dev/null 2>&1 || true
@@ -24,3 +30,4 @@ py=python3
 for c in .venv/bin/python python3; do "$c" -c 'import PIL' 2>/dev/null && { py=$c; break; }; done
 "$py" -I tools/e2e_sheet.py "$out" "build/e2e/$name.png" "${SHEET_GLOB:-gpu_*.bmp}"
 echo "sheet: build/e2e/$name.png"
+if [ -z "${KEEP_FRAMES:-}" ]; then rm -rf "$out"; else echo "frames: $out (deleted after an hour)"; fi
