@@ -87,7 +87,7 @@ Most settings are the game's own, in **Options**:
 - **D3D** — OFF (original software renderer, original resolutions), ON, FILTERED (smooth textures).
 - **DETAIL LEVELS**, opponents, volumes, controller.
 
-The port's own settings are in **Options › Info** (the Info button opens the Recomp settings page, in the game's look): frame rate, vsync, scaling filter, HUD scale, draw distance, widescreen crop, gamepad in menus. Enter or a click changes a value, Escape / gamepad B goes back; changes are saved at once.
+The port's own settings are in **Options › Recomp** (the button that was Info; it opens the Recomp settings page, in the game's look): frame rate, vsync, scaling filter, HUD scale, draw distance, widescreen crop, gamepad in menus. Enter or a click changes a value, Escape / gamepad B goes back; changes are saved at once.
 
 All port options live in the `[Recomp]` section of `motoracer.ini` in the game folder (`~/Library/Application Support/MotoRacerRecomp/game` on macOS, `~/.local/share/MotoRacerRecomp/game` on Linux, `%LOCALAPPDATA%\MotoRacerRecomp\game` on Windows):
 

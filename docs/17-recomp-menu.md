@@ -55,7 +55,32 @@ settings (frame rate, filtering, HUD scale, …) instead of editing `motoracer.i
   values (filter, vsync switched live, logged); Back and Escape return to Options with Info selected;
   the ini gets `[Recomp] Filter=nearest VSync=0`.
 
+## The "Recomp" button image (2026-10-16)
+- Menu art is drawn by the game's CPU blitter into the back buffer (only five 256×256 Direct3D
+  textures are uploaded on the Options page), so the label is in the sprite's bitmap.
+- Sprite object (page object table `0x504880`, Info = `[0x504b28]`): `+8` width, `+0xc` height
+  (Info 121×40), `+0x30` packed data, `+0x34` its size, `+0x2c` the unpacked pixels (0 until first used).
+  A second image at `+0x8c` (Accept: same size; its role is unconfirmed).
+- `0x43eb00` (thiscall sprite) unpacks: data starts with "LEZ1" (LZ: 32-bit flag words, literal bytes,
+  16-bit back-references with a 10-bit distance and a 6-bit length + 3), giving a TGA (18-byte header,
+  colour-map length at +5, width/height at +0xc/+0xe, BGR palette, 8-bit pixels). The palette is turned
+  into 16-bit with the shift bytes at `0x4ee9b8`… (RGB565 here) and the pixels into a w×h RGB565 buffer;
+  black (0) is transparent. The button registration `0x40bef0` calls it once and keeps the result at `+0x2c`.
+- Unpacked buttons seen: Play Solo / Play Link cards 222×159, Accept / Exit / Start / Continue 120×40,
+  Options 172×56, config 52×30, Info / Data disk 121×40. Labels: black italic geometric sans, with no
+  R or m in any label, and they change with the game language. So the label is drawn rather than
+  pieced together from other buttons.
+- Hook `0x40bf5e` (`game_hook_button_unpacked`: eax = pixels, ebx = sprite), Info only:
+  1. the old label = pixels dark against their row (luminance < 60, or 35 below the brightest pixel
+     3–4 px left/right) in rows 4–23, grown by one pixel; each run is filled by interpolating the oval
+     colours on both sides (the strokes are thin, so this hides well; the dark shadow below is
+     untouched);
+  2. "Recomp" from a small stroked vector font (stems, arcs) in the runtime: cap 17, x-height 12,
+     descender 5, stroke 2.5 px, italic shear 0.45, baseline 22.5 (measured against Info and Accept),
+     3×3 supersampled, ink = the average of the old label's darkest pixels.
+  Nothing of the game's art is shipped; the image is made from the player's own copy at run time.
+- Verified (E2E): the Options page shows "Recomp" in place of "Info", matching Accept's style.
+
 ## Open
-- The button still reads "Info" (label baked into its texture): needs a "Recomp" image.
 - The header banner still reads "OPTIONS".
 - Mouse and gamepad not yet tested on the page (the game's menu handles both).

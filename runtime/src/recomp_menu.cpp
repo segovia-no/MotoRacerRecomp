@@ -8,6 +8,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -150,7 +151,9 @@ void close_page() {
 
 }  // namespace
 
-extern "C" void game_hook_options_init(void) { page_open = false; }
+extern "C" void game_hook_options_init(void) {
+    page_open = false;
+}
 
 // Info (item 21): open the Recomp page instead of the DIAGNOSTIC page.
 extern "C" int game_hook_options_info(void) {
@@ -210,4 +213,171 @@ extern "C" int game_hook_options_action(void) {
         close_page();   // Back
     }
     return 1;
+}
+
+// ---------- the "Recomp" button image ----------
+// The Info button's label is part of its sprite (LEZ1-packed TGA, unpacked by 0x43eb00 into RGB565
+// pixels, black = transparent). The runtime repaints the unpacked pixels: the old label's strokes
+// are found by local contrast and filled from the oval on either side, then "Recomp" is drawn with
+// a small stroked, sheared vector font sized like the game's button lettering. Only the game's own
+// pixels on this machine are used; nothing of the game's art is shipped.
+namespace {
+
+constexpr uint32_t INFO_SPRITE = 0x504b28;
+
+struct Rgb { float r, g, b; };
+Rgb from565(uint16_t v) { return {float((v >> 11) << 3), float(((v >> 5) & 63) << 2), float((v & 31) << 3)}; }
+uint16_t to565(Rgb c) {
+    auto q = [](float v, int bits) { return std::min((1 << bits) - 1, std::max(0, int(v) >> (8 - bits))); };
+    uint16_t v = static_cast<uint16_t>(q(c.r, 5) << 11 | q(c.g, 6) << 5 | q(c.b, 5));
+    return v ? v : 1;   // 0 is the transparent key
+}
+int lum(uint16_t v) { Rgb c = from565(v); return int(c.r * 3 + c.g * 6 + c.b) / 10; }
+
+struct Seg { float x0, y0, x1, y1; };
+
+// Stroked glyphs in pixels, y up from the baseline (before the italic shear).
+constexpr float CAP = 17.f, XH = 12.f, DESC = 5.f, STROKE = 2.5f, SHEAR = 0.45f, BASELINE = 22.5f;
+
+void arc(std::vector<std::pair<float, float>> &p, float cx, float cy, float rx, float ry, float a0, float a1) {
+    const int n = 24;
+    for (int i = 0; i <= n; i++) {
+        float a = (a0 + (a1 - a0) * i / n) * 3.14159265f / 180.f;
+        p.push_back({cx + rx * std::cos(a), cy + ry * std::sin(a)});
+    }
+}
+
+std::vector<Seg> layout_recomp(float centre_x) {
+    using Poly = std::vector<std::pair<float, float>>;
+    struct Glyph { float advance; std::vector<Poly> polys; };
+    const float r = XH / 2, bw = 7.5f, a = 3.3f;
+    std::vector<Glyph> text;
+    {   // R
+        Poly stem{{0, 0}, {0, CAP}}, bowl{{0, CAP}, {bw - 3.6f, CAP}};
+        arc(bowl, bw - 3.6f, CAP - 3.6f, 3.6f, 3.6f, 90, -90);
+        bowl.push_back({0, CAP - 7.2f});
+        text.push_back({bw + 3.5f, {stem, bowl, {{bw - 4.2f, CAP - 7.2f}, {bw + 1.2f, 0}}}});
+    }
+    {   // e
+        Poly e{{0.2f, r}, {2 * r, r}};
+        arc(e, r, r, r, r, 0, 315);
+        text.push_back({2 * r + 1.5f, {e}});
+    }
+    {   // c
+        Poly c;
+        arc(c, r, r, r, r, 45, 315);
+        text.push_back({2 * r + 1.f, {c}});
+    }
+    {   // o
+        Poly o;
+        arc(o, r, r, r, r, 0, 360);
+        text.push_back({2 * r + 1.5f, {o}});
+    }
+    {   // m
+        Poly a1{{0, XH - a}}, a2{{2 * a, XH - a}};
+        arc(a1, a, XH - a, a, a, 180, 0);
+        a1.push_back({2 * a, 0});
+        arc(a2, 3 * a, XH - a, a, a, 180, 0);
+        a2.push_back({4 * a, 0});
+        text.push_back({4 * a + 2.f, {{{0, 0}, {0, XH}}, a1, a2}});
+    }
+    {   // p
+        Poly bowl;
+        arc(bowl, r, r, r, r, 0, 360);
+        text.push_back({2 * r + 2.f, {{{0, -DESC}, {0, XH}}, bowl}});
+    }
+    float total = -1.5f;
+    for (auto &g : text) total += g.advance;
+    std::vector<Seg> segs;
+    float pen = 0;
+    for (auto &g : text) {
+        for (auto &poly : g.polys)
+            for (size_t i = 1; i < poly.size(); i++) {
+                auto map = [&](std::pair<float, float> q) {
+                    return std::pair<float, float>{centre_x - total / 2 + pen + q.first + (q.second - CAP / 2) * SHEAR,
+                                                   BASELINE - q.second};
+                };
+                auto [x0, y0] = map(poly[i - 1]);
+                auto [x1, y1] = map(poly[i]);
+                segs.push_back({x0, y0, x1, y1});
+            }
+        pen += g.advance;
+    }
+    return segs;
+}
+
+float coverage(const std::vector<Seg> &segs, float x, float y) {
+    float best = 1e9f;
+    for (const Seg &s : segs) {
+        float dx = s.x1 - s.x0, dy = s.y1 - s.y0, l = dx * dx + dy * dy;
+        float t = l == 0 ? 0 : std::clamp(((x - s.x0) * dx + (y - s.y0) * dy) / l, 0.f, 1.f);
+        best = std::min(best, std::hypot(x - s.x0 - t * dx, y - s.y0 - t * dy));
+    }
+    return std::clamp(STROKE / 2 - best + 0.5f, 0.f, 1.f);
+}
+
+void repaint_info_button(uint32_t pixels, int w, int h) {
+    if (w < 80 || h < 30) return;
+    std::vector<uint16_t> px(static_cast<size_t>(w * h));
+    for (int i = 0; i < w * h; i++) px[i] = RD16(pixels + 2 * static_cast<uint32_t>(i));
+    auto at = [&](int x, int y) { return px[static_cast<size_t>(y * w + x)]; };
+    // 1. the old label: dark against its row neighbourhood, in the text band
+    const int y0 = 4, y1 = std::min(h, 24);
+    std::vector<uint8_t> mask(px.size(), 0);
+    Rgb ink{16, 16, 16};
+    int ink_n = 0, bx0 = w, bx1 = 0;
+    for (int y = y0; y < y1; y++)
+        for (int x = 0; x < w; x++) {
+            uint16_t v = at(x, y);
+            if (!v) continue;
+            int l = lum(v), nb = -1;
+            for (int xx : {x - 4, x - 3, x + 3, x + 4})
+                if (xx >= 0 && xx < w && at(xx, y)) nb = std::max(nb, lum(at(xx, y)));
+            if (l < 60 || (nb >= 0 && l < nb - 35)) {
+                mask[static_cast<size_t>(y * w + x)] = 1;
+                if (x > w / 5 && x < w * 5 / 6) { bx0 = std::min(bx0, x); bx1 = std::max(bx1, x); }
+                if (l < 50) { Rgb c = from565(v); ink = {(ink.r * ink_n + c.r) / (ink_n + 1), (ink.g * ink_n + c.g) / (ink_n + 1), (ink.b * ink_n + c.b) / (ink_n + 1)}; ink_n++; }
+            }
+        }
+    if (bx0 >= bx1) return;
+    bx0 = std::max(1, bx0 - 2);
+    bx1 = std::min(w - 2, bx1 + 2);
+    // 2. fill each run of label pixels (grown by one) from the oval on both sides
+    for (int y = y0; y < y1; y++) {
+        auto m = [&](int x) { return mask[static_cast<size_t>(y * w + x)] || mask[static_cast<size_t>(y * w + x - 1)] || mask[static_cast<size_t>(y * w + x + 1)]; };
+        for (int x = bx0; x <= bx1;) {
+            if (!m(x) || !at(x, y)) { x++; continue; }
+            int a = x;
+            while (x <= bx1 && m(x)) x++;
+            Rgb l = from565(at(a - 1, y)), r = from565(at(std::min(x, w - 1), y));
+            for (int i = a; i < x; i++) {
+                float t = float(i - a + 1) / float(x - a + 1);
+                px[static_cast<size_t>(y * w + i)] = to565({l.r + (r.r - l.r) * t, l.g + (r.g - l.g) * t, l.b + (r.b - l.b) * t});
+            }
+        }
+    }
+    // 3. "Recomp", 3x3 supersampled
+    std::vector<Seg> segs = layout_recomp((bx0 + bx1) / 2.f);
+    for (int y = 2; y < std::min(h, 32); y++)
+        for (int x = 0; x < w; x++) {
+            uint16_t v = at(x, y);
+            if (!v) continue;
+            float c = 0;
+            for (int i = 0; i < 9; i++) c += coverage(segs, x + (i % 3 + 0.5f) / 3, y + (i / 3 + 0.5f) / 3);
+            c /= 9;
+            if (c <= 0) continue;
+            Rgb b = from565(v);
+            px[static_cast<size_t>(y * w + x)] = to565({b.r + (ink.r - b.r) * c, b.g + (ink.g - b.g) * c, b.b + (ink.b - b.b) * c});
+        }
+    for (int i = 0; i < w * h; i++) WR16(pixels + 2 * static_cast<uint32_t>(i), px[static_cast<size_t>(i)]);
+}
+
+}  // namespace
+
+// A menu button sprite was just unpacked (eax = its 16-bit pixels, ebx = the sprite object).
+extern "C" void game_hook_button_unpacked(void) {
+    uint32_t sprite = R.ebx;
+    if (sprite != RD32(INFO_SPRITE) || !R.eax) return;
+    repaint_info_button(R.eax, static_cast<int>(RD32(sprite + 8)), static_cast<int>(RD32(sprite + 0xc)));
+    log("recomp menu: Info button relabelled\n");
 }

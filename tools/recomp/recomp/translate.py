@@ -87,6 +87,9 @@ GAME_HOOKS = {
     0x46AC41: "game_hook_lean",
     # Options page (11) init: the in-game Recomp settings page starts closed (recomp_menu.cpp).
     0x443000: "game_hook_options_init",
+    # Menu button sprite just unpacked (0x43eb00 -> eax = 16-bit pixels, ebx = sprite object): the
+    # Info button's label becomes "Recomp" (recomp_menu.cpp).
+    0x40BF5E: "game_hook_button_unpacked",
 }
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function).

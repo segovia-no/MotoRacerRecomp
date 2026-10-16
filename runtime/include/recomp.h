@@ -126,6 +126,7 @@ void game_hook_band(void);
 void game_hook_counter(void);
 void game_hook_lean(void);
 void game_hook_options_init(void);
+void game_hook_button_unpacked(void);
 int game_hook_options_rows(void);     /* jump hooks: nonzero = take the jump */
 int game_hook_options_action(void);
 int game_hook_options_info(void);
