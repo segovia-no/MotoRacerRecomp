@@ -296,6 +296,7 @@ STDCALL(KERNEL32, VirtualAlloc, 4) {
         if (!a) return 0;
         return addr ? addr : a;
     }
+    check_guest_range(addr & ~0xFFFu, size + (addr & 0xFFF));   // compact layout: must be backed
     return addr & ~0xFFFu;            // MEM_COMMIT inside an existing reservation
 }
 

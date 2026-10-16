@@ -144,8 +144,9 @@ void REP_CMPS(int size, int rep, uint32_t *cf, uint32_t *zf, uint32_t *sf, uint3
  * A function that links an SEH registration record (mov fs:[0], esp) also records a setjmp
  * point; when the CRT later jumps to a catch continuation inside that frame, nonlocal_jump
  * longjmps back to the function, which then runs the continuation. */
-#ifdef _WIN32
-/* Windows CRT: setjmp records the frame and longjmp unwinds to it through SEH (no signal masks). */
+#if defined(_WIN32) || defined(__PSP__)
+/* Windows CRT: setjmp records the frame and longjmp unwinds to it through SEH (no signal masks).
+ * PSP (newlib): no signal masks to skip, no _setjmp. */
 #define RECOMP_SETJMP(jb) setjmp(jb)
 #define RECOMP_LONGJMP(jb, v) longjmp(jb, v)
 #else

@@ -145,7 +145,7 @@ void put_px(Surface &s, int32_t x, int32_t y, uint32_t v) {
 }
 
 void fill(Surface &d, BltRect r, uint32_t color) {
-    r.l = std::max(r.l, 0); r.t = std::max(r.t, 0);
+    r.l = std::max<int32_t>(r.l, 0); r.t = std::max<int32_t>(r.t, 0);
     r.r = std::min(r.r, static_cast<int32_t>(d.w)); r.b = std::min(r.b, static_cast<int32_t>(d.h));
     for (int32_t y = r.t; y < r.b; y++)
         for (int32_t x = r.l; x < r.r; x++) put_px(d, x, y, color);
@@ -173,9 +173,9 @@ void blit(Surface &d, BltRect dr, Surface &s, BltRect sr, bool key, uint32_t klo
         if (fx & DDBLTFX_MIRRORUPDOWN) sy = sr.b - 1 - (y * sh) / dh;
         if (sy < 0 || sy >= static_cast<int32_t>(src->h)) continue;
         if (simple) {
-            int32_t x0 = std::max(0, -dr.l), x1 = std::min(dw, static_cast<int32_t>(d.w) - dr.l);
-            x0 = std::max(x0, -sr.l);
-            x1 = std::min(x1, static_cast<int32_t>(src->w) - sr.l);
+            int32_t x0 = std::max<int32_t>(0, -dr.l), x1 = std::min<int32_t>(dw, static_cast<int32_t>(d.w) - dr.l);
+            x0 = std::max<int32_t>(x0, -sr.l);
+            x1 = std::min<int32_t>(x1, static_cast<int32_t>(src->w) - sr.l);
             if (x1 > x0)
                 memmove(M + d.mem + static_cast<uint32_t>(dy) * d.pitch + static_cast<uint32_t>(dr.l + x0) * d.bytes(),
                         M + src->mem + static_cast<uint32_t>(sy) * src->pitch + static_cast<uint32_t>(sr.l + x0) * src->bytes(),

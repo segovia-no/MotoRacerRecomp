@@ -43,6 +43,7 @@ Not yet: Linux / Steam Deck, Windows, multiplayer (stubbed by decision), GDI tex
 - [22-hot-functions.md](22-hot-functions.md) — per-function instruction profile (top 9 functions = 75% of race CPU), roles of the hot functions, what native versions would take
 - [23-translator-speed.md](23-translator-speed.md) — translator speed pass: guest registers in C locals, local memory base, x87 stack in C locals (static depth analysis); measured gains, benchmark method
 - [24-native-render.md](24-native-render.md) — render-list flush 0x4af570 reversed (execute-buffer object, polygon records, vertex formats), native vertex loops with a check mode and same-input cost measurement (−14% instructions, −4% cycles per frame)
+- [25-psp-port.md](25-psp-port.md) — PSP port: pspdev + PPSSPP setup, PSP build (compact guest address space, PSP adapter), sizes, status
 - [13-e2e-testing.md](13-e2e-testing.md) — unattended E2E runs: scripted keys, snapshots, contact sheets, menu navigation facts
 - [15-ports-plan.md](15-ports-plan.md) — Linux / Steam Deck / Windows ports: plan, platform adapters (P0 done), shader pipeline, risks
 

@@ -21,6 +21,9 @@ namespace {
 constexpr uint32_t ALIGN = 16;
 
 void commit(uint32_t va, uint32_t size) {
+    // VirtualAlloc reservations may extend past the compact block (only commits must fit: see
+    // check_guest_range in VirtualAlloc).
+    if (va < VALLOC_LO || va >= VALLOC_HI) check_guest_range(va, size);
     if (!plat::host().memory.commit(M + va, size)) fatal("cannot commit guest memory 0x%08x+0x%x", va, size);
 }
 
@@ -93,14 +96,23 @@ Arena heap, varena;
 
 }  // namespace
 
+void check_guest_range(uint32_t va, uint32_t size) {
+    if (va < GUEST_LO || va + static_cast<uint64_t>(size) > GUEST_HI)
+        fatal("guest memory 0x%08x+0x%x is outside the host block (compact layout: raise RECOMP_GUEST_HEAP_MB "
+              "or VALLOC_BACKED)", va, size);
+}
+
 void memory_init() {
     auto &vm = plat::host().memory;
-    M = vm.reserve(1ull << 32);
-    if (!M) fatal("cannot reserve 4 GB guest address space");
+    uint8_t *block = vm.reserve(GUEST_HI - GUEST_LO);
+    if (!block) fatal("cannot reserve the guest address space (%llu MB)", (unsigned long long)((GUEST_HI - GUEST_LO) >> 20));
+    M = block - GUEST_LO;
     commit(NULL_GUARD, HEAP_LO - NULL_GUARD);   // stack, image, relocated engine tables
     commit(TEB_VA, 0x2000);                     // TEB + PEB
+#ifndef RECOMP_COMPACT_GUEST
     commit(THUNK_LO, THUNK_HI - THUNK_LO);      // host thunk addresses stay readable, as before
     vm.make_inaccessible(M, NULL_GUARD);
+#endif
     heap.init(HEAP_LO, HEAP_HI);
     varena.init(VALLOC_LO, VALLOC_HI);
 }

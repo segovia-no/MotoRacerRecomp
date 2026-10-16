@@ -63,6 +63,14 @@ option(MOTORACER_BUNDLED_SDL "Build SDL3 from source and link it statically" OFF
 # Profiling for small targets (docs/21-psp-feasibility.md): x87 in single precision, and a counter of
 # executed x86 instructions (MOTORACER_ICOUNT=1 logs them per frame).
 option(MOTORACER_FPU_FLOAT "Emulate the x87 FPU in single precision" OFF)
+# PSP (docs/25-psp-port.md; configure with psp-cmake from pspdev): single-precision x87 (the
+# Allegrex FPU has no doubles), the compact guest address space (no virtual memory), small data
+# section off (-G0: the game has more globals than gp-relative addressing reaches).
+if(PSP)
+  set(MOTORACER_FPU_FLOAT ON CACHE BOOL "" FORCE)
+  add_compile_definitions(RECOMP_COMPACT_GUEST)
+  add_compile_options(-G0)
+endif()
 option(MOTORACER_COUNT_INSNS "Count executed x86 instructions (slow)" OFF)
 if(MOTORACER_FPU_FLOAT)
   add_compile_definitions(RECOMP_FPU_FLOAT)
@@ -95,13 +103,15 @@ if(APPLE)
   list(APPEND RUNTIME_SOURCES ${PLAT}/posix.cpp ${PLAT}/paths_macos.cpp)
 elseif(WIN32)
   list(APPEND RUNTIME_SOURCES ${PLAT}/win32.cpp)
+elseif(PSP)
+  list(APPEND RUNTIME_SOURCES ${PLAT}/psp.cpp ${PLAT}/stack_mips.S)
 elseif(UNIX)
   list(APPEND RUNTIME_SOURCES ${PLAT}/posix.cpp ${PLAT}/paths_xdg.cpp)
 else()
   message(FATAL_ERROR "no platform adapters for ${CMAKE_SYSTEM_NAME} yet (see docs/15-ports-plan.md)")
 endif()
-if(WIN32)
-  # the deep stack is a fiber (win32.cpp), no trampoline
+if(WIN32 OR PSP)
+  # Windows: the deep stack is a fiber (win32.cpp); PSP: stack_mips.S (above)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
   list(APPEND RUNTIME_SOURCES ${PLAT}/stack_arm64.S)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
@@ -128,6 +138,12 @@ if(WIN32)
   file(WRITE "${CMAKE_BINARY_DIR}/motoracer.rc" "${_rc}")
   target_sources(motoracer PRIVATE "${CMAKE_BINARY_DIR}/motoracer.rc")
   target_link_options(motoracer PRIVATE -mwindows -static)
+endif()
+
+# PSP: EBOOT.PBP next to the build (copy it to ms0:/PSP/GAME/MOTORACER/ with the game files in game/).
+# MEMSIZE 1: the extended memory of PSP-2000/3000 (64 MB).
+if(PSP)
+  create_pbp_file(TARGET motoracer TITLE "Moto Racer" MEMSIZE 1)
 endif()
 
 # `cmake --build build/cmake --target app` -> build/cmake/MotoRacer.app
