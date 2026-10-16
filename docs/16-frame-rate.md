@@ -41,11 +41,15 @@ Investigation 2026-10-16 (owner asked for custom and unlimited frame rates).
     Not yet confirmed what `x` is.
 - `timeGetTime` has 1 ms resolution: at 144 fps frame times alternate 6/7 ms (±7%).
 
-## Prototype (not committed)
-`FrameRate=game|display|<n>|unlimited` in `[Recomp]`: removes the game's cap (`-FrameRateMax0`),
-paces frames in the runtime (`limit_frame_rate` in host_video.cpp, `SDL_DelayPrecise`), keeps frames ≥ 1 ms
-apart (dt = 0 would become 30 ms), `unlimited` turns vsync off. `MOTORACER_FRAMERATE` and
-`MOTORACER_FPS_LOG=1` are dev aids.
+## FrameRate setting (committed 2026-10-16)
+`FrameRate=game|display|<n>|unlimited` in `[Recomp]`, also in the in-game Recomp page (without
+unlimited). The game's busy-wait limiter is always off (`-FrameRateMax0`; its value is kept as
+`game_frame_cap`, 30 without the argument), and the runtime paces frames (`limit_frame_rate` in
+host_video.cpp, `SDL_DelayPrecise`), so the rate can change while playing. With vsync on and a target at
+or above the display's refresh rate, vsync alone paces (pacing as well gave 59.4 instead of 60 fps).
+Frames stay ≥ 1 ms apart (dt = 0 would become 30 ms). `unlimited` turns vsync off (not recommended:
+uneven frame times). Dev aids: `MOTORACER_FRAMERATE`, `MOTORACER_VSYNC`, `MOTORACER_FPS_LOG=1`.
+Race at the default (60, vsync): 59.5–60.0 fps, same as with the game's own limiter.
 
 ## GPU wait removed (2026-10-16)
 - `flush()` now waits for the GPU only for a readback (`After::Download`). `present_blt` renders, then

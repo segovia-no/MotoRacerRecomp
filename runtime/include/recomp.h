@@ -125,6 +125,10 @@ void game_hook_input_loaded(void);
 void game_hook_band(void);
 void game_hook_counter(void);
 void game_hook_lean(void);
+void game_hook_options_init(void);
+int game_hook_options_rows(void);     /* jump hooks: nonzero = take the jump */
+int game_hook_options_action(void);
+int game_hook_options_info(void);
 
 /* ---------- control transfer / traps ---------- */
 void call_indirect(uint32_t va);   /* guest VA -> recompiled fn, import shim or COM thunk */

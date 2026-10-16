@@ -36,13 +36,18 @@ SDL_GPUDevice *device() {
     dev = SDL_CreateGPUDevice(gpu_shaders::formats(), false, nullptr);
     if (!dev) fatal("SDL_CreateGPUDevice failed: %s", SDL_GetError());
     if (!SDL_ClaimWindowForGPUDevice(dev, win)) fatal("SDL_ClaimWindowForGPUDevice failed: %s", SDL_GetError());
+    log("gpu: %s device, window claimed\n", SDL_GetGPUDeviceDriver(dev));
+    apply_vsync();
+    return dev;
+}
+
+void apply_vsync() {
+    if (!dev) return;
     SDL_GPUPresentMode mode = SDL_GPU_PRESENTMODE_VSYNC;
     if (!settings::get().vsync && SDL_WindowSupportsGPUPresentMode(dev, win, SDL_GPU_PRESENTMODE_IMMEDIATE))
         mode = SDL_GPU_PRESENTMODE_IMMEDIATE;
     SDL_SetGPUSwapchainParameters(dev, win, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, mode);
-    log("gpu: %s device, window claimed, %s\n", SDL_GetGPUDeviceDriver(dev),
-        mode == SDL_GPU_PRESENTMODE_VSYNC ? "vsync" : "no vsync");
-    return dev;
+    log("gpu: %s\n", mode == SDL_GPU_PRESENTMODE_VSYNC ? "vsync" : "no vsync");
 }
 
 uint32_t render_scale(uint32_t gw, uint32_t gh) {

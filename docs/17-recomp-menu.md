@@ -34,12 +34,28 @@ settings (frame rate, filtering, HUD scale, …) instead of editing `motoracer.i
   port they only show the emulated values (Windows 95, Direct3D HAL, 256 MB video board). Owner's choice:
   **Info becomes "Recomp"**.
 
-## Plan
-- Case 21 (`0x444983`): open the recomp page instead of page 13.
-- Recomp page: a runtime version of the Options per-frame function that calls the game's own
-  functions (background, font `0x4903d0(0xc)`, `0x493ee0`, `0x40bd60`, dispatch via `0x40c1b0`) with
-  the port's strings, so it looks like Options. `guest_call_stdcall`/`cdecl` exist (dispatch.cpp); a
-  thiscall variant sets ecx.
-- Button art: the "Info" label is baked into the button texture; it needs a "Recomp" replacement.
-- Open: signatures of `0x493ee0` and `0x40bd60`; how the background, header ("OPTIONS" banner) and
-  buttons are drawn; the button texture.
+## Implementation (2026-10-16)
+- Translator: `GAME_JUMP_HOOKS` emit `if (hook()) goto target;` (target in the same function):
+  - `0x444983` Info → `game_hook_options_info`: opens the Recomp page (no page switch), cursor on row 0;
+  - `0x44329a` first row → `game_hook_options_rows`: draws our rows and the Back button, continues at
+    `0x44448f` (after the game's buttons), so background, header, menu handling and the common tail
+    (`0x4449a2`) stay the game's;
+  - `0x444504` dispatch → `game_hook_options_action`: our items; Back (the Accept sprite) closes.
+  - `0x443000` (page init) → `game_hook_options_init`: the page starts closed.
+- `runtime/src/recomp_menu.cpp`: rows at y = 100 + 20·i, label x = 50 (`0x493ee0`), value item x = 300
+  (`0x40bd60`, nav mask up = i−1, down = i+1), Back = `0x40bef0` with the Accept sprite (item n).
+  Selected row colour `0x4f0de8`. Enter / click cycles a value; Escape (gamepad B) = Back. The cursor
+  (menu `+0x10`) goes to row 0 on open and back to Info (21) on close. Guest calls use
+  `guest_call_stdcall` / the new `guest_call_thiscall`; registers are restored after them.
+- Rows: FRAME RATE (original, display, 30…240), VSYNC (live), SCALING FILTER (smooth/sharp), HUD SCALE
+  (auto, original, 1.5…4), DRAW DISTANCE (next race), WIDESCREEN CROP, GAMEPAD IN MENUS.
+  Each change is saved at once: `settings::save` rewrites the key in `motoracer.ini [Recomp]` (adds the
+  section if missing; CRLF like GOG's file; temp file + rename).
+- Verified (E2E): Info opens the page in the game's font; DOWN/UP move the highlight; Enter changes
+  values (filter, vsync switched live, logged); Back and Escape return to Options with Info selected;
+  the ini gets `[Recomp] Filter=nearest VSync=0`.
+
+## Open
+- The button still reads "Info" (label baked into its texture): needs a "Recomp" image.
+- The header banner still reads "OPTIONS".
+- Mouse and gamepad not yet tested on the page (the game's menu handles both).

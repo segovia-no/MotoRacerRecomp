@@ -155,6 +155,14 @@ uint32_t guest_call_stdcall(uint32_t fn, std::initializer_list<uint32_t> args) {
     return R.eax;
 }
 
+uint32_t guest_call_thiscall(uint32_t fn, uint32_t self, std::initializer_list<uint32_t> args) {
+    for (auto it = std::rbegin(args); it != std::rend(args); ++it) PUSH32(*it);
+    PUSH32(RETURN_MAGIC);
+    R.ecx = self;
+    call_indirect(fn);
+    return R.eax;
+}
+
 uint32_t guest_call_cdecl(uint32_t fn, std::initializer_list<uint32_t> args) {
     uint32_t r = guest_call_stdcall(fn, args);
     R.esp += 4 * static_cast<uint32_t>(args.size());

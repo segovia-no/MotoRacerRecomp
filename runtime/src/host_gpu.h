@@ -8,6 +8,7 @@
 namespace host::gpu {
 
 SDL_GPUDevice *device();   // creates the device and claims the game window on first use
+void apply_vsync();        // present mode from settings (VSync), also after a change in game
 
 // Part of the game frame to show, in game pixels (640x480 space). The game's 16/9 mode draws
 // a letterboxed 640x360 band; presenting only that band gives true widescreen.

@@ -11,10 +11,13 @@
 #include "host_gpu.h"
 #include "host_video.h"
 #include "runtime.h"
+#include "settings.h"
 
 using namespace rt;
 
 namespace host {
+
+SDL_Window *ensure_window();   // host_window.cpp
 
 namespace {
 std::vector<uint32_t> rgba;
@@ -47,12 +50,55 @@ bool bars_black(int w, int h) {
     return false;
 }
 
+// FrameRate setting: the runtime's frame limiter (the game's own busy-wait limiter is always off,
+// see settings.cpp; FrameRate=game paces to its -FrameRateMax value). Also keeps game frames at
+// least 1 ms apart: the game measures frame time with timeGetTime in whole milliseconds and treats
+// 0 ms as 30 ms (0x412164), which would speed up a fast race.
+void limit_frame_rate() {
+    static uint64_t next = 0, last_ms = 0, count = 0, count_since = 0;
+    static const bool fps_log = getenv("MOTORACER_FPS_LOG") != nullptr;
+    static int display_rate = 0;
+    if (!display_rate) {
+        SDL_DisplayID d = SDL_GetDisplayForWindow(ensure_window());
+        const SDL_DisplayMode *m = d ? SDL_GetCurrentDisplayMode(d) : nullptr;
+        display_rate = m && m->refresh_rate > 0 ? static_cast<int>(m->refresh_rate + 0.5f) : 60;
+        log("frame rate: display refresh rate %d Hz\n", display_rate);
+    }
+    int rate = settings::get().frame_rate;
+    if (rate == 0) rate = settings::get().game_frame_cap ? settings::get().game_frame_cap : -1;
+    if (rate == -2) rate = display_rate;
+    // With vsync at or below the target rate, vsync paces; sleeping as well would now and then
+    // miss a refresh (measured 59.4 instead of 60 fps).
+    if (settings::get().vsync && rate >= display_rate) rate = -1;
+    if (rate > 0) {
+        uint64_t period = 1000000000ull / static_cast<uint64_t>(rate), now = SDL_GetTicksNS();
+        if (next > now && next - now <= period) {
+            SDL_DelayPrecise(next - now);
+            next += period;
+        } else {
+            next = now + period;   // first frame, or slower than the limit
+        }
+    }
+    while (SDL_GetTicks() == last_ms) SDL_DelayPrecise(100000);
+    last_ms = SDL_GetTicks();
+    if (fps_log) {
+        uint64_t now = SDL_GetTicks();
+        if (!count_since) count_since = now;
+        if (++count, now - count_since >= 2000) {
+            log("fps: %.1f\n", count * 1000.0 / static_cast<double>(now - count_since));
+            count = 0;
+            count_since = now;
+        }
+    }
+}
+
 void submit(int w, int h) {
     maybe_snapshot(rgba.data(), w, h);
     gpu::Crop crop = gpu::widescreen_vote(bars_black(w, h), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
     gpu::present_rgba(rgba.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h), crop);
     frames++;
     game::frame_tick();
+    limit_frame_rate();
 }
 }  // namespace
 
@@ -87,6 +133,7 @@ uint64_t frame_count() { return frames; }
 void count_frame() {
     frames++;
     game::frame_tick();
+    limit_frame_rate();
 }
 
 bool window_to_game(float wx, float wy, int *gx, int *gy) { return gpu::window_to_game(wx, wy, gx, gy); }

@@ -10,6 +10,12 @@
 //   Filter=linear       linear | nearest  (scaling filter)
 //   IntegerScale=0      1 = only scale by whole multiples (sharp pixels, may add borders)
 //   VSync=1
+//   FrameRate=game      game: the game's own limit (-FrameRateMax<n> in Params; GOG passes 60) |
+//                       display: the display's refresh rate | a number such as 120 or 144 |
+//                       unlimited (also turns VSync off; uneven frame times, not recommended).
+//                       The runtime paces frames itself (the game's busy-wait limiter is off).
+//                       Races scale their motion by the real frame time, so any rate plays at
+//                       the same speed. See docs/16-frame-rate.md.
 //   Renderer=d3d        d3d (default: the game's Direct3D path on the GPU, high resolution) |
 //                       software (the game's original software renderer)
 //   RenderScale=auto    d3d only: auto = original modes upscaled to the display, larger modes
@@ -41,6 +47,8 @@ struct Settings {
     bool nearest = false;
     bool integer_scale = false;
     bool vsync = true;
+    int frame_rate = 0;   // 0 = the game's own limit, -1 = unlimited, -2 = display refresh rate, else fps
+    int game_frame_cap = 30;   // the game's limit from -FrameRateMax<n> (0 = none; 30 without it)
     bool d3d = true;
     int render_scale = 0;   // 0 = auto
     bool widescreen = true;
@@ -55,5 +63,8 @@ struct Settings {
 // Loads <game_dir>/motoracer.ini; missing keys keep their defaults.
 void load(const std::string &game_dir);
 const Settings &get();
+Settings &edit();   // in-game Recomp settings page; persist each change with save()
+// Writes Key=value into the [Recomp] section of motoracer.ini (replacing the key, or adding it).
+void save(const std::string &key, const std::string &value);
 
 }  // namespace settings

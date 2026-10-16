@@ -55,6 +55,7 @@ RecompFn find_function(uint32_t va);                      // nullptr if not a re
 // Call guest code: pushes args right-to-left and a magic return address.
 uint32_t guest_call_stdcall(uint32_t fn, std::initializer_list<uint32_t> args);
 uint32_t guest_call_cdecl(uint32_t fn, std::initializer_list<uint32_t> args);
+uint32_t guest_call_thiscall(uint32_t fn, uint32_t self, std::initializer_list<uint32_t> args);   // callee pops
 
 // ---------- shim ABI (valid at shim entry: [esp] = return address, args above) ----------
 inline uint32_t arg(int i) { return RD32(R.esp + 4 + 4 * i); }

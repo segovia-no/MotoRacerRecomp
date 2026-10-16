@@ -2,8 +2,13 @@
 
 #include <strings.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <map>
+#include <vector>
+
+#include "platform/platform.h"
 
 #include "runtime.h"
 
@@ -12,6 +17,7 @@ namespace settings {
 namespace {
 
 Settings s;
+std::string ini_path;
 
 // GOG launcher defaults (motoracer.ini as shipped).
 const char *kDefaultArgs =
@@ -29,6 +35,7 @@ bool truthy(const std::string &v) { return v == "1" || !strcasecmp(v.c_str(), "t
 
 void load(const std::string &game_dir) {
     s = Settings{};
+    ini_path = game_dir + "/motoracer.ini";
     s.game_args = kDefaultArgs;
     std::map<std::string, std::map<std::string, std::string>> ini;
     std::ifstream in(game_dir + "/motoracer.ini");
@@ -57,6 +64,28 @@ void load(const std::string &game_dir) {
     if (auto v = get("recomp", "filter")) s.nearest = !strcasecmp(v->c_str(), "nearest");
     if (auto v = get("recomp", "integerscale")) s.integer_scale = truthy(*v);
     if (auto v = get("recomp", "vsync")) s.vsync = truthy(*v);
+    auto frame_rate = [](const std::string &v) {
+        if (!strcasecmp(v.c_str(), "unlimited")) return -1;
+        if (!strcasecmp(v.c_str(), "display")) return -2;
+        return std::max(0, atoi(v.c_str()));   // "game" -> 0
+    };
+    if (auto v = get("recomp", "framerate")) s.frame_rate = frame_rate(*v);
+    if (const char *e = getenv("MOTORACER_FRAMERATE")) s.frame_rate = frame_rate(e);   // dev override
+    if (s.frame_rate == -1) s.vsync = false;
+    if (const char *e = getenv("MOTORACER_VSYNC")) s.vsync = truthy(e);   // dev override
+    {
+        // The runtime paces frames (host_video.cpp), so the frame rate can change while the game
+        // runs. The game's own limiter busy-waits and only takes 21..98; it is turned off
+        // (-FrameRateMax0) and its value kept for FrameRate=game (30 without the argument).
+        size_t p = s.game_args.find("-FrameRateMax");
+        if (p != std::string::npos) {
+            size_t end = s.game_args.find(' ', p);
+            int n = atoi(s.game_args.c_str() + p + 13);
+            s.game_frame_cap = n > 20 && n < 99 ? n : n == 0 ? 0 : 30;
+            s.game_args.erase(p, end == std::string::npos ? std::string::npos : end - p);
+        }
+        s.game_args += " -FrameRateMax0";
+    }
     if (auto v = get("recomp", "renderer")) s.d3d = strcasecmp(v->c_str(), "software") != 0;
     if (const char *e = getenv("MOTORACER_RENDERER")) s.d3d = strcasecmp(e, "software") != 0;   // dev override
     if (auto v = get("recomp", "renderscale")) s.render_scale = strcasecmp(v->c_str(), "auto") ? atoi(v->c_str()) : 0;
@@ -82,5 +111,52 @@ void load(const std::string &game_dir) {
 }
 
 const Settings &get() { return s; }
+Settings &edit() { return s; }
+
+void save(const std::string &key, const std::string &value) {
+    std::vector<std::string> lines;
+    {
+        std::ifstream in(ini_path);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            lines.push_back(line);
+        }
+    }
+    auto lower = [](std::string v) { for (auto &c : v) c = static_cast<char>(tolower(c)); return v; };
+    size_t sec_end = lines.size(), insert = lines.size();
+    bool in_sec = false, found_sec = false, done = false;
+    for (size_t i = 0; i < lines.size() && !done; i++) {
+        std::string t = trim(lines[i]);
+        if (!t.empty() && t[0] == '[') {
+            if (in_sec) { sec_end = i; break; }
+            in_sec = lower(trim(t.substr(1, t.find(']') - 1))) == "recomp";
+            found_sec |= in_sec;
+            continue;
+        }
+        if (!in_sec) continue;
+        if (!t.empty()) insert = i + 1;
+        size_t eq = t.find('=');
+        if (eq != std::string::npos && lower(trim(t.substr(0, eq))) == lower(key)) {
+            lines[i] = key + "=" + value;
+            done = true;
+        }
+    }
+    if (!done) {
+        if (!found_sec) {
+            lines.push_back("[Recomp]");
+            insert = lines.size();
+        } else if (insert > sec_end) {
+            insert = sec_end;
+        }
+        lines.insert(lines.begin() + static_cast<long>(insert), key + "=" + value);
+    }
+    std::string tmp = ini_path + ".new";
+    {
+        std::ofstream out(tmp, std::ios::binary);
+        for (auto &l : lines) out << l << "\r\n";   // the GOG file uses CRLF
+    }
+    if (!plat::host().fs.rename(tmp, ini_path)) rt::log("settings: cannot write %s\n", ini_path.c_str());
+}
 
 }  // namespace settings

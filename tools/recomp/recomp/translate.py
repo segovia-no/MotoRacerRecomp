@@ -85,6 +85,20 @@ GAME_HOOKS = {
     # Player bike lean (0x469c60): [esp+0x10] is the frame-time divisor of the lean, max(smoothed
     # frame time, 20 ms); the runtime uses this frame's time instead (correct at high frame rates).
     0x46AC41: "game_hook_lean",
+    # Options page (11) init: the in-game Recomp settings page starts closed (recomp_menu.cpp).
+    0x443000: "game_hook_options_init",
+}
+
+# Hooks that can redirect control: `if (hook()) goto target;` (target in the same function).
+GAME_JUMP_HOOKS = {
+    # Options page per-frame function 0x443200 (recomp_menu.cpp):
+    # first row about to be drawn -> the Recomp page draws its own rows and the Back button, then
+    # continues after the game's last button
+    0x44329A: ("game_hook_options_rows", 0x44448F),
+    # dispatch of the activated item (esi) -> the Recomp page handles its items
+    0x444504: ("game_hook_options_action", 0x4449A2),
+    # Info button (item 21, would open the DIAGNOSTIC page 13) -> opens the Recomp page
+    0x444983: ("game_hook_options_info", 0x4449A2),
 }
 
 
@@ -238,6 +252,9 @@ class FunctionTranslator:
             self.out.append(f"    /* {va:08x}: {insn.mnem} {insn.op_str} */")
             if va in GAME_HOOKS:
                 self.emit(f"{GAME_HOOKS[va]}();")
+            if va in GAME_JUMP_HOOKS:
+                name, target = GAME_JUMP_HOOKS[va]
+                self.emit(f"if ({name}()) {self.goto(target)}")
             try:
                 falls = self.insn(insn)
             except Unsupported as e:
