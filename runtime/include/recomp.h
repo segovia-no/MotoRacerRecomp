@@ -130,6 +130,7 @@ void game_hook_button_unpacked(void);
 void game_hook_options_button_nav(void);
 void game_hook_main_menu_init(void);
 void game_hook_main_menu_button_nav(void);
+void game_hook_ai_speed(void);
 int game_hook_options_rows(void);     /* jump hooks: nonzero = take the jump */
 int game_hook_options_action(void);
 int game_hook_options_info(void);

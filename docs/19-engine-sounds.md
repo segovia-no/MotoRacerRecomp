@@ -28,12 +28,33 @@ of a steady hum — is that in this build's code?
 - Bike array dump (`0x581218 + 12809·i`, speed `+0x118`, rpm `+0x11c`) mid-race: the player (slot 1)
   speed 76–229, rpm 2,800–11,400; **all 23 opponents speed 2, rpm 800 (idle) for the whole race**.
 
+## Why the opponents hum: frame rate (found 2026-10-16)
+- The bike array starts at `0x584421` (player, slot 0), stride `0x3209` (the earlier dump used a base one
+  slot lower; its "rpm 800 / speed 2" bikes were the other array entries before the race).
+- Per frame `0x47df40` updates every active bike with `0x45d540` → `0x467930`. Bikes with `+8` = 1 (the
+  player) take the measured speed; bikes with `+8` = 0 (the AI) integrate it:
+  `accel = clamp(((measured − speed) / dt · 100 + accel) · 0.5, −50, 40)` (`+0x120`), then
+  `speed += trunc(accel · dt · 0.01)` (`_ftol` truncates; dt = frame time in hundredths of a second,
+  `0x581014`). The gearbox then sets gear and rpm from that speed.
+- At 30 fps (dt 3.3) the largest step is trunc(1.32) = 1; above 40 fps it is 0. GOG passes
+  `-FrameRateMax60` (dt 1.6: trunc(0.64) = 0), so the AI speed never leaves its start value, the
+  gearbox stays in 1st and every opponent's rpm (and engine pitch) is constant. The original game's
+  default cap is 30 fps (no argument), and the PlayStation ran at 30 too, hence revving opponents there.
+- Traced (opponents 1 and 2): 60 fps — speed 11, rpm 1992, gear 1 the whole race; 30 fps — speed
+  62 → 122 → 182, gears 2–5, rpm 6,800–10,400. The AI's real motion does not depend on this speed (the
+  AI moves its bikes itself), so it only drives rpm and sound.
+- Fix (`game_hook_ai_speed`, before the store at `0x467a37`): the step is recomputed as
+  `trunc(accel · dt · 0.01 + carry)` with the fraction carried per bike, reset when the bike is back at
+  its start speed 2 (race start), so a replay repeats the same steps. Frame-rate independent; the speed
+  follows at the formula's 40 units/s instead of the 30 fps truncation's 30.
+- Verified at 60 fps: opponents 39 → 79 → 119 → 159 → 204, gears 1–5, rpm 7,000–10,800.
+
 ## Answer
 The per-opponent engine sound is in this build and on by default: the nearest opponents each have an
-engine voice driven every frame by the same rpm model as the player's. But the AI moves its bikes with a
-separate system and never updates their rpm (it stays at the idle 800), so every opponent plays a
-near-constant pitch: the "humming". A dynamic version needs opponent rpm, e.g. derived from the AI
-bike's real speed along the track with a simple gearbox, written to `bike+0x11c` before the sound update.
+engine voice driven every frame by the same rpm model as the player's. Their rpm comes from a speed that
+the game integrates in integer steps which truncate to 0 above 40 fps; GOG's 60 fps cap froze it, so
+they hummed. Fixed by carrying the fraction (above). No web source documents the difference; the GOG
+build is the 3.22 patch ("MotoRacer Polygons version 3.22", readme.txt), which added the frame rate cap.
 
 ## Mistake made during the investigation
 A first attempt treated the flags as "off by default" and added settings defaulting to off that switched

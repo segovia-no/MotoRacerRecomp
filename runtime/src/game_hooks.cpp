@@ -307,6 +307,35 @@ extern "C" void game_hook_lean(void) {
     WR32(R.esp + 0x10, bits);
 }
 
+// AI bike speed (0x467930, bikes with +8 = 0, i.e. not driven by the player's physics): the speed
+// +0x118 follows the bike's measured motion through
+//     accel = clamp(((measured - speed) / dt * 100 + accel) * 0.5, -50, 40)     (+0x120)
+//     speed += trunc(accel * dt * 0.01)                                         (_ftol truncates)
+// with dt = the frame time in hundredths of a second (0x581014). At 30 fps (dt 3.3, the game's
+// default cap) a step is 1; above 40 fps (GOG passes -FrameRateMax60, dt 1.6) every step truncates
+// to 0: the opponents' speed stays at its start value, their gearbox in 1st and their rpm constant,
+// so their engine sound (driven by rpm, docs/19-engine-sounds.md) only hums. The step is recomputed
+// with the fraction carried per bike, which makes it frame-rate independent. The carry restarts
+// when a bike is back at its start speed (2), so a replay repeats the same steps.
+constexpr uint32_t BIKES = 0x584421, BIKE_STRIDE = 0x3209, BIKE_DT = 0x581014;
+extern "C" void game_hook_ai_speed(void) {
+    static float carry[32];
+    uint32_t bike = R.esi;
+    if (bike < BIKES || (bike - BIKES) % BIKE_STRIDE) return;
+    uint32_t i = (bike - BIKES) / BIKE_STRIDE;
+    if (i >= 32) return;
+    int32_t old = static_cast<int32_t>(R.edi);
+    if (old <= 2) carry[i] = 0;
+    uint32_t a = RD32(bike + 0x120), d = RD32(BIKE_DT);
+    float accel, dt;
+    memcpy(&accel, &a, 4);
+    memcpy(&dt, &d, 4);
+    float step = accel * dt * 0.01f + carry[i];
+    int32_t whole = static_cast<int32_t>(step);   // truncates, like the game
+    carry[i] = step - static_cast<float>(whole);
+    R.eax = static_cast<uint32_t>(old + whole);
+}
+
 namespace game {
 
 bool first_run() {

@@ -104,6 +104,9 @@ GAME_HOOKS = {
     0x44259D: "game_hook_main_menu_button_nav",
     0x4425F4: "game_hook_main_menu_button_nav",
     0x442640: "game_hook_main_menu_button_nav",
+    # AI bike speed integration (0x467930, bikes with +8 = 0): eax = old speed + trunc(accel * dt *
+    # 0.01) about to be stored; the runtime carries the fraction so it works above ~40 fps.
+    0x467A37: "game_hook_ai_speed",
 }
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function).
