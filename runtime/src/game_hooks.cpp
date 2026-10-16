@@ -357,6 +357,11 @@ bool initials_entry_active() {
 
 int initials_count() { return static_cast<int>(RD32(0x540070)); }
 
+int preferred_frame_width() {
+    load_state();
+    return static_cast<int>(std::max(remembered[0].w, remembered[1].w));
+}
+
 bool speedometer_button() {
     if (SDL_GetTicks() - race_hud_ms > 300) return false;
     for (uint32_t i = 0; i < 7; i++)

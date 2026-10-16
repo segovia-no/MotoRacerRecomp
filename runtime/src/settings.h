@@ -5,6 +5,11 @@
 //
 //   [Recomp]            this port's options (all optional)
 //   Fullscreen=0        start in fullscreen (toggle any time with Cmd+F or Alt+Enter)
+//   HiDPI=auto          on a scaled (Retina / HiDPI) display: on = window buffers at the display's full
+//                       pixel resolution, off = at its size in points (the system scales them up),
+//                       auto = full resolution only if the chosen SCREEN MODE is wider than the window
+//                       in points at start (fullscreen: the display; a 2560 picture fullscreen on a 5K
+//                       screen at 2x then needs 2560 buffers, not 5120)
 //   WindowWidth=1280    initial window size
 //   WindowHeight=960
 //   Filter=linear       linear | nearest  (scaling filter)
@@ -43,6 +48,7 @@ enum class TriggerMode { Auto, Axis, Buttons };
 struct Settings {
     std::string game_args;
     bool fullscreen = false;
+    int hidpi = -1;   // -1 auto, 0 off, 1 on
     int window_w = 1280, window_h = 960;
     bool nearest = false;
     bool integer_scale = false;

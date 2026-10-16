@@ -236,9 +236,27 @@ SDL_GPUTexture *make_texture(uint32_t w, uint32_t h, SDL_GPUTextureFormat fmt, S
     return t;
 }
 
+// Game-frame-size helpers, made when first needed (see set_target).
+SDL_GPUTexture *lowres_tex() {
+    if (!lowres)
+        lowres = make_texture(g_w, g_h, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+                              SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
+    return lowres;
+}
+// Rows of the overlay that may hold non-zero pixels from an earlier upload ([y0, y1)).
+uint32_t overlay_y0 = 0, overlay_y1 = 0;
+SDL_GPUTexture *overlay_tex() {
+    if (!overlay) {
+        overlay = make_texture(g_w, g_h, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER);
+        overlay_y0 = 0;
+        overlay_y1 = g_h;   // new texture: contents undefined
+    }
+    return overlay;
+}
+
 // Upload RGBA8 pixels into a texture through a temporary transfer buffer.
 void upload_rgba(SDL_GPUCopyPass *copy, SDL_GPUTexture *t, const uint32_t *px, uint32_t w, uint32_t h,
-                 std::vector<SDL_GPUTransferBuffer *> &garbage) {
+                 std::vector<SDL_GPUTransferBuffer *> &garbage, uint32_t y0 = 0) {
     SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, w * h * 4, 0};
     SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(dev, &tci);
     memcpy(SDL_MapGPUTransferBuffer(dev, tb, false), px, static_cast<size_t>(w) * h * 4);
@@ -246,6 +264,7 @@ void upload_rgba(SDL_GPUCopyPass *copy, SDL_GPUTexture *t, const uint32_t *px, u
     SDL_GPUTextureTransferInfo src{tb, 0, w, h};
     SDL_GPUTextureRegion dst{};
     dst.texture = t;
+    dst.y = y0;
     dst.w = w;
     dst.h = h;
     dst.d = 1;
@@ -351,7 +370,7 @@ void check_widescreen() {
     uint32_t band = (g_h - g_w * 9 / 16) / 2;
     if (!band || !settings::get().widescreen) { crop_now = host::gpu::widescreen_vote(false, g_w, g_h); return; }
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
-    blit(cmd, rt, rt_w, rt_h, lowres, g_w, g_h, SDL_GPU_FILTER_NEAREST);
+    blit(cmd, rt, rt_w, rt_h, lowres_tex(), g_w, g_h, SDL_GPU_FILTER_NEAREST);
     uint32_t bytes = g_w * band * 4;
     SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, bytes * 3, 0};
     SDL_GPUTransferBuffer *down = SDL_CreateGPUTransferBuffer(dev, &tci);
@@ -436,12 +455,30 @@ void flush(After after) {
     if (need_full) {
         scratch.resize(guest.size());
         for (size_t i = 0; i < guest.size(); i++) scratch[i] = rgb565_to_rgba(guest[i]);
-        upload_rgba(copy, lowres, scratch.data(), g_w, g_h, garbage);
+        upload_rgba(copy, lowres_tex(), scratch.data(), g_w, g_h, garbage);
     } else if (need_overlay) {
-        scratch.assign(guest.size(), 0);
-        for (size_t i = 0; i < guest.size(); i++)
-            if (guest[i] != baseline[i]) { scratch[i] = rgb565_to_rgba(guest[i]); have_overlay = true; }
-        if (have_overlay) upload_rgba(copy, overlay, scratch.data(), g_w, g_h, garbage);
+        // Changed rows first (memcmp), pixel work only there; the upload covers the changed rows plus
+        // the rows a previous upload may have left non-zero.
+        uint32_t c0 = g_h, c1 = 0;
+        for (uint32_t y = 0; y < g_h; y++)
+            if (memcmp(&guest[y * g_w], &baseline[y * g_w], g_w * 2)) { c0 = std::min(c0, y); c1 = y + 1; }
+        have_overlay = c0 < c1;
+        if (have_overlay) {
+            SDL_GPUTexture *ov = overlay_tex();
+            uint32_t u0 = std::min(c0, overlay_y0 < overlay_y1 ? overlay_y0 : c0);
+            uint32_t u1 = std::max(c1, overlay_y0 < overlay_y1 ? overlay_y1 : c1);
+            scratch.assign(static_cast<size_t>(u1 - u0) * g_w, 0);
+            for (uint32_t y = c0; y < c1; y++) {
+                const uint16_t *gr = &guest[y * g_w], *br = &baseline[y * g_w];
+                if (!memcmp(gr, br, g_w * 2)) continue;
+                uint32_t *out = &scratch[static_cast<size_t>(y - u0) * g_w];
+                for (uint32_t x = 0; x < g_w; x++)
+                    if (gr[x] != br[x]) out[x] = rgb565_to_rgba(gr[x]);
+            }
+            upload_rgba(copy, ov, scratch.data(), g_w, u1 - u0, garbage, u0);
+            overlay_y0 = c0;
+            overlay_y1 = c1;
+        }
         if (dbg && have_overlay) {
             dbg_overlay_flushes++;
             for (size_t i = 0; i < guest.size(); i++) dbg_overlay_px += guest[i] != baseline[i];
@@ -453,6 +490,8 @@ void flush(After after) {
             CachedTexture *t = texture_for(c.texture, copy, garbage, scratch);
             bound[c.texture] = t ? t->tex : white;
         }
+    // (Tried 2026-10-16: persistent cycled buffers instead of creating these per flush. No measurable
+    // CPU difference — creation never showed in profiles — but 25-40 MB more GPU memory. Reverted.)
     SDL_GPUBuffer *vbuf = nullptr, *ibuf = nullptr;
     if (!frame_vertices.empty()) {
         uint32_t vbytes = static_cast<uint32_t>(frame_vertices.size() * sizeof(GpuVertex));
@@ -547,7 +586,7 @@ void flush(After after) {
     } else {
         SDL_GPUTransferBuffer *down = nullptr;
         if (after == After::Download) {
-            blit(cmd, rt, rt_w, rt_h, lowres, g_w, g_h, SDL_GPU_FILTER_LINEAR);
+            blit(cmd, rt, rt_w, rt_h, lowres_tex(), g_w, g_h, SDL_GPU_FILTER_LINEAR);
             SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, g_w * g_h * 4, 0};
             down = SDL_CreateGPUTransferBuffer(dev, &tci);
             SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
@@ -643,8 +682,8 @@ void set_target(Surface *s) {
     if (rt && (g_w != s->w || g_h != s->h || rt_w != s->w * scale || rt_h != s->h * scale)) {
         SDL_ReleaseGPUTexture(dev, rt);
         SDL_ReleaseGPUTexture(dev, depth);
-        SDL_ReleaseGPUTexture(dev, lowres);
-        SDL_ReleaseGPUTexture(dev, overlay);
+        if (lowres) SDL_ReleaseGPUTexture(dev, lowres);
+        if (overlay) SDL_ReleaseGPUTexture(dev, overlay);
         rt = depth = lowres = overlay = nullptr;
     }
     if (!rt) {
@@ -655,9 +694,8 @@ void set_target(Surface *s) {
         rt = make_texture(rt_w, rt_h, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
                           SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
         depth = make_texture(rt_w, rt_h, SDL_GPU_TEXTUREFORMAT_D32_FLOAT, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET);
-        lowres = make_texture(g_w, g_h, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
-                              SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
-        overlay = make_texture(g_w, g_h, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER);
+        // lowres / overlay (game-frame size) are made on first use: races at 2560x1440 never need
+        // them, and they cost 28 MB there (63 MB at 3840x2160).
         depth_initialised = false;
         log("d3d gpu: render target %ux%u (scale %u)\n", rt_w, rt_h, scale);
     }

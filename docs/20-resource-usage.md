@@ -51,3 +51,31 @@ resolutions. Steam Deck (1280×800, 60 Hz) runs with smaller targets; owner repo
    three buffers per flush: less driver work and fragmentation.
 4. **Menus' changed-pixel check** — compare rows with `memcmp` before per-pixel work: menus only, small.
 Not worth it: the game's own code (3–5 ms per frame at 1440p on M3; well within budget).
+
+## Optimisations done (2026-10-16)
+1. **HiDPI=auto** (`host_window.cpp`): the window asks for full pixel density only if the remembered
+   SCREEN MODE is wider than the window in points at start (fullscreen: the display). On the owner's 5K
+   screen at 2x with a 2560×1440 mode, fullscreen now uses 2560×1440 drawables instead of 5120×2880
+   (3 × 14.7 MB instead of 3 × 59 MB, and a quarter of the present pass). Windowed (1280 points) keeps
+   full density. `HiDPI=on|off` forces it; `MOTORACER_HIDPI` is a dev override. Log: "window: full|standard
+   pixel density …".
+2. **`lowres` / `overlay` on first use** (`d3d_gpu.cpp`): −28 MB in races at 2560×1440 (−63 MB at 4K).
+3. **Persistent GPU buffers: tried and reverted.** One cycled transfer buffer plus persistent vertex/index
+   buffers instead of creating them per flush. Buffer creation had never shown in profiles (0 samples;
+   all of `flush` was 72 of 6,401 race samples), and SDL's cycling kept 25–40 MB more alive.
+4. **Menus' changed-pixel check**: rows compared with `memcmp`, pixel work only in changed rows, and the
+   overlay upload covers only the changed rows plus those a previous upload may have left non-zero.
+
+## Measured after (same E2E session)
+| | Before | After (full density, windowed) | After (standard density) |
+|---|---|---|---|
+| Race footprint | 475 MB | 450 MB | 385 MB |
+| Race resident | 230 MB | 202 MB | 203 MB |
+| Menus footprint | — | 360 MB | 297 MB |
+| CPU / GPU | 18–28% / 23–26% | unchanged (noisy 17–34% / 22–28%) | unchanged |
+- Fullscreen on the 5K display (owner's setup) additionally drops ~133 MB of drawables (estimate from
+  the drawable sizes; E2E runs are windowed).
+- Baseline: a bare SDL3 GPU window that only clears the screen (same size, full density) has a 191 MB
+  footprint: 91 MB driver graphics + 76 MB drawables. Of the recomp's fixed ~165 MB of graphics memory,
+  ~90 MB is that platform baseline; render targets at 4× for the 640×480 menus add 37.5 MB.
+- Verified visually (E2E): menus, Options (highlight moving, no stale pixels), loading, race with HUD.

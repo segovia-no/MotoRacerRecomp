@@ -59,6 +59,8 @@ void load(const std::string &game_dir) {
     };
     if (auto v = get("settings", "params"); v && !v->empty()) s.game_args = *v;
     if (auto v = get("recomp", "fullscreen")) s.fullscreen = truthy(*v);
+    if (auto v = get("recomp", "hidpi")) s.hidpi = !strcasecmp(v->c_str(), "auto") ? -1 : truthy(*v) ? 1 : 0;
+    if (const char *e = getenv("MOTORACER_HIDPI")) s.hidpi = !strcasecmp(e, "auto") ? -1 : truthy(e) ? 1 : 0;   // dev override
     if (const char *e = getenv("MOTORACER_FULLSCREEN")) s.fullscreen = truthy(e);   // dev override (E2E: windowed)
     if (auto v = get("recomp", "windowwidth")) s.window_w = std::max(320, atoi(v->c_str()));
     if (auto v = get("recomp", "windowheight")) s.window_h = std::max(240, atoi(v->c_str()));

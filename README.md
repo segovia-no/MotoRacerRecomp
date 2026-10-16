@@ -95,6 +95,7 @@ All port options live in the `[Recomp]` section of `motoracer.ini` in the game f
 |---|---|---|
 | `FrameRate` | `game` | `game` (the game's 60), `display` (the screen's refresh rate), a number such as `120` or `144`; races play at the same speed at any rate |
 | `Fullscreen` | `1` (from setup) | start in fullscreen |
+| `HiDPI` | `auto` | Retina/HiDPI displays: `auto` uses full-resolution window buffers only when the screen mode is wider than the window in points (saves ~130 MB fullscreen on a 5K Mac), `on`, `off` |
 | `WindowWidth`, `WindowHeight` | `1280`, `960` | initial window size |
 | `VSync` | `1` | sync to the display |
 | `Filter` | `linear` | scaling filter for the picture: `linear` or `nearest` |

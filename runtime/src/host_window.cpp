@@ -2,6 +2,7 @@
 // keyboard translation into WM_KEY* messages and GetKeyState.
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <string>
@@ -20,8 +21,24 @@ SDL_Window *sdl_window = nullptr;
 SDL_Window *ensure_window() {
     if (sdl_window) return sdl_window;
     const auto &cfg = settings::get();
+    // HiDPI (settings.h): full-density window buffers only when the picture needs them. They are
+    // allocated at the window's pixel size: fullscreen on a 5K display at 2x that is 3 x 59 MB, and
+    // every frame is scaled into them, while the game typically renders 2560x1440.
+    bool hidpi = cfg.hidpi == 1;
+    if (cfg.hidpi == -1) {
+        hidpi = true;
+        if (SDL_DisplayID d = SDL_GetPrimaryDisplay())
+            if (const SDL_DisplayMode *m = SDL_GetCurrentDisplayMode(d); m && m->pixel_density > 1.f) {
+                int want = game::preferred_frame_width();
+                if (!want) want = std::min(2560, static_cast<int>(m->w * m->pixel_density));   // first-run pick
+                int points = cfg.fullscreen ? m->w : cfg.window_w;   // the window's width at start
+                hidpi = want > points;
+                log("window: %s pixel density (screen mode %d px wide, window %d points, display at %gx)\n",
+                    hidpi ? "full" : "standard", want, points, static_cast<double>(m->pixel_density));
+            }
+    }
     sdl_window = SDL_CreateWindow("Moto Racer", cfg.window_w, cfg.window_h,
-                                  SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+                                  SDL_WINDOW_RESIZABLE | (hidpi ? SDL_WINDOW_HIGH_PIXEL_DENSITY : 0));
     if (!sdl_window) fatal("SDL_CreateWindow failed: %s", SDL_GetError());
     if (cfg.fullscreen) SDL_SetWindowFullscreen(sdl_window, true);
     return sdl_window;
