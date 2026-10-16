@@ -124,6 +124,7 @@ void game_hook_bike_lod(void);
 void game_hook_input_loaded(void);
 void game_hook_band(void);
 void game_hook_counter(void);
+void game_hook_lean(void);
 
 /* ---------- control transfer / traps ---------- */
 void call_indirect(uint32_t va);   /* guest VA -> recompiled fn, import shim or COM thunk */

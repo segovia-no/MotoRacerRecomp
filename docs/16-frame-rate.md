@@ -57,7 +57,25 @@ apart (dt = 0 would become 30 ms), `unlimited` turns vsync off. `MOTORACER_FRAME
 - 60 fps races unchanged (E2E: menus, loading, race, HUD correct). The log names the present mode
   (`gpu: ... window claimed, vsync|no vsync`).
 
+## Bike lean fix (2026-10-16)
+- Function `0x469c60` (per bike, esi = bike object; `+0x2e1d` = lean, clamped ±1.04 rad) has three lean
+  paths: A (`+4`, `+8` and a per-bike pointer set): `atan(−x / smoothed · min(speed, 50) · k)` smoothed
+  over frames; C (pointer unset): x / a speed term; B (`0x46ac1b`, flags set, not replaying):
+  `x / max(smoothed, 20 ms) · k'` (only `smoothed` when `+0x2e29` is set). Replays take `0x46acf3`.
+- Traced in races: only **path B** runs, for the player's bike (esi `0x584421`).
+- `x` = a per-frame change: in the same held turn it levels off at 0.75 at 30 fps and 0.40 at 60 fps.
+  `0x4e9808` holds the frame time in hundredths of a second (1.6 at 60 fps), `0x4dc150` in ms.
+- Because of the 20 ms floor the lean shrinks above 50 fps: at 60 fps (GOG) it is ~85% of the 30 fps
+  lean, at ~68 fps measured −0.58 vs −0.68 at 60, at 144 fps it would be ~40% of the 60 fps lean.
+- Fix (`game_hook_lean` at `0x46ac41`, before the division): the divisor `[esp+0x10]` becomes
+  `max(t, min(20, 1.2·t))`, t = smoothed frame time: the floor scales as it acts at 60 fps, so 60 fps and
+  below are unchanged and faster rates lean as at 60 fps.
+- Tried first: dividing by this frame's own time (`0x4e980c`). Lean size was right but frame-to-frame
+  change rose 0.006 → 0.022 at 60 fps (0.19 with uneven frame times): `x` does not belong to the same
+  frame's time. The smoothed time is steadier; even frame pacing keeps both equal.
+- Verified (E2E, same held turn, mean lean / mean frame-to-frame change over 350 ms): 60 fps original
+  −0.678 / 0.006, fixed −0.677 / 0.006; ~68 fps (paced, no vsync) original −0.577 / 0.007, fixed
+  −0.690 / 0.005.
+
 ## Open
-1. Find what `x` is in `0x46a880`/`0x46ac1b`; correct the smoothed-dt use and the 20 ms floor for high
-   frame rates (replays take another path there).
-2. Even frame pacing; test on a high-refresh display (120/144 Hz).
+1. Even frame pacing; test on a high-refresh display (120/144 Hz).
