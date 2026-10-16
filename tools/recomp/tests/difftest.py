@@ -199,7 +199,7 @@ def main():
     tr = Translator(timg, td)
 
     os.makedirs(args.work, exist_ok=True)
-    src = ['#include "recomp.h"']
+    src = ['#define RECOMP_GENERATED  /* as in the game build (local memory base) */', '#include "recomp.h"']
     src += [f"void {fn_name(s)}(void);" for s in starts]
     for s in starts:
         src.append(tr.translate_function(s))

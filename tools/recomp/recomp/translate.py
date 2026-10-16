@@ -4,6 +4,8 @@ One C function per discovered guest function. Guest registers live in the global
 arithmetic flags are C locals (they never cross call boundaries in compiled MSVC code), and
 x87 state is the global `F`. See docs/07-translator.md for the model.
 """
+import re
+
 from capstone import x86
 
 from .discover import full_reg
@@ -144,6 +146,72 @@ class Unsupported(Exception):
     pass
 
 
+# ---------- register caching ----------
+# Inside a function the guest registers eax..edi live in C locals (REGS_LOCAL in recomp.h), so the
+# compiler keeps them in host registers: guest memory stores (char-typed, may alias anything) no
+# longer force R to be reloaded. R is written back (SPILL) right before every call that can read or
+# write registers (guest functions, imports, call_indirect, runtime helpers, hooks) and before every
+# return, and read back (RELOAD) after the call. Calls to the helpers below never touch R.
+PURE_CALLS = {
+    "IC", "RD8", "RD16", "RD32", "RD64", "WR8", "WR16", "WR32", "WR64", "RDF32", "RDF64", "RDF80",
+    "WRF32", "WRF64", "WRF80", "PUSH32", "PUSH16", "POP32", "POP16", "PARITY", "EFLAGS_PACK",
+    "EFLAGS_UNPACK", "ST", "FPUSH", "FPOP", "FSTSW", "FCOM", "FXAM", "FPREM", "F_ROUND", "F_TO_I16",
+    "F_TO_I32", "F_TO_I64", "FNSTENV", "FLDENV", "FM", "trunc", "if", "switch", "while", "sizeof",
+}
+REG_RE = re.compile(r"\bR\.(eax|ecx|edx|ebx|esp|ebp|esi|edi)\b")
+CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\(")
+STACK_RE = re.compile(r"\b(PUSH32|PUSH16|POP32|POP16)\(")
+
+
+def _wrap_calls(line):
+    """Wrap each `name(args);` statement of a non-pure function in SPILL/RELOAD. Returns None if a
+    non-pure call is not a whole statement."""
+    out, pos = [], 0
+    while True:
+        m = CALL_RE.search(line, pos)
+        if not m:
+            out.append(line[pos:])
+            return "".join(out)
+        name = m.group(1)
+        if name in PURE_CALLS:
+            out.append(line[pos:m.end()])
+            pos = m.end()
+            continue
+        depth, i = 1, m.end()
+        while depth:
+            if i >= len(line):
+                return None
+            depth += (line[i] == "(") - (line[i] == ")")
+            i += 1
+        before = line[:m.start()].rstrip()
+        # a statement: starts the line or follows ';', '{' or '}' (or `h = ` / `v = ` assignment)
+        assign = re.search(r"([;{}]|^)\s*[hv] = $", line[:m.start()])
+        if not (assign or before == "" or before.endswith((";", "{", "}", ":"))):
+            return None
+        if i >= len(line) or line[i] != ";":
+            return None
+        start = assign.start() + len(assign.group(1)) if assign else m.start()
+        out.append(line[pos:start])
+        out.append(f"SPILL(); {line[start:i + 1]} RELOAD();")
+        pos = i + 1
+
+
+def cache_registers(out):
+    body = []
+    for ln in out:
+        if ln.startswith("__LABEL_") or ln.lstrip().startswith("/*"):
+            body.append(ln)
+            continue
+        ln = _wrap_calls(ln)
+        if ln is None:
+            return None
+        ln = REG_RE.sub(r"\1", ln)
+        ln = STACK_RE.sub(r"L\1(", ln)
+        ln = ln.replace("return;", "SPILL(); return;")
+        body.append(ln)
+    return body
+
+
 class FunctionTranslator:
     def __init__(self, tr, entry, body):
         self.tr = tr
@@ -278,7 +346,7 @@ class FunctionTranslator:
                 self.emit(f"{GAME_HOOKS[va]}();")
             if va in GAME_JUMP_HOOKS:
                 name, target = GAME_JUMP_HOOKS[va]
-                self.emit(f"if ({name}()) {self.goto(target)}")
+                self.emit(f"{{ int h; h = {name}(); if (h) {self.goto(target)} }}")
             try:
                 falls = self.insn(insn)
             except Unsupported as e:
@@ -292,12 +360,19 @@ class FunctionTranslator:
                         self.emit(self.goto(end))
                     else:
                         self.emit("return; /* falls off decoded code */")
+        body = cache_registers(self.out) if self.tr.regcache and not self.uses_eh else None
+        if body is None:
+            body = self.out
+            self.tr.uncached += 1
         lines = [f"void {fn_name(self.entry)}(void) {{",
                  "    uint32_t cf = 0, zf = 0, sf = 0, of = 0, pf = 0, af = 0;",
                  "    (void)cf; (void)zf; (void)sf; (void)of; (void)pf; (void)af;"]
+        lines.append("    MEM_LOCAL();")
+        if body is not self.out:
+            lines.append("    REGS_LOCAL();")
         if self.uses_eh:
             lines.append("    jmp_buf eh_jb;")
-        for ln in self.out:
+        for ln in body:
             if ln.startswith("__LABEL_"):
                 va = int(ln[8:16], 16)
                 if va in self.labels:
@@ -675,7 +750,7 @@ class FunctionTranslator:
     def i_in(self, insn):
         size = self.op_size(insn, 0)
         port = self.rd(insn, 1, 2) if insn.ops[1][0] == "reg" else f"0x{insn.ops[1][1]:x}u"
-        self.emit(self.wr(insn, 0, f"x86_in({port}, {size})"))
+        self.emit(f"{{ uint32_t v; v = x86_in({port}, {size}); {self.wr(insn, 0, 'v')} }}")
         return True
 
     def i_out(self, insn):
@@ -969,12 +1044,14 @@ class FunctionTranslator:
 
 
 class Translator:
-    def __init__(self, img, discovery):
+    def __init__(self, img, discovery, regcache=True):
         self.img = img
+        self.regcache = regcache
         self.d = discovery
         self.imports_used = {}
         self.unsupported = {}
         self.smc_uses = 0
+        self.uncached = 0   # functions translated without register caching
         self.smc_bytes = self.find_smc_bytes()
 
     def find_smc_bytes(self):

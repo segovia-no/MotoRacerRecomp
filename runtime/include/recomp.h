@@ -78,6 +78,23 @@ static inline void PUSH16(uint16_t v) { R.esp -= 2; WR16(R.esp, v); }
 static inline uint32_t POP32(void) { uint32_t v = RD32(R.esp); R.esp += 4; return v; }
 static inline uint16_t POP16(void) { uint16_t v = RD16(R.esp); R.esp += 2; return v; }
 
+/* ---------- register caching (generated code, see cache_registers in translate.py) ----------
+ * A translated function keeps eax..edi in locals; SPILL writes them to R before calls that may use
+ * R and before returning, RELOAD reads them back after such calls. LPUSH32 & co. use the local esp. */
+#define REGS_LOCAL()                                                                              \
+    uint32_t eax = R.eax, ecx = R.ecx, edx = R.edx, ebx = R.ebx, esp = R.esp, ebp = R.ebp,        \
+             esi = R.esi, edi = R.edi
+#define SPILL()                                                                                   \
+    (R.eax = eax, R.ecx = ecx, R.edx = edx, R.ebx = ebx, R.esp = esp, R.ebp = ebp, R.esi = esi,   \
+     R.edi = edi)
+#define RELOAD()                                                                                  \
+    (eax = R.eax, ecx = R.ecx, edx = R.edx, ebx = R.ebx, esp = R.esp, ebp = R.ebp, esi = R.esi,   \
+     edi = R.edi)
+#define LPUSH32(v) do { uint32_t p_ = (v); esp -= 4; WR32(esp, p_); } while (0)
+#define LPUSH16(v) do { uint16_t p_ = (v); esp -= 2; WR16(esp, p_); } while (0)
+#define LPOP32() (esp += 4, RD32(esp - 4))
+#define LPOP16() (esp += 2, RD16(esp - 2))
+
 /* ---------- flags ---------- */
 static inline uint32_t PARITY(uint32_t v) { return !__builtin_parity(v & 0xff); }
 static inline uint32_t EFLAGS_PACK(uint32_t cf, uint32_t pf, uint32_t af, uint32_t zf,
@@ -166,6 +183,27 @@ void x86_out(uint32_t port, uint32_t value, int size);
 void x86_int(uint32_t va, int vector);
 void x86_div_fault(uint32_t va);
 void x86_unimpl(uint32_t va, const char *what);
+
+/* Generated code (RECOMP_GENERATED): guest memory through a local copy of M (`mb`, declared by
+ * MEM_LOCAL at the top of every translated function), so stores through it don't make the compiler
+ * reload the global M. Defined last: the inline helpers above keep using M. */
+#ifdef RECOMP_GENERATED
+#define MEM_LOCAL() uint8_t *const mb = M
+#define RD8(a) (mb[(uint32_t)(a)])
+#define RD16(a) ({ uint16_t r_; memcpy(&r_, mb + (uint32_t)(a), 2); r_; })
+#define RD32(a) ({ uint32_t r_; memcpy(&r_, mb + (uint32_t)(a), 4); r_; })
+#define RD64(a) ({ uint64_t r_; memcpy(&r_, mb + (uint32_t)(a), 8); r_; })
+#define RDF32(a) ({ float r_; memcpy(&r_, mb + (uint32_t)(a), 4); r_; })
+#define RDF64(a) ({ double r_; memcpy(&r_, mb + (uint32_t)(a), 8); r_; })
+#define WR8(a, v) (mb[(uint32_t)(a)] = (uint8_t)(v))
+#define WR16(a, v) do { uint16_t w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 2); } while (0)
+#define WR32(a, v) do { uint32_t w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 4); } while (0)
+#define WR64(a, v) do { uint64_t w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 8); } while (0)
+#define WRF32(a, v) do { float w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 4); } while (0)
+#define WRF64(a, v) do { double w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 8); } while (0)
+#else
+#define MEM_LOCAL() ((void)0)
+#endif
 
 #ifdef __cplusplus
 }

@@ -6,6 +6,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+#ifdef __APPLE__
+#include <dlfcn.h>
+#endif
 
 #include "game_hooks.h"
 #include "host_gpu.h"
@@ -69,7 +72,49 @@ int display_refresh_rate() {
 
 namespace {
 
+// MOTORACER_FRAME_WORK=1 (dev, translator benchmarks): per frame, the time spent outside frame
+// pacing (game code + runtime + submission) and, on macOS, the instructions / cycles the game thread
+// executed in it (thread_selfcounts: exported by libsystem_kernel, private; Apple Silicon counters,
+// independent of the core type the scheduler picked, unlike wall time). Logged every 2 s.
+struct ThreadCounts { uint64_t insns = 0, cycles = 0; };
+ThreadCounts thread_counts() {
+    ThreadCounts c;
+#ifdef __APPLE__
+    using Fn = int (*)(int, void *, size_t);
+    static const Fn fn = reinterpret_cast<Fn>(dlsym(RTLD_DEFAULT, "thread_selfcounts"));
+    uint64_t v[2] = {0, 0};
+    if (fn && fn(1, v, sizeof v) == 0) { c.insns = v[0]; c.cycles = v[1]; }
+#endif
+    return c;
+}
+
+void log_frame_work(bool entering) {
+    static const bool on = getenv("MOTORACER_FRAME_WORK") != nullptr;
+    if (!on) return;
+    static uint64_t left = 0, work = 0, frames = 0, since = 0, insns = 0, cycles = 0;
+    static ThreadCounts at_left;
+    uint64_t now = SDL_GetTicksNS();
+    if (!entering) { left = now; at_left = thread_counts(); return; }
+    if (left) {
+        ThreadCounts c = thread_counts();
+        work += now - left;
+        insns += c.insns - at_left.insns;
+        cycles += c.cycles - at_left.cycles;
+        frames++;
+    }
+    if (!since) since = now;
+    if (now - since >= 2000000000ull && frames) {
+        double n = static_cast<double>(frames);
+        log("frame work: %.3f ms, %.3f M instructions, %.3f M cycles per frame (%llu frames)\n",
+            work / 1e6 / n, insns / 1e6 / n, cycles / 1e6 / n, static_cast<unsigned long long>(frames));
+        work = frames = insns = cycles = 0;
+        since = now;
+    }
+}
+
 void limit_frame_rate() {
+    log_frame_work(true);
+    struct Leave { ~Leave() { log_frame_work(false); } } leave;
     static uint64_t next = 0, last_ms = 0, count = 0, count_since = 0;
     static const bool fps_log = getenv("MOTORACER_FPS_LOG") != nullptr;
     int display_rate = display_refresh_rate();

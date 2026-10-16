@@ -32,12 +32,14 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--files", type=int, default=64)
     ap.add_argument("--only", default=None)
+    ap.add_argument("--no-regcache", action="store_true",
+                    help="keep guest registers in R everywhere (baseline for benchmarks)")
     args = ap.parse_args()
 
     t0 = time.time()
     img = Image(args.exe)
     d = Discovery(img).run().partition().mark_text_data()
-    tr = Translator(img, d)
+    tr = Translator(img, d, regcache=not args.no_regcache)
     entries = sorted(d.entries)
     if args.only:
         entries = [int(x, 16) for x in args.only.split(",")]
@@ -83,7 +85,8 @@ def main():
     write_if_changed(os.path.join(args.out, "dispatch_table.c"), "\n".join(table))
 
     print(f"functions {len(entries)} in {len(chunks)} files, imports {len(tr.imports_used)}, "
-          f"smc operand reads {tr.smc_uses}, time {time.time() - t0:.1f}s")
+          f"smc operand reads {tr.smc_uses}, without register caching {tr.uncached}, "
+          f"time {time.time() - t0:.1f}s")
     if tr.unsupported:
         print("UNSUPPORTED:", dict(sorted(tr.unsupported.items(), key=lambda x: -x[1])))
 

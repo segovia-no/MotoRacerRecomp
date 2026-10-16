@@ -29,11 +29,18 @@ foreach(i RANGE ${_last})
   list(APPEND GEN_SOURCES "${GEN_DIR}/code_${_n}.c")
 endforeach()
 
+# Translator optimisations (docs/23-translator-speed.md): guest registers in C locals, local memory
+# base. OFF builds the plain translation, for benchmarks.
+option(MOTORACER_GUEST_OPT "Optimised translation (registers in locals, local memory base)" ON)
+set(RECOMP_TRANSLATOR_FLAGS "")
+if(NOT MOTORACER_GUEST_OPT)
+  set(RECOMP_TRANSLATOR_FLAGS --no-regcache)
+endif()
 file(GLOB RECOMP_TOOL_SOURCES "${CMAKE_SOURCE_DIR}/tools/recomp/*.py" "${CMAKE_SOURCE_DIR}/tools/recomp/recomp/*.py")
 add_custom_command(
   OUTPUT ${GEN_SOURCES} "${GEN_DIR}/recomp_funcs.h" "${GEN_DIR}/imports.h"
   COMMAND "${RECOMP_PYTHON}" -I "${CMAKE_SOURCE_DIR}/tools/recomp/recomp_main.py"
-          "${GAME_EXE}" "${GEN_DIR}" --files ${GEN_FILE_COUNT}
+          "${GAME_EXE}" "${GEN_DIR}" --files ${GEN_FILE_COUNT} ${RECOMP_TRANSLATOR_FLAGS}
   DEPENDS "${GAME_EXE}" ${RECOMP_TOOL_SOURCES}
   COMMENT "Recompiling game.EXE to C"
   VERBATIM)
@@ -42,6 +49,9 @@ add_custom_command(
 add_library(gamecode OBJECT ${GEN_SOURCES})
 target_include_directories(gamecode PRIVATE runtime/include "${GEN_DIR}")
 target_compile_options(gamecode PRIVATE -w -O1 -fno-strict-aliasing)
+if(MOTORACER_GUEST_OPT)
+  target_compile_definitions(gamecode PRIVATE RECOMP_GENERATED)
+endif()
 
 # SDL3: the system package by default. MOTORACER_BUNDLED_SDL builds a pinned release and links it
 # statically; SDL then loads X11/Wayland/Vulkan/audio libraries at run time, so the binary needs
