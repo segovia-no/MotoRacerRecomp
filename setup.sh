@@ -5,7 +5,8 @@
 #   ./setup.sh [path/to/setup_moto_racer_2.1.0.11.exe]
 #
 # Without an argument the installer is looked for in ~/Downloads and the current folder.
-# Re-running the script rebuilds and reinstalls the app; your game files, saves and settings stay.
+# Re-running the script rebuilds and replaces the app (it asks first); game files, saves and
+# settings stay, also when the installer is given again.
 #
 # Options (environment):
 #   GAME_DIR=<dir>     where the game files go (default: ~/Library/Application Support/MotoRacerRecomp/game)
@@ -20,6 +21,13 @@ BUILD="$HERE/build/cmake"
 
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nerror: %s\n' "$*" >&2; exit 1; }
+# Re-running setup updates an existing install in place (same location, shortcuts keep working).
+confirm_update() {
+    [ -t 0 ] || return 0
+    printf '\nMoto Racer is already installed (%s).\nRebuild and replace it? Saves, best times and settings are kept. [Y/n] ' "$1"
+    read -r answer || answer=""
+    case $answer in [nN]*) echo "Nothing changed."; exit 0 ;; esac
+}
 
 # --- platform -------------------------------------------------------------------------------
 [ "$(uname -s)" = Linux ] && exec "$HERE/tools/linux/setup_linux.sh" "$@"   # Linux / Steam Deck
@@ -36,6 +44,8 @@ if [ -z "$SETUP" ] && [ ! -f "$GAME_DIR/game.EXE" ]; then
     done
     [ -n "$SETUP" ] || die "GOG installer not found: pass it as an argument, e.g. ./setup.sh ~/Downloads/setup_moto_racer_2.1.0.11.exe"
 fi
+
+[ -d "$APP_DIR/MotoRacer.app" ] && confirm_update "$APP_DIR/MotoRacer.app"
 
 # --- dependencies ------------------------------------------------------------------------------
 say "Checking dependencies (cmake, sdl3, innoextract)"

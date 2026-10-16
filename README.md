@@ -28,7 +28,7 @@ This is a *static recompilation*: the original Windows game executable from your
    The script installs the missing tools (`cmake`, `sdl3`, `innoextract`) with Homebrew, unpacks the installer to `~/Library/Application Support/MotoRacerRecomp/game`, builds the game (about a minute the first time) and puts **MotoRacer.app** in `~/Applications`.
 3. **Play**: open *MotoRacer* from Launchpad or Spotlight, or `open ~/Applications/MotoRacer.app`.
 
-To update after a `git pull`, run `./setup.sh` again (no argument needed); your game files, saves and settings are kept.
+To update after a `git pull`, run `./setup.sh` again (no argument needed). It asks before replacing the installed game; your saves, best times and settings are kept (also if you give the installer again), and on a Steam Deck the existing Steam library entry is reused.
 
 ## Steam Deck / Linux
 1. In **Desktop Mode**, download the GOG offline installer to `~/Downloads` and open **Konsole**:

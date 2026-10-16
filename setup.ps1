@@ -7,8 +7,8 @@ Windows setup: unpacks your GOG Moto Racer installer, builds the recompiled game
 Without an argument the installer is looked for in Downloads and in this folder.
 Needs Windows 10/11 (x64) and Python 3, which is installed for your user with winget if missing.
 The C toolchain (llvm-mingw), innoextract, CMake and Ninja are downloaded into build\ (pinned
-versions, SHA-256 checked); nothing else is installed. Re-running rebuilds and reinstalls; game
-files, saves and settings stay.
+versions, SHA-256 checked); nothing else is installed. Re-running rebuilds and replaces the game
+(it asks first); game files, saves and settings stay, also when the installer is given again.
 
 Environment: GAME_DIR=<dir> puts the game files elsewhere (default %LOCALAPPDATA%\MotoRacerRecomp\game).
 #>
@@ -93,6 +93,14 @@ if (-not $Installer -and -not $haveGame) {
     $Installer = $found[0].FullName
 }
 
+# Re-running setup updates an existing install in place (same location, the shortcut keeps working).
+$installed = Join-Path $Data 'bin\MotoRacer.exe'
+if ((Test-Path $installed) -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+    Write-Host "`nMoto Racer is already installed ($installed)."
+    $answer = Read-Host 'Rebuild and replace it? Saves, best times and settings are kept. [Y/n]'
+    if ($answer -match '^[nN]') { Write-Host 'Nothing changed.'; exit 0 }
+}
+
 # --- tools -----------------------------------------------------------------------------------------
 Say "Checking Python"
 $py = Find-Python
@@ -124,6 +132,11 @@ if ($Installer) {
     & (Join-Path $inno 'innoextract.exe') --gog --silent -d $tmp $Installer
     if ($LASTEXITCODE -or -not (Test-Path (Join-Path $tmp 'app\game.EXE'))) {
         Die "game.EXE not found in the installer - is this the GOG Moto Racer setup?"
+    }
+    # Keep the player's files when the game is already installed (settings and controls, best
+    # times, launcher/port settings); championship saves are not in the installer.
+    foreach ($f in 'data\CONFIG.BPT', 'data\bestscor.dat', 'motoracer.ini') {
+        if (Test-Path (Join-Path $GameDir $f)) { Remove-Item -Force (Join-Path $tmp "app\$f") -ErrorAction SilentlyContinue }
     }
     New-Item -ItemType Directory -Force $GameDir | Out-Null
     Copy-Item -Path (Join-Path $tmp 'app\*') -Destination $GameDir -Recurse -Force

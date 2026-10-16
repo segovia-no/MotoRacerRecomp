@@ -115,6 +115,19 @@ it indirectly). Nothing else; the generated C compiles with gcc-14 unchanged.
      (`NO_STEAM=1` skips it); otherwise the script prints the manual steps.
    - First Deck test (2026-10-14): the script hung at this step. `steamos-add-to-steam` passes a `steam://` link to
      Steam and waits; with Steam not running in Desktop Mode it started Steam and never returned. Fixed as above.
+   - Owner report (2026-10-16): every re-run added another library entry. The script now looks for the install path
+     (`~/.local/share/MotoRacerRecomp/bin/motoracer`) in Steam's binary `userdata/*/config/shortcuts.vdf` files
+     (`grep -a`) and adds the game only if no shortcut has it. The binary is replaced in place, so the existing entry
+     starts the new build. Duplicates made earlier must be removed in Steam by hand.
+
+**Re-running setup (all platforms, 2026-10-16):**
+- With an existing install (`MotoRacer.app`, `bin/motoracer`, `MotoRacer.exe`), setup asks
+  "Rebuild and replace it? [Y/n]" when run interactively; non-interactive runs continue.
+- Player files: `data/CONFIG.BPT` (options, controls, speedometer style), `data/bestscor.dat` (best times),
+  `motoracer.ini` (launcher + `[Recomp]` settings), `data/Champ*.sav` (championships, not in the installer),
+  `recomp_state.txt` (runtime), `windows/game.ini`. A plain re-run never extracts again. Before, giving the
+  installer again overwrote the first three with the GOG originals; now files that already exist are kept
+  (`install_game.sh`, `setup_linux.sh`, `setup.ps1`). Tested by extracting over a folder with modified copies.
 
 **Platform adapters added:**
 - `paths_xdg.cpp` (data `$XDG_DATA_HOME`, log `$XDG_STATE_HOME`; parents created);

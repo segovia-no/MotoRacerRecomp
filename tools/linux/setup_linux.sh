@@ -23,6 +23,22 @@ EXTRACT_IMAGE=docker.io/library/debian:bookworm-slim
 
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nerror: %s\n' "$*" >&2; exit 1; }
+# Re-running setup updates an existing install in place (same location, shortcuts keep working).
+confirm_update() {
+    [ -t 0 ] || return 0
+    printf '\nMoto Racer is already installed (%s).\nRebuild and replace it? Saves, best times and settings are kept. [Y/n] ' "$1"
+    read -r answer || answer=""
+    case $answer in [nN]*) echo "Nothing changed."; exit 0 ;; esac
+}
+
+# A Steam shortcut to this install already exists (Steam keeps them in binary shortcuts.vdf files).
+in_steam() {
+    for f in "$HOME"/.local/share/Steam/userdata/*/config/shortcuts.vdf \
+             "$HOME"/.steam/steam/userdata/*/config/shortcuts.vdf; do
+        [ -f "$f" ] && grep -aqF "$APP_DIR/bin/motoracer" "$f" && return 0
+    done
+    return 1
+}
 
 [ "$(uname -m)" = x86_64 ] || die "Linux builds need an x86-64 PC or Steam Deck for now (found $(uname -m))"
 
@@ -47,6 +63,8 @@ if [ -z "$SETUP" ] && [ ! -f "$GAME_DIR/game.EXE" ]; then
     [ -n "$SETUP" ] || die "GOG installer not found: pass it as an argument, e.g. ./setup.sh ~/Downloads/setup_moto_racer_2.1.0.11.exe"
 fi
 
+[ -x "$APP_DIR/bin/motoracer" ] && confirm_update "$APP_DIR"
+
 # --- game files ----------------------------------------------------------------------------------
 if [ -n "$SETUP" ]; then
     SETUP=$(cd "$(dirname "$SETUP")" && pwd)/$(basename "$SETUP")
@@ -64,6 +82,11 @@ if [ -n "$SETUP" ]; then
              innoextract --gog --silent -d /out /in/setup.exe; $OWNER"
     fi
     [ -f "$TMP/app/game.EXE" ] || die "game.EXE not found in the installer - is this the GOG Moto Racer setup?"
+    # Keep the player's files when the game is already installed (settings and controls, best
+    # times, launcher/port settings); championship saves are not in the installer.
+    for f in data/CONFIG.BPT data/bestscor.dat motoracer.ini; do
+        [ -f "$GAME_DIR/$f" ] && rm -f "$TMP/app/$f"
+    done
     mkdir -p "$GAME_DIR"
     cp -R "$TMP/app/." "$GAME_DIR/"
 else
@@ -107,7 +130,10 @@ EOF
 # steamos-add-to-steam hands a steam:// link to Steam and waits; with Steam not running it starts
 # Steam and never returns. Only use it with Steam already running, detached and time-limited.
 STEAM_ADDED=""
-if [ -z "${NO_STEAM:-}" ] && command -v steamos-add-to-steam >/dev/null 2>&1 && pgrep -x steam >/dev/null 2>&1; then
+if [ -z "${NO_STEAM:-}" ] && in_steam; then
+    say "Moto Racer is already in your Steam library: it now starts the new build"
+    STEAM_ADDED=1
+elif [ -z "${NO_STEAM:-}" ] && command -v steamos-add-to-steam >/dev/null 2>&1 && pgrep -x steam >/dev/null 2>&1; then
     say "Adding Moto Racer to your Steam library (confirm in Steam if it asks)"
     (timeout 20 steamos-add-to-steam "$DESKTOP" >/dev/null 2>&1 &)
     STEAM_ADDED=1
