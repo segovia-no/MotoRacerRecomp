@@ -47,6 +47,16 @@ target_compile_options(gamecode PRIVATE -w -O1 -fno-strict-aliasing)
 # statically; SDL then loads X11/Wayland/Vulkan/audio libraries at run time, so the binary needs
 # only glibc (Steam Deck / any Linux, see docs/15-ports-plan.md).
 option(MOTORACER_BUNDLED_SDL "Build SDL3 from source and link it statically" OFF)
+# Profiling for small targets (docs/21-psp-feasibility.md): x87 in single precision, and a counter of
+# executed x86 instructions (MOTORACER_ICOUNT=1 logs them per frame).
+option(MOTORACER_FPU_FLOAT "Emulate the x87 FPU in single precision" OFF)
+option(MOTORACER_COUNT_INSNS "Count executed x86 instructions (slow)" OFF)
+if(MOTORACER_FPU_FLOAT)
+  add_compile_definitions(RECOMP_FPU_FLOAT)
+endif()
+if(MOTORACER_COUNT_INSNS)
+  add_compile_definitions(RECOMP_COUNT_INSNS)
+endif()
 if(MOTORACER_BUNDLED_SDL)
   include(FetchContent)
   set(SDL_SHARED OFF CACHE BOOL "" FORCE)

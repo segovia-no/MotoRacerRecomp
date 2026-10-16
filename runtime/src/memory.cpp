@@ -5,6 +5,9 @@
 // Win32 heap APIs share one best-fit allocator over [HEAP_LO, HEAP_HI); VirtualAlloc hands out
 // 64 KB-aligned regions from [VALLOC_LO, VALLOC_HI). Bookkeeping lives on the host so guest
 // corruption can't break it.
+#include <algorithm>
+#include <string>
+#include <vector>
 #include <map>
 #include <unordered_map>
 
@@ -25,6 +28,7 @@ struct Arena {
     std::map<uint32_t, uint32_t> free_by_addr;          // addr -> size
     std::multimap<uint32_t, uint32_t> free_by_size;     // size -> addr
     std::unordered_map<uint32_t, uint32_t> live;        // addr -> size (rounded)
+    uint64_t in_use = 0, peak = 0;                      // bytes handed out (MOTORACER_MEM_STATS)
 
     void init(uint32_t lo, uint32_t hi) { insert_free(lo, hi - lo); }
 
@@ -51,6 +55,8 @@ struct Arena {
             uint32_t end = start + need;
             if (a + s > end) insert_free(end, a + s - end);
             live[start] = need;
+            in_use += need;
+            peak = std::max(peak, in_use);
             commit(start, need);
             return start;
         }
@@ -61,6 +67,7 @@ struct Arena {
         auto it = live.find(a);
         if (it == live.end()) return false;
         uint32_t s = it->second;
+        in_use -= s;
         live.erase(it);
         // coalesce with neighbours
         auto next = free_by_addr.lower_bound(a);
@@ -182,4 +189,30 @@ uint32_t alloc_cstr(const std::string &s) {
     return a;
 }
 
+}  // namespace rt
+
+namespace rt {
+// Dev aid (MOTORACER_MEM_STATS=1, logged from game::frame_tick): guest heap and VirtualAlloc use,
+// with the largest live blocks (screen surfaces show up as the biggest ones).
+void memory_stats_log() {
+    std::vector<uint32_t> big;
+    for (auto &[a, s] : heap.live) big.push_back(s);
+    for (auto &[a, s] : varena.live) big.push_back(s);
+    std::sort(big.rbegin(), big.rend());
+    std::string top;
+    for (size_t i = 0; i < big.size() && i < 10; i++) top += " " + std::to_string(big[i] / 1024) + "K";
+    // VirtualAlloc regions are mostly reservations (the CRT's small-block heap reserves 4 MB and
+    // commits as it grows): count the 4 KB pages holding anything but zeros.
+    uint32_t touched = 0;
+    for (auto &[a, s] : varena.live)
+        for (uint32_t p = a; p < a + s; p += 4096) {
+            const uint64_t *q = reinterpret_cast<const uint64_t *>(M + p);
+            for (int i = 0; i < 512; i++)
+                if (q[i]) { touched++; break; }
+        }
+    log("memstats: heap %.1f MB (peak %.1f, %zu blocks), VirtualAlloc %.1f MB (peak %.1f, %.2f MB non-zero); "
+        "largest:%s\n",
+        heap.in_use / 1048576.0, heap.peak / 1048576.0, heap.live.size(), varena.in_use / 1048576.0,
+        varena.peak / 1048576.0, touched * 4096 / 1048576.0, top.c_str());
+}
 }  // namespace rt

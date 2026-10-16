@@ -10,7 +10,7 @@ X87State F = {.cw = 0x27f}; /* MSVC CRT default: 53-bit precision, round to near
 uint8_t *M;
 
 /* ---------- 80-bit extended <-> double ---------- */
-double RDF80(uint32_t a) {
+fpu_t RDF80(uint32_t a) {
     uint64_t mant = RD64(a);
     uint16_t se = RD16(a + 8);
     int sign = se >> 15;
@@ -23,7 +23,7 @@ double RDF80(uint32_t a) {
     return sign ? -v : v;
 }
 
-void WRF80(uint32_t a, double v) {
+void WRF80(uint32_t a, fpu_t v) {
     uint16_t se = signbit(v) ? 0x8000 : 0;
     uint64_t mant = 0;
     if (isnan(v)) { se |= 0x7fff; mant = 0xC000000000000000ull; }
@@ -39,35 +39,35 @@ void WRF80(uint32_t a, double v) {
 }
 
 /* ---------- rounding per control word ---------- */
-double F_ROUND(double v) {
+fpu_t F_ROUND(fpu_t v) {
     switch ((F.cw >> 10) & 3) {
-    case 0: return nearbyint(v); /* host default mode is round-to-nearest-even */
-    case 1: return floor(v);
-    case 2: return ceil(v);
-    default: return trunc(v);
+    case 0: return FM(nearbyint)(v); /* host default mode is round-to-nearest-even */
+    case 1: return FM(floor)(v);
+    case 2: return FM(ceil)(v);
+    default: return FM(trunc)(v);
     }
 }
 
-int32_t F_TO_I32(double v) {
+int32_t F_TO_I32(fpu_t v) {
     double r = F_ROUND(v);
     if (!(r >= -2147483648.0 && r <= 2147483647.0)) { F.sw |= 1; return INT32_MIN; }
     return (int32_t)r;
 }
 
-int16_t F_TO_I16(double v) {
+int16_t F_TO_I16(fpu_t v) {
     double r = F_ROUND(v);
     if (!(r >= -32768.0 && r <= 32767.0)) { F.sw |= 1; return INT16_MIN; }
     return (int16_t)r;
 }
 
-int64_t F_TO_I64(double v) {
+int64_t F_TO_I64(fpu_t v) {
     double r = F_ROUND(v);
     if (!(r >= -9223372036854775808.0 && r < 9223372036854775808.0)) { F.sw |= 1; return INT64_MIN; }
     return (int64_t)r;
 }
 
 void FXAM(void) {
-    double v = ST(0);
+    fpu_t v = ST(0);
     uint16_t c;                         /* C3 C2 C0 class bits; "empty" is never reported */
     if (isnan(v)) c = 0x0100;
     else if (isinf(v)) c = 0x0500;
@@ -79,8 +79,8 @@ void FXAM(void) {
 
 /* Partial remainder (truncating). C0/C3/C1 receive quotient bits 2/1/0; C2=0 (complete). */
 void FPREM(void) {
-    double a = ST(0), b = ST(1);
-    double r = fmod(a, b);
+    fpu_t a = ST(0), b = ST(1);
+    fpu_t r = FM(fmod)(a, b);
     uint64_t q = (uint64_t)fabs(trunc((a - r) / b));
     F.sw &= ~0x4700;
     if (q & 4) F.sw |= 0x0100;

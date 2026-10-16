@@ -104,6 +104,7 @@ void load(const std::string &game_dir) {
         else if (!strcasecmp(v->c_str(), "buttons")) s.trigger_mode = TriggerMode::Buttons;
     }
     if (auto v = get("recomp", "widescreen")) s.widescreen = strcasecmp(v->c_str(), "off") && strcasecmp(v->c_str(), "0");
+    if (const char *e = getenv("MOTORACER_EXTRA_ARGS")) s.game_args += std::string(" ") + e;   // dev
     if (s.d3d) {
         // GOG's launcher adds these when its D3D / ZBuffer options are on.
         if (s.game_args.find("-D3D") == std::string::npos) s.game_args += " -D3D";

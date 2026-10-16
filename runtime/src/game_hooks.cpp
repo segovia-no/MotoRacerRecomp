@@ -38,6 +38,11 @@
 
 using namespace rt;
 
+#ifdef RECOMP_COUNT_INSNS
+extern "C" uint64_t recomp_icount;
+uint64_t recomp_icount = 0;
+#endif
+
 namespace {
 
 // The live mode class (0x4dc0c8, saved as "ScreenMode") and 16/9 flag (0x4dc0d4, "Mode_169")
@@ -65,11 +70,25 @@ constexpr uint32_t ROWS_1610 = 2;
 constexpr Mode wide_mode(uint32_t w, bool w1610) { return {w, w * 3 / 4 + (w1610 ? ROWS_1610 : 0)}; }
 bool is_1610(Mode m) { return m.h == m.w * 3 / 4 + ROWS_1610; }
 uint32_t band_height(Mode m) { return is_1610(m) ? m.w * 10 / 16 : m.w * 9 / 16; }
-const std::vector<Mode> kModes169 = {{320, 240},  {512, 384},   {640, 480},
+const std::vector<Mode> kModes169Base = {{320, 240},  {512, 384},   {640, 480},
                                      wide_mode(1280, false), wide_mode(1280, true),
                                      wide_mode(1920, false), wide_mode(1920, true),
                                      wide_mode(2560, false), wide_mode(2560, true),
                                      wide_mode(3840, false)};
+// MOTORACER_PSP_PROFILE=1 (dev, docs/21-psp-feasibility.md): a 480x360 entry whose 16:9 band is
+// 480x270, the PSP screen; selected with 16/9 MODE on and never saved to recomp_state.txt.
+bool psp_profile() {
+    static const bool on = getenv("MOTORACER_PSP_PROFILE") != nullptr;
+    return on;
+}
+const std::vector<Mode> &modes169() {
+    static const std::vector<Mode> list = [] {
+        std::vector<Mode> l = kModes169Base;
+        if (psp_profile()) l.insert(l.begin() + 1, Mode{480, 360});   // ordered by area
+        return l;
+    }();
+    return list;
+}
 const std::vector<Mode> kModesOriginal = {{320, 240}, {512, 384}, {640, 480}};
 const Mode kDefault169 = {1920, 1440};   // 1920x1080 band
 enum List { LIST_43 = 0, LIST_169 = 1, LIST_ORIGINAL = 2 };
@@ -101,6 +120,7 @@ void load_state() {
 }
 
 void save_state() {
+    if (psp_profile()) return;
     std::ofstream out(kStateFile);
     if (remembered[0].w) out << "ScreenMode43=" << remembered[0].w << 'x' << remembered[0].h << '\n';
     if (remembered[1].w) out << "ScreenMode169=" << remembered[1].w << 'x' << remembered[1].h << '\n';
@@ -181,7 +201,7 @@ List current_list() {
 }
 
 void write_table(List which) {
-    const auto &list = which == LIST_169 ? kModes169 : which == LIST_43 ? kModes43 : kModesOriginal;
+    const auto &list = which == LIST_169 ? modes169() : which == LIST_43 ? kModes43 : kModesOriginal;
     for (uint32_t i = 0; i < list.size(); i++) {
         uint32_t e = MODE_TABLE + MODE_STRIDE * i, area = list[i].w * list[i].h;
         WR32(e + 0, 0xF800);
@@ -320,6 +340,13 @@ extern "C" void game_hook_lean(void) {
 // the same state. (Restarting it whenever the speed was at its start value 2 kept the opponents
 // stuck for seconds at 60 fps: one frame's step is at most 0.64, so it never added up there.)
 constexpr uint32_t BIKES = 0x584421, BIKE_STRIDE = 0x3209, BIKE_DT = 0x581014;
+// Race setup, after the opponent count (0x542874) was chosen: MOTORACER_OPPONENTS=<0..23> (dev,
+// PSP profiling) overrides it. -NbComp<n> only applies to another start path (0x40b924).
+extern "C" void game_hook_opponents(void) {
+    static const char *env = getenv("MOTORACER_OPPONENTS");
+    if (env) WR32(0x542874, static_cast<uint32_t>(std::clamp(atoi(env), 0, 23)));
+}
+
 extern "C" void game_hook_ai_speed(void) {
     static float carry[32];
     static uint64_t seen[32];
@@ -370,12 +397,39 @@ bool speedometer_button() {
 }
 
 void frame_tick() {
+    static const bool mem_stats = getenv("MOTORACER_MEM_STATS") != nullptr;
+    if (mem_stats) {
+        static uint64_t last = 0;
+        if (SDL_GetTicks() - last >= 5000) { last = SDL_GetTicks(); memory_stats_log(); }
+    }
+#ifdef RECOMP_COUNT_INSNS
+    // MOTORACER_ICOUNT=1: executed x86 instructions per frame, averaged over 2 s
+    static const bool icount_log = getenv("MOTORACER_ICOUNT") != nullptr;
+    if (icount_log) {
+        static uint64_t last_count = 0, last_ms = 0, frames = 0;
+        uint64_t now = SDL_GetTicks();
+        if (!last_ms) last_ms = now;
+        if (++frames, now - last_ms >= 2000) {
+            log("icount: %.2f M x86 instructions/frame (%llu frames, %u opponents)\n",
+                (recomp_icount - last_count) / 1e6 / frames, (unsigned long long)frames, RD32(0x542874));
+            last_count = recomp_icount;
+            last_ms = now;
+            frames = 0;
+        }
+    }
+#endif
     if (settings::get().draw_distance > 1.f && RD32(TRACK_SECTIONS) == ORIGINAL_SECTIONS)
         WR32(TRACK_SECTIONS, static_cast<uint32_t>(ORIGINAL_SECTIONS * settings::get().draw_distance + 0.5f));
     if (!active() || !RD32(MODE_COUNT)) return;   // before the game enumerated display modes
     load_state();
     if (!defaults_applied && options_loaded) apply_first_run_defaults();
     if (options_loaded) apply_controller_preset();
+    if (options_loaded && psp_profile() && remembered[1].w != 480) {
+        WR32(MODE_169, 1);
+        remembered[1] = {480, 360};
+        reselect = true;
+        log("PSP profile: 16/9 MODE, 480x360 (480x270 band)\n");
+    }
     List which = current_list();
     if (table_list != which) {
         write_table(which);

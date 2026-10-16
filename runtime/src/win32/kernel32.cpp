@@ -289,6 +289,8 @@ STDCALL(KERNEL32, GlobalMemoryStatus, 1) {
 
 STDCALL(KERNEL32, VirtualAlloc, 4) {
     uint32_t addr = arg(0), size = arg(1), type = arg(2);
+    static const bool mem_stats = getenv("MOTORACER_MEM_STATS") != nullptr;
+    if (mem_stats) log("VirtualAlloc(0x%x, 0x%x, 0x%x) from 0x%x\n", addr, size, type, RD32(R.esp));
     if ((type & 0x2000) || !addr) {   // MEM_RESERVE, or commit without a reservation
         uint32_t a = valloc_reserve(addr & ~0xFFFFu, size + (addr & 0xFFFF));
         if (!a) return 0;

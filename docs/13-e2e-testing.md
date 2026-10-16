@@ -46,6 +46,9 @@ test. Each run opens a game window for its duration.
   ON → FILTERED → OFF), VOICES, SOUNDS, MUSIC, SCREEN MODE, 16/9 MODE, … From D3D, 11 × `DOWN`
   reaches Accept. Changes made in a run that is then killed may not be saved by the game — check
   with a read-only run that only opens Options.
+- `tools/e2e_race.sh` with `DETAIL_PRESSES=<n>` cycles DETAIL LEVELS (3 × `DOWN`, `ENTER`). Set game
+  options through the menu: writing an option global directly (e.g. detail `0x4dc098`) skips what the
+  menu does on a change and broke rendering.
 - Option values changed by a run stay changed — check DIFFICULTY / CONTROLLER / SOUNDS afterwards.
 
 ## Example

@@ -107,6 +107,9 @@ GAME_HOOKS = {
     # AI bike speed integration (0x467930, bikes with +8 = 0): eax = old speed + trunc(accel * dt *
     # 0.01) about to be stored; the runtime carries the fraction so it works above ~40 fps.
     0x467A37: "game_hook_ai_speed",
+    # Race setup (0x47b542): the opponent count 0x542874 has just been chosen (23, 1 with OPPONENTS
+    # off, 11 in one mode; -NbComp only applies to another start path); dev override.
+    0x47B5AF: "game_hook_opponents",
 }
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function).
@@ -270,6 +273,7 @@ class FunctionTranslator:
             nxt = self.body[i + 1] if i + 1 < len(self.body) else None
             self.out.append(f"__LABEL_{va:08x}__")
             self.out.append(f"    /* {va:08x}: {insn.mnem} {insn.op_str} */")
+            self.out.append("    IC();")
             if va in GAME_HOOKS:
                 self.emit(f"{GAME_HOOKS[va]}();")
             if va in GAME_JUMP_HOOKS:
@@ -859,14 +863,14 @@ class FunctionTranslator:
             return True
         if op == 0xD9:
             if reg == 0:
-                e(f"{{ double v = ST({i}); FPUSH(v); }}")
+                e(f"{{ fpu_t v = ST({i}); FPUSH(v); }}")
             elif reg == 1:
-                e(f"{{ double t = ST(0); ST(0) = ST({i}); ST({i}) = t; }}")
+                e(f"{{ fpu_t t = ST(0); ST(0) = ST({i}); ST({i}) = t; }}")
             elif modrm == 0xD0:
                 pass
             else:
                 simple = {
-                    0xE0: "ST(0) = -ST(0);", 0xE1: "ST(0) = fabs(ST(0));",
+                    0xE0: "ST(0) = -ST(0);", 0xE1: "ST(0) = FM(fabs)(ST(0));",
                     0xE4: "FCOM(ST(0), 0.0);", 0xE5: "FXAM();",
                     0xE8: "FPUSH(1.0);", 0xE9: "FPUSH(3.321928094887362347870319429489390175864831393);",
                     0xEA: "FPUSH(1.442695040888963407359924681001892137426645954);",
@@ -874,20 +878,20 @@ class FunctionTranslator:
                     0xEC: "FPUSH(0.301029995663981195213738894724493026768189881);",
                     0xED: "FPUSH(0.693147180559945309417232121458176568075500134);",
                     0xEE: "FPUSH(0.0);",
-                    0xF0: "ST(0) = exp2(ST(0)) - 1.0;",
-                    0xF1: "ST(1) = ST(1) * log2(ST(0)); FPOP();",
-                    0xF2: "ST(0) = tan(ST(0)); FPUSH(1.0); F.sw &= ~0x400;",
-                    0xF3: "ST(1) = atan2(ST(1), ST(0)); FPOP();",
-                    0xF5: "ST(0) = remainder(ST(0), ST(1)); F.sw &= ~0x400;",
+                    0xF0: "ST(0) = FM(exp2)(ST(0)) - (fpu_t)1.0;",
+                    0xF1: "ST(1) = ST(1) * FM(log2)(ST(0)); FPOP();",
+                    0xF2: "ST(0) = FM(tan)(ST(0)); FPUSH(1.0); F.sw &= ~0x400;",
+                    0xF3: "ST(1) = FM(atan2)(ST(1), ST(0)); FPOP();",
+                    0xF5: "ST(0) = FM(remainder)(ST(0), ST(1)); F.sw &= ~0x400;",
                     0xF6: "F.top = (F.top - 1) & 7;", 0xF7: "F.top = (F.top + 1) & 7;",
                     0xF8: "FPREM();",
-                    0xF9: "ST(1) = ST(1) * log2(ST(0) + 1.0); FPOP();",
-                    0xFA: "ST(0) = sqrt(ST(0));",
-                    0xFB: "{ double v = ST(0); ST(0) = sin(v); FPUSH(cos(v)); F.sw &= ~0x400; }",
+                    0xF9: "ST(1) = ST(1) * FM(log2)(ST(0) + (fpu_t)1.0); FPOP();",
+                    0xFA: "ST(0) = FM(sqrt)(ST(0));",
+                    0xFB: "{ fpu_t v = ST(0); ST(0) = FM(sin)(v); FPUSH(FM(cos)(v)); F.sw &= ~0x400; }",
                     0xFC: "ST(0) = F_ROUND(ST(0));",
-                    0xFD: "ST(0) = ldexp(ST(0), (int)trunc(ST(1)));",
-                    0xFE: "ST(0) = sin(ST(0)); F.sw &= ~0x400;",
-                    0xFF: "ST(0) = cos(ST(0)); F.sw &= ~0x400;",
+                    0xFD: "ST(0) = FM(ldexp)(ST(0), (int)trunc(ST(1)));",
+                    0xFE: "ST(0) = FM(sin)(ST(0)); F.sw &= ~0x400;",
+                    0xFF: "ST(0) = FM(cos)(ST(0)); F.sw &= ~0x400;",
                 }
                 if modrm not in simple:
                     raise Unsupported(f"D9 {modrm:02x}")
@@ -929,8 +933,8 @@ class FunctionTranslator:
 
     def x87_mem(self, op, reg, a, insn):
         e = self.emit
-        loads = {0xD8: f"(double)RDF32({a})", 0xDC: f"RDF64({a})",
-                 0xDA: f"(double)(int32_t)RD32({a})", 0xDE: f"(double)(int16_t)RD16({a})"}
+        loads = {0xD8: f"(fpu_t)RDF32({a})", 0xDC: f"(fpu_t)RDF64({a})",
+                 0xDA: f"(fpu_t)(int32_t)RD32({a})", 0xDE: f"(fpu_t)(int16_t)RD16({a})"}
         if op in loads:
             v = loads[op]
             if reg in (2, 3):
@@ -939,22 +943,22 @@ class FunctionTranslator:
                 e(self.farith("ST(0)", "ST(0)", v, ["+", "*", None, None, "-", "-r", "/", "/r"][reg]))
             return True
         if op == 0xD9:
-            table = {0: f"FPUSH((double)RDF32({a}));", 2: f"WRF32({a}, (float)ST(0));",
+            table = {0: f"FPUSH((fpu_t)RDF32({a}));", 2: f"WRF32({a}, (float)ST(0));",
                      3: f"WRF32({a}, (float)ST(0)); FPOP();", 4: f"FLDENV({a});",
                      5: f"F.cw = RD16({a});", 6: f"FNSTENV({a});", 7: f"WR16({a}, F.cw);"}
         elif op == 0xDB:
-            table = {0: f"FPUSH((double)(int32_t)RD32({a}));",
+            table = {0: f"FPUSH((fpu_t)(int32_t)RD32({a}));",
                      2: f"WR32({a}, (uint32_t)F_TO_I32(ST(0)));",
                      3: f"WR32({a}, (uint32_t)F_TO_I32(ST(0))); FPOP();",
                      5: f"FPUSH(RDF80({a}));", 7: f"WRF80({a}, ST(0)); FPOP();"}
         elif op == 0xDD:
-            table = {0: f"FPUSH(RDF64({a}));", 2: f"WRF64({a}, ST(0));",
+            table = {0: f"FPUSH((fpu_t)RDF64({a}));", 2: f"WRF64({a}, ST(0));",
                      3: f"WRF64({a}, ST(0)); FPOP();", 7: f"WR16({a}, FSTSW());"}
         elif op == 0xDF:
-            table = {0: f"FPUSH((double)(int16_t)RD16({a}));",
+            table = {0: f"FPUSH((fpu_t)(int16_t)RD16({a}));",
                      2: f"WR16({a}, (uint16_t)F_TO_I16(ST(0)));",
                      3: f"WR16({a}, (uint16_t)F_TO_I16(ST(0))); FPOP();",
-                     5: f"FPUSH((double)(int64_t)RD64({a}));",
+                     5: f"FPUSH((fpu_t)(int64_t)RD64({a}));",
                      7: f"WR64({a}, (uint64_t)F_TO_I64(ST(0))); FPOP();"}
         else:
             table = {}
