@@ -121,6 +121,31 @@ drops to ~10–13 fps. The runtime (Direct3D translation to GE lists, audio mixi
 than the first estimate (10–15 fps), because the game executes far fewer instructions per frame than
 the frame times on the desktop suggested.
 
+## Re-measured after the translator work (2026-10-16)
+Build: `-DMOTORACER_FPU_FLOAT=ON`, defaults otherwise (registers and x87 stack in locals, local memory
+base, `-O2`, native vertex loops; 23-translator-speed.md, 24-native-render.md). PSP profile 480×270,
+detail 1, 30 fps, vsync off; the game thread's arm64 instructions / cycles per frame
+(`MOTORACER_FRAME_WORK=1`), which include the runtime (Direct3D translation, SDL_GPU submission):
+| | 7 opponents | 23 opponents |
+|---|---|---|
+| Countdown / start (all bikes in view) | 10.2–10.9 M | 11.2–12.8 M |
+| Racing | 3.8–6.6 M (mostly ~4–5 M) | 4.2–9.3 M (mostly ~5 M) |
+| Menus (640×480 CPU-drawn, converted and uploaded every frame) | 15–22 M | |
+| Guest heap peak | 11.8 MB | 12.6 MB |
+| Game code (arm64 `__text`) | 2.98 MB (was 4.0 MB) | |
+
+PSP estimate from these (assumptions: ~1.3 MIPS instructions per arm64 instruction — 32-bit
+registers suffice for the guest, but no conditional select, fewer addressing modes, branch delay
+slots; Allegrex at 333 MHz with an effective 0.5–0.7 instructions per cycle → ~170–230 M per second):
+- racing, 7 opponents: ~5–6.5 M MIPS instructions per frame → **~25–45 fps**; 23 opponents ~6.5 M →
+  ~25–35 fps;
+- the start with all bikes in view: ~13–14 M → **~12–17 fps** for a few seconds (worse with 23);
+- menus: the PSP build would draw the 640×480 screens through the GE directly (scaled texture), not
+  the desktop path measured here.
+- Memory: ~1 MB less code than estimated before → ~22–23 MB total today on a PSP-1000.
+The remaining big lever for the PSP is the render path: write GE vertices in the native vertex loops
+instead of Direct3D TLVERTEX records that the runtime translates again (24-native-render.md).
+
 ## Verdict
 Possible on a PSP-1000. Memory fits (~23–24 MB today, ~20 MB after shrinking the translated code). With
 fewer opponents (e.g. 7–11) a 30 fps target is within reach of the translator work (step 2) plus VFPU
@@ -133,8 +158,9 @@ EBOOT from their own GOG copy.
    high-water and guest instructions per frame.~~ Done (above). The compact 32-bit guest layout is left
    for step 3.
 2. Translator size/speed pass (flag liveness, register locals); re-measure code size and frame time.
-   First part done (23-translator-speed.md): registers in locals and a local memory base, code
-   3.99 → 2.91 MB, −41% instructions per frame on the game thread; x87 stack in locals (the PSP FPU
-   gets real registers), a further −20…28% cycles.
+   Done (23-translator-speed.md): registers in locals and a local memory base, code 3.99 → 2.91 MB,
+   −41% instructions per frame on the game thread; x87 stack in locals (the PSP FPU gets real
+   registers), a further −20…28% cycles; `-O2`; native vertex loops (24-native-render.md). Re-measured
+   above.
 3. Minimal PSP build: platform adapter + GE backend, boot to the title screen in PPSSPP, then on hardware.
 4. Profile on hardware; VFPU replacements for the hottest functions (see 22-hot-functions.md); audio.
