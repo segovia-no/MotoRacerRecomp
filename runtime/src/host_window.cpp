@@ -160,6 +160,7 @@ constexpr uint32_t VK_RETURN_ = 0x0D, VK_ESCAPE_ = 0x1B, VK_LEFT_ = 0x25, VK_UP_
                    VK_DOWN_ = 0x28, VK_F1_ = 0x70, VK_F7_ = 0x76;
 uint32_t nav_scancode(uint32_t vk) {
     if (vk >= VK_F1_ && vk < VK_F1_ + 10) return 0x3B + (vk - VK_F1_);
+    if (vk == VK_F1_ + 10 || vk == VK_F1_ + 11) return 0x57 + (vk - VK_F1_ - 10);   // F11, F12
     switch (vk) {
     case VK_RETURN_: return 0x1C;
     case VK_ESCAPE_: return 0x01;
@@ -223,7 +224,7 @@ void controller_event(const SDL_Event &e) {
 
 // Developer aid for unattended testing: MOTORACER_AUTOKEYS="3000 ENTER 500 DOWN +UP 2000 -UP"
 // waits (numbers, ms) and taps / presses (+) / releases (-) keys: ENTER ESC UP DOWN LEFT RIGHT
-// SPACE F1..F10 or a single letter/digit. Taps are held for 80 ms.
+// SPACE F1..F12 or a single letter/digit. Taps are held for 80 ms.
 namespace {
 void autokeys_tick() {
     static const char *spec = getenv("MOTORACER_AUTOKEYS");
@@ -250,7 +251,7 @@ void autokeys_tick() {
     uint32_t vk = tok.size() == 1 ? static_cast<uint32_t>(toupper(tok[0])) : 0;
     if (tok.size() >= 2 && tok[0] == 'F' && isdigit(static_cast<unsigned char>(tok[1]))) {
         int n = atoi(tok.c_str() + 1);
-        if (n >= 1 && n <= 10) vk = VK_F1_ + static_cast<uint32_t>(n - 1);
+        if (n >= 1 && n <= 12) vk = VK_F1_ + static_cast<uint32_t>(n - 1);
     }
     for (auto &[n, v] : names) if (tok == n) vk = v;
     if (!vk) { log("autokeys: unknown key '%s'\n", tok.c_str()); return; }

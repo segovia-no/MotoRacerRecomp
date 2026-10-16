@@ -5,7 +5,7 @@
 #   tools/e2e.sh <name> "<keys>" [seconds] [extra env assignments...]
 #
 # <keys> is MOTORACER_AUTOKEYS syntax: numbers wait (ms), names tap a key (ENTER ESC UP DOWN
-# LEFT RIGHT SPACE F1..F10 or one letter/digit), +KEY / -KEY press / release.
+# LEFT RIGHT SPACE F1..F12 or one letter/digit), +KEY / -KEY press / release.
 # Output: build/e2e/<name>/ (BMP snapshots: gpu_* every 120 GPU frames, frame_* every 60
 # software frames), build/e2e/<name>.png (contact sheet), build/e2e/<name>.log (game log).
 # MOTORACER_BIN=<path> runs another build (default build/cmake/motoracer).
