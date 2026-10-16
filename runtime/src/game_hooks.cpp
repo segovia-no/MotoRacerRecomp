@@ -315,17 +315,22 @@ extern "C" void game_hook_lean(void) {
 // default cap) a step is 1; above 40 fps (GOG passes -FrameRateMax60, dt 1.6) every step truncates
 // to 0: the opponents' speed stays at its start value, their gearbox in 1st and their rpm constant,
 // so their engine sound (driven by rpm, docs/19-engine-sounds.md) only hums. The step is recomputed
-// with the fraction carried per bike, which makes it frame-rate independent. The carry restarts
-// when a bike is back at its start speed (2), so a replay repeats the same steps.
+// with the fraction carried per bike, which makes it frame-rate independent. The carry restarts when
+// a bike was not updated for half a second (a new race, a replay, a pause), so a replay starts from
+// the same state. (Restarting it whenever the speed was at its start value 2 kept the opponents
+// stuck for seconds at 60 fps: one frame's step is at most 0.64, so it never added up there.)
 constexpr uint32_t BIKES = 0x584421, BIKE_STRIDE = 0x3209, BIKE_DT = 0x581014;
 extern "C" void game_hook_ai_speed(void) {
     static float carry[32];
+    static uint64_t seen[32];
     uint32_t bike = R.esi;
     if (bike < BIKES || (bike - BIKES) % BIKE_STRIDE) return;
     uint32_t i = (bike - BIKES) / BIKE_STRIDE;
     if (i >= 32) return;
     int32_t old = static_cast<int32_t>(R.edi);
-    if (old <= 2) carry[i] = 0;
+    uint64_t now = SDL_GetTicks();
+    if (now - seen[i] > 500) carry[i] = 0;
+    seen[i] = now;
     uint32_t a = RD32(bike + 0x120), d = RD32(BIKE_DT);
     float accel, dt;
     memcpy(&accel, &a, 4);

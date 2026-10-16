@@ -44,8 +44,12 @@ of a steady hum — is that in this build's code?
   62 → 122 → 182, gears 2–5, rpm 6,800–10,400. The AI's real motion does not depend on this speed (the
   AI moves its bikes itself), so it only drives rpm and sound.
 - Fix (`game_hook_ai_speed`, before the store at `0x467a37`): the step is recomputed as
-  `trunc(accel · dt · 0.01 + carry)` with the fraction carried per bike, reset when the bike is back at
-  its start speed 2 (race start), so a replay repeats the same steps. Frame-rate independent; the speed
+  `trunc(accel · dt · 0.01 + carry)` with the fraction carried per bike, reset when the bike was not
+  updated for half a second (new race, replay, pause).
+  - First version reset the carry whenever the speed was ≤ 2: at 60 fps one step is at most 0.64, so
+    the carry was wiped every frame on the grid and the opponents stayed silent for ~7 s after GO
+    (owner, listening). Trace after the change: measured 0 on the grid, then from GO the integrated
+    speed climbs 1 → 21 → 41 … 222 at 40 units/s behind the measured speed; owner: "worked flawlessly". Frame-rate independent; the speed
   follows at the formula's 40 units/s instead of the 30 fps truncation's 30.
 - Verified at 60 fps: opponents 39 → 79 → 119 → 159 → 204, gears 1–5, rpm 7,000–10,800.
 
