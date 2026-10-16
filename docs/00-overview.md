@@ -38,6 +38,7 @@ Not yet: Linux / Steam Deck, Windows, multiplayer (stubbed by decision), GDI tex
 - [17-recomp-menu.md](17-recomp-menu.md) — Options page internals (pages, items, dispatch), Info → Recomp settings submenu plan
 - [18-main-menu-modes.md](18-main-menu-modes.md) — Reverse / Pocket mode toggles (unlocks, cheat codes), keyboard/gamepad navigation fix
 - [19-engine-sounds.md](19-engine-sounds.md) — race sound systems (bike engines rpm model, positional emitters), F11 developer sound menu, why opponents hum
+- [20-resource-usage.md](20-resource-usage.md) — resource audit vs 1997 requirements (CPU, memory, GPU, disk) and optimisation candidates
 - [13-e2e-testing.md](13-e2e-testing.md) — unattended E2E runs: scripted keys, snapshots, contact sheets, menu navigation facts
 - [15-ports-plan.md](15-ports-plan.md) — Linux / Steam Deck / Windows ports: plan, platform adapters (P0 done), shader pipeline, risks
 
