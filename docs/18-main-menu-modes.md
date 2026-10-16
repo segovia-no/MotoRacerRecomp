@@ -23,7 +23,8 @@ switched Reverse off instead of opening the Solo menu. The owner suspected anoth
   `[0x5049e4]`) and Reverse (`[0x5049ec]`), both with nav mask `0xffffffff`.
 - Per frame `0x442790`: draws the ON / OFF art (`0x5049f0`…`0x5049fc`; one toggle alone is centred),
   reads the activated item (`0x40c1b0`); Solo / Link start a short sound timer (`0x53f78c`) before acting
-  (switch `0x442ddc`: 0 Solo → page 2, 1 Link → page 11?, 2 Options → page 0xb, 3 Exit → page 4), and
+  (switch `0x442ddc`: 0 Solo sets solo mode `0x4dbffc` = 1 and goes on to page 5 or 0x1a
+  via `0x442740`, 1 Link → page 2, 2 Options → page 0xb (11), 3 Exit → page 4), and
   `activated == [0x53f848]` toggles Pocket, `activated == [0x53f4e8]` toggles Reverse (`0x442e51`).
 
 ## Causes
