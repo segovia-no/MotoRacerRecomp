@@ -381,3 +381,21 @@ extern "C" void game_hook_button_unpacked(void) {
     repaint_info_button(R.eax, static_cast<int>(RD32(sprite + 8)), static_cast<int>(RD32(sprite + 0xc)));
     log("recomp menu: Info button relabelled\n");
 }
+
+// ---------- Options bottom row navigation ----------
+// The buttons sit left to right as Info (Recomp, item 21), Data disk (22), Accept (20). The game's
+// nav masks (up | down | right | left) skip buttons: Accept 0x12ffff15 (left = Info, no right), Info
+// 0x12ff1416 (right = Accept, left = Data disk), Data disk 0x12ff14ff (no left). Right now moves
+// along the row and left back, both wrapping; without Data disk ([0x4dc04c] <= 1, only Info and
+// Accept) the two point at each other. Called just before each button's registration call.
+extern "C" void game_hook_options_button_nav(void) {
+    constexpr uint32_t ACCEPT = 20, INFO = 21, DATA_DISK = 22;
+    uint32_t sprite = RD32(R.esp), nav = RD32(R.esp + 8);
+    bool disk = static_cast<int32_t>(RD32(0x4dc04c)) > 1;
+    uint32_t right, left;
+    if (sprite == RD32(ACCEPT_SPRITE)) { right = INFO; left = disk ? DATA_DISK : INFO; }
+    else if (sprite == RD32(INFO_SPRITE)) { right = disk ? DATA_DISK : ACCEPT; left = ACCEPT; }
+    else if (sprite == RD32(0x504b5c)) { right = ACCEPT; left = INFO; }
+    else return;
+    WR32(R.esp + 8, (nav & 0xffff0000u) | right << 8 | left);
+}

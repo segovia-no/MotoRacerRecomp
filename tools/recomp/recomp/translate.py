@@ -90,6 +90,11 @@ GAME_HOOKS = {
     # Menu button sprite just unpacked (0x43eb00 -> eax = 16-bit pixels, ebx = sprite object): the
     # Info button's label becomes "Recomp" (recomp_menu.cpp).
     0x40BF5E: "game_hook_button_unpacked",
+    # Options page: the Accept / Info / Data disk button registrations (0x40bef0, nav mask at
+    # [esp+8]); the runtime makes left/right move along the row (the game's masks skip buttons).
+    0x444405: "game_hook_options_button_nav",
+    0x44443B: "game_hook_options_button_nav",
+    0x44448A: "game_hook_options_button_nav",
 }
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function).

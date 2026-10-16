@@ -15,7 +15,7 @@ name=$1 presses=$2 secs=${3:-50}
 shift $(( $# < 3 ? $# : 3 ))
 k="4000 ESC 1500 ESC 1500 ENTER 1500 ENTER 2000"            # intro, title, name entry -> main menu
 if [ "$presses" -gt 0 ] || [ -n "${TOGGLE_169:-}" ]; then
-    k="$k DOWN 300 DOWN 500 ENTER 2500"                      # main menu -> Options
+    k="$k LEFT 300 DOWN 500 ENTER 2500"                      # main menu (any cursor) -> Options
     for _ in 1 2 3 4 5 6 7 8 9; do k="$k DOWN 300"; done     # -> SCREEN MODE
     for _ in $(seq "$presses"); do k="$k ENTER 400"; done    # cycle modes
     down=7

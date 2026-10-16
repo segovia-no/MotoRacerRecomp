@@ -59,6 +59,7 @@ void load(const std::string &game_dir) {
     };
     if (auto v = get("settings", "params"); v && !v->empty()) s.game_args = *v;
     if (auto v = get("recomp", "fullscreen")) s.fullscreen = truthy(*v);
+    if (const char *e = getenv("MOTORACER_FULLSCREEN")) s.fullscreen = truthy(e);   // dev override (E2E: windowed)
     if (auto v = get("recomp", "windowwidth")) s.window_w = std::max(320, atoi(v->c_str()));
     if (auto v = get("recomp", "windowheight")) s.window_h = std::max(240, atoi(v->c_str()));
     if (auto v = get("recomp", "filter")) s.nearest = !strcasecmp(v->c_str(), "nearest");

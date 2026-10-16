@@ -11,7 +11,8 @@
 # MOTORACER_BIN=<path> runs another build (default build/cmake/motoracer).
 # Snapshots are full render-target BMPs (~20 MB each at 2560x1920), so they are deleted once the
 # contact sheet is made; KEEP_FRAMES=1 keeps them for closer inspection. Kept frames older than an
-# hour are removed at the start of every run.
+# hour are removed at the start of every run. Runs are windowed (MOTORACER_FULLSCREEN=0), whatever
+# motoracer.ini says.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 name=$1 keys=$2 secs=${3:-60}
@@ -21,7 +22,7 @@ mkdir -p build/e2e
 find build/e2e -mindepth 2 -name '*.bmp' -mmin +60 -delete 2>/dev/null || true
 find build/e2e -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null || true
 rm -rf "$out" && mkdir -p "$out"
-env MOTORACER_SNAPSHOT_DIR="$PWD/$out" MOTORACER_AUTOKEYS="$keys" "$@" \
+env MOTORACER_FULLSCREEN=0 MOTORACER_SNAPSHOT_DIR="$PWD/$out" MOTORACER_AUTOKEYS="$keys" "$@" \
     perl -e 'alarm shift; exec @ARGV' "$secs" "${MOTORACER_BIN:-build/cmake/motoracer}" >/dev/null 2>&1 || true
 if [ "$(uname -s)" = Darwin ]; then logdir=$HOME/Library/Logs/MotoRacerRecomp
 else logdir=${XDG_STATE_HOME:-$HOME/.local/state}/MotoRacerRecomp; fi

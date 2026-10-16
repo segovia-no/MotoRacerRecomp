@@ -60,3 +60,5 @@ SHEET_GLOB="gpu_00[23]*.bmp" tools/e2e_race.sh race1024 1 50 MOTORACER_D3D_DEBUG
 - `tools/e2e.sh` now deletes a run's frames once its contact sheet is made; `KEEP_FRAMES=1` keeps them
   for closer inspection, and kept frames older than an hour are removed at the start of every run.
   Sheets (`build/e2e/<name>.png`) and logs (`<name>.log`) stay.
+- Runs are windowed: `e2e.sh` sets `MOTORACER_FULLSCREEN=0` (a dev override; motoracer.ini and normal
+  launches keep their setting). Do not run E2E while the owner plays: both write the same log file.

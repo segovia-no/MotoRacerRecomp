@@ -81,6 +81,19 @@ settings (frame rate, filtering, HUD scale, …) instead of editing `motoracer.i
   Nothing of the game's art is shipped; the image is made from the player's own copy at run time.
 - Verified (E2E): the Options page shows "Recomp" in place of "Info", matching Accept's style.
 
+## Bottom row navigation fix (owner report, 2026-10-16)
+- Nav mask bytes are up | down | **right** | **left** (confirmed: Accept `0x12ffff15` has left = 21
+  and no right). The game's masks skip buttons: from Accept, left jumped over Data disk to Info and right
+  did nothing; Info's right/left went to Accept/Data disk; Data disk had no left.
+- `game_hook_options_button_nav` (before the registration calls `0x444405`, `0x44443b`, `0x44448a`;
+  mask at `[esp+8]`) rewrites right/left by sprite so that right moves along the row Recomp → Data disk
+  → Accept → Recomp and left goes back; without Data disk (`[0x4dc04c]` ≤ 1) Accept and Recomp point at
+  each other. Up/down are kept.
+- Verified (E2E, highlight per frame): Accept −LEFT→ Data disk −LEFT→ Recomp −LEFT→ Accept −RIGHT→
+  Recomp −RIGHT→ Data disk −RIGHT→ Accept.
+- E2E on a fresh install: the main menu cursor starts on Play Link (afterwards the game remembers
+  Play Solo), so scripts reach Options with LEFT, DOWN (DOWN, DOWN reached Exit).
+
 ## Open
 - The header banner still reads "OPTIONS".
 - Mouse and gamepad not yet tested on the page (the game's menu handles both).
