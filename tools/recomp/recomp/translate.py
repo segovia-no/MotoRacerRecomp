@@ -212,6 +212,198 @@ def cache_registers(out):
     return body
 
 
+# ---------- x87 stack in locals ----------
+# MSVC code keeps the x87 stack empty at calls and returns (except a float result in ST0), so the
+# stack depth relative to function entry is known statically at every instruction. Where it is,
+# ST(i) at depth d becomes the local x{d-1-i} (the compiler keeps these in host FP registers) and
+# the status word the local fsw. The global stack F (top unchanged inside the function) is only used
+# across calls: before a call the live locals are pushed onto it (X87 spill), after it the callee's
+# net effect (its "delta": +1 for a float result, -1 for e.g. _ftol, which pops its argument) is
+# applied and the values are read back. Deltas come from a pre-pass over all functions
+# (Translator.analyze). A function keeps the global form if anything is not provable: inconsistent
+# depths, underflow below entry, more than 8 values, unknown callee delta, an indirect call with
+# values on the stack, or direct F.top / environment access.
+X87_TOK = re.compile(r"\bST\((\d)\)|\bFPUSH\(|\bFPOP\(\)|\bSPILL\(\);|\bRELOAD\(\);|\bFSTSW\(\)|"
+                     r"\bFCOM\(|\bF\.sw\b|\bFXAM\(\);|\bFPREM\(\);|\bf_([0-9a-f]{8})\(|\bcall_indirect\(|"
+                     r"\breturn;|\bF\.(top|tag|st)\b|\bFNSTENV\(|\bFLDENV\(")
+X87_USE = re.compile(r"\bST\(\d\)|\bFPUSH\(|\bFPOP\(\)|\bFSTSW\(\)|\bFCOM\(|\bF\.sw\b|\bFXAM\(|\bFPREM\(")
+
+
+class X87Fail(Exception):
+    pass
+
+
+def x87_spill(d):
+    s = "F.sw = (uint16_t)fsw;"
+    if d:
+        s += f" F.top = (F.top - {d}u) & 7u;" + "".join(
+            f" F.st[(F.top + {i}u) & 7u] = x{d - 1 - i};" for i in range(d))
+    return s
+
+
+def x87_reload(d):
+    s = "".join(f" x{d - 1 - i} = F.st[(F.top + {i}u) & 7u];" for i in range(d))
+    if d:
+        s += f" F.top = (F.top + {d}u) & 7u;"
+    return s + " fsw = F.sw;"
+
+
+def x87_walk(text, d, deltas, check, out=None, exits=None):
+    """Simulate (and with `out`, rewrite) one piece of code starting at x87 depth d; returns the
+    depth after it. check=True rejects anything the local form can't express."""
+    pos = 0
+    while True:
+        m = X87_TOK.search(text, pos)
+        if not m:
+            if out is not None:
+                out.append(text[pos:])
+            return d
+        if out is not None:
+            out.append(text[pos:m.start()])
+        tok, pos = m.group(0), m.end()
+        if m.group(1) is not None:                                   # ST(i)
+            i = int(m.group(1))
+            if check and i >= d:
+                raise X87Fail("underflow")
+            if out is not None:
+                out.append(f"x{d - 1 - i}")
+        elif tok == "FPUSH(":
+            depth, j = 1, pos
+            while depth:
+                if j >= len(text):
+                    raise X87Fail("parse")
+                depth += (text[j] == "(") - (text[j] == ")")
+                j += 1
+            inner = []
+            if x87_walk(text[pos:j - 1], d, deltas, check, inner if out is not None else None) != d:
+                raise X87Fail("nested push")
+            if out is not None:
+                out.append(f"x{d} = ({''.join(inner)})")
+            d += 1
+            if check and d > 8:
+                raise X87Fail("overflow")
+            pos = j
+        elif tok == "FPOP()":
+            if check and d < 1:
+                raise X87Fail("underflow")
+            d -= 1
+            if out is not None:
+                out.append("((void)0)")
+        elif tok == "SPILL();":
+            if out is not None:
+                out.append(f"SPILL(); {x87_spill(d)}")
+        elif tok == "RELOAD();":
+            if out is not None:
+                out.append(f"RELOAD();{x87_reload(d)}")
+        elif tok == "FSTSW()":
+            if out is not None:
+                out.append(f"((uint16_t)((fsw & ~0x3800u) | (((F.top - {d}u) & 7u) << 11)))")
+        elif tok == "FCOM(":
+            if out is not None:
+                out.append("FCOM_L(fsw, ")
+        elif tok == "F.sw":
+            if out is not None:
+                out.append("fsw")
+        elif tok in ("FXAM();", "FPREM();"):
+            if out is not None:
+                out.append(f"{{ {x87_spill(d)} {tok}{x87_reload(d)} }}")
+        elif m.group(2) is not None:                                 # f_xxxxxxxx(
+            delta = deltas.get(int(m.group(2), 16))
+            if delta is None:
+                if check:
+                    raise X87Fail("unknown callee delta")
+                delta = 0
+            d += delta
+            if check and (d < 0 or d > 8):
+                raise X87Fail("call depth")
+            if out is not None:
+                out.append(tok)
+        elif tok == "call_indirect(":
+            if check and d != 0:
+                raise X87Fail("indirect call with values on the stack")
+            if out is not None:
+                out.append(tok)
+        elif tok == "return;":
+            if exits is not None:
+                exits.add(d)
+            if out is not None:
+                out.append(tok)
+        else:                                                        # F.top / F.tag / F.st / env
+            if check:
+                raise X87Fail(tok)
+            if out is not None:
+                out.append(tok)
+
+
+def x87_delta(ft, deltas):
+    """Net x87 stack effect of a function (depth at its returns), None if not consistent."""
+    spans = ft.spans(ft.out)
+    depth_in = {ft.entry: 0}
+    work = [ft.entry]
+    exits = set()
+    while work:
+        va = work.pop()
+        if va not in spans:
+            continue
+        a, b = spans[va]
+        d = x87_walk("\n".join(ft.out[a:b]), depth_in[va], deltas, False, exits=exits)
+        for t in ft.succ.get(va, ()):
+            if t not in depth_in:
+                depth_in[t] = d
+                work.append(t)
+            elif depth_in[t] != d:
+                return None
+    if len(exits) > 1:
+        return None
+    return exits.pop() if exits else 0
+
+
+def x87_locals(ft, body):
+    """Rewrite a register-cached body to keep the x87 stack in locals; (body, max depth) or None."""
+    text = "\n".join(body)
+    if not X87_USE.search(text):
+        return None
+    deltas = ft.tr.x87_deltas
+    spans = ft.spans(body)
+    depth_in = {ft.entry: 0}
+    work = [ft.entry]
+    try:
+        while work:
+            va = work.pop()
+            if va not in spans:
+                continue
+            a, b = spans[va]
+            d = x87_walk("\n".join(body[a:b]), depth_in[va], deltas, True)
+            for t in ft.succ.get(va, ()):
+                if t not in depth_in:
+                    depth_in[t] = d
+                    work.append(t)
+                elif depth_in[t] != d:
+                    raise X87Fail("inconsistent depth")
+        out_body = list(body)
+        max_d = 0
+        for va, (a, b) in spans.items():
+            seg = "\n".join(body[a:b])
+            if va not in depth_in:
+                if X87_USE.search(seg):
+                    raise X87Fail("unreachable x87 code")
+                d0 = 0
+            else:
+                d0 = depth_in[va]
+            out = []
+            x87_walk(seg, d0, deltas, True, out)
+            new = "".join(out).split("\n")
+            if len(new) != b - a:
+                raise X87Fail("line count")
+            out_body[a:b] = new
+            max_d = max([max_d] + [int(x) + 1 for x in re.findall(r"\bx(\d)\b", "".join(out))])
+        # code before the first label (e.g. `goto L_entry;`) has no x87 content
+        return out_body, max_d
+    except X87Fail as e:
+        ft.tr.x87_fail[str(e)] = ft.tr.x87_fail.get(str(e), 0) + 1
+        return None
+
+
 class FunctionTranslator:
     def __init__(self, tr, entry, body):
         self.tr = tr
@@ -224,6 +416,8 @@ class FunctionTranslator:
         self.labels = set()
         self.cur = None
         self.uses_eh = False
+        self.succ = {}                # insn va -> successor vas inside the function
+        self.emitted = False
 
     # ---------- operands ----------
     def smc_field(self, insn, kind):
@@ -319,6 +513,8 @@ class FunctionTranslator:
     def goto(self, target):
         if target in self.body_set:
             self.labels.add(target)
+            if self.cur is not None:
+                self.succ.setdefault(self.cur.va, set()).add(target)
             return f"goto L_{target:08x};"
         if target in self.d.entries:
             return f"{{ {fn_name(target)}(); return; }}"
@@ -329,7 +525,13 @@ class FunctionTranslator:
 
     # ---------- main ----------
     def translate(self):
+        if not self.emitted:
+            self.emit_body()
+        return self.assemble()
+
+    def emit_body(self):
         tr = self.tr
+        self.emitted = True
         # Bodies are emitted in address order; a function may own code *below* its entry
         # (e.g. an EH funclet that tail-jumps into a destructor nobody else reaches).
         if self.body and self.body[0] != self.entry:
@@ -355,21 +557,48 @@ class FunctionTranslator:
                 falls = False
             if falls:
                 end = insn.end
+                if end in self.body_set:
+                    self.succ.setdefault(va, set()).add(end)
                 if end != nxt:
                     if end in self.body_set or end in self.d.entries:
                         self.emit(self.goto(end))
                     else:
                         self.emit("return; /* falls off decoded code */")
+        self.cur = None
+
+    def spans(self, lines):
+        """insn va -> (first, last+1) line indexes of its code in `lines` (same layout as self.out)."""
+        out, cur = {}, None
+        for i, ln in enumerate(lines):
+            if ln.startswith("__LABEL_"):
+                cur = int(ln[8:16], 16)
+                out[cur] = [i + 1, i + 1]
+            elif cur is not None:
+                out[cur][1] = i + 1
+        return out
+
+    def assemble(self):
         body = cache_registers(self.out) if self.tr.regcache and not self.uses_eh else None
-        if body is None:
+        cached = body is not None
+        if not cached:
             body = self.out
             self.tr.uncached += 1
+        fpu_decl = None
+        if cached and self.tr.x87_locals:
+            res = x87_locals(self, body)
+            if res is not None:
+                body, depth = res
+                self.tr.x87_local += 1
+                fpu_decl = ("    fpu_t " + ", ".join(f"x{i}" for i in range(depth)) + "; " if depth else "    ") + \
+                    "uint32_t fsw = F.sw; (void)fsw;"
         lines = [f"void {fn_name(self.entry)}(void) {{",
                  "    uint32_t cf = 0, zf = 0, sf = 0, of = 0, pf = 0, af = 0;",
                  "    (void)cf; (void)zf; (void)sf; (void)of; (void)pf; (void)af;"]
         lines.append("    MEM_LOCAL();")
-        if body is not self.out:
+        if cached:
             lines.append("    REGS_LOCAL();")
+        if fpu_decl:
+            lines.append(fpu_decl)
         if self.uses_eh:
             lines.append("    jmp_buf eh_jb;")
         for ln in body:
@@ -1044,14 +1273,19 @@ class FunctionTranslator:
 
 
 class Translator:
-    def __init__(self, img, discovery, regcache=True):
+    def __init__(self, img, discovery, regcache=True, x87_locals=True):
         self.img = img
         self.regcache = regcache
+        self.x87_locals = x87_locals
         self.d = discovery
         self.imports_used = {}
         self.unsupported = {}
         self.smc_uses = 0
         self.uncached = 0   # functions translated without register caching
+        self.x87_local = 0  # functions with the x87 stack in locals
+        self.x87_fail = {}  # reasons functions with x87 code kept the global stack
+        self.x87_deltas = {}
+        self.emitted = {}
         self.smc_bytes = self.find_smc_bytes()
 
     def find_smc_bytes(self):
@@ -1070,6 +1304,25 @@ class Translator:
         self.imports_used[n] = (dll, name)
         return n
 
+    def analyze(self, entries):
+        """Emit every function once and compute each one's net x87 stack effect (fixpoint over
+        the call graph), for x87_locals."""
+        for e in entries:
+            ft = FunctionTranslator(self, e, self.d.functions[e]["insns"])
+            ft.emit_body()
+            self.emitted[e] = ft
+        deltas = {}
+        for _ in range(20):
+            new = {}
+            for e, ft in self.emitted.items():
+                new[e] = x87_delta(ft, deltas)
+            if new == deltas:
+                break
+            deltas = new
+        self.x87_deltas = deltas
+
     def translate_function(self, entry):
-        f = self.d.functions[entry]
-        return FunctionTranslator(self, entry, f["insns"]).translate()
+        ft = self.emitted.get(entry)
+        if ft is None:
+            ft = FunctionTranslator(self, entry, self.d.functions[entry]["insns"])
+        return ft.translate()

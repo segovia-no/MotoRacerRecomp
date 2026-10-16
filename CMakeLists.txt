@@ -32,9 +32,11 @@ endforeach()
 # Translator optimisations (docs/23-translator-speed.md): guest registers in C locals, local memory
 # base. OFF builds the plain translation, for benchmarks.
 option(MOTORACER_GUEST_OPT "Optimised translation (registers in locals, local memory base)" ON)
-set(RECOMP_TRANSLATOR_FLAGS "")
+set(MOTORACER_TRANSLATOR_FLAGS "" CACHE STRING "Extra recomp_main.py flags (benchmarks, e.g. --no-x87-locals)")
+mark_as_advanced(MOTORACER_TRANSLATOR_FLAGS)
+set(RECOMP_TRANSLATOR_FLAGS ${MOTORACER_TRANSLATOR_FLAGS})
 if(NOT MOTORACER_GUEST_OPT)
-  set(RECOMP_TRANSLATOR_FLAGS --no-regcache)
+  list(APPEND RECOMP_TRANSLATOR_FLAGS --no-regcache)
 endif()
 file(GLOB RECOMP_TOOL_SOURCES "${CMAKE_SOURCE_DIR}/tools/recomp/*.py" "${CMAKE_SOURCE_DIR}/tools/recomp/recomp/*.py")
 add_custom_command(

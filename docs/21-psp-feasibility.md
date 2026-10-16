@@ -134,6 +134,7 @@ EBOOT from their own GOG copy.
    for step 3.
 2. Translator size/speed pass (flag liveness, register locals); re-measure code size and frame time.
    First part done (23-translator-speed.md): registers in locals and a local memory base, code
-   3.99 → 2.91 MB, −41% instructions per frame on the game thread.
+   3.99 → 2.91 MB, −41% instructions per frame on the game thread; x87 stack in locals (the PSP FPU
+   gets real registers), a further −20…28% cycles.
 3. Minimal PSP build: platform adapter + GE backend, boot to the title screen in PPSSPP, then on hardware.
 4. Profile on hardware; VFPU replacements for the hottest functions (see 22-hot-functions.md); audio.

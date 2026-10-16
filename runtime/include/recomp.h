@@ -94,6 +94,11 @@ static inline uint16_t POP16(void) { uint16_t v = RD16(R.esp); R.esp += 2; retur
 #define LPUSH16(v) do { uint16_t p_ = (v); esp -= 2; WR16(esp, p_); } while (0)
 #define LPOP32() (esp += 4, RD32(esp - 4))
 #define LPOP16() (esp += 2, RD16(esp - 2))
+/* x87 stack in locals (x87_locals in translate.py): FCOM on the local status word. */
+#define FCOM_L(sw, a, b)                                                                         \
+    do { fpu_t a_ = (a), b_ = (b); sw &= ~0x4500u;                                               \
+         if (a_ != a_ || b_ != b_) sw |= 0x4500u; else if (a_ < b_) sw |= 0x0100u;               \
+         else if (a_ == b_) sw |= 0x4000u; } while (0)
 
 /* ---------- flags ---------- */
 static inline uint32_t PARITY(uint32_t v) { return !__builtin_parity(v & 0xff); }

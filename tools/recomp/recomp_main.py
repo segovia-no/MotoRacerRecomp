@@ -34,16 +34,19 @@ def main():
     ap.add_argument("--only", default=None)
     ap.add_argument("--no-regcache", action="store_true",
                     help="keep guest registers in R everywhere (baseline for benchmarks)")
+    ap.add_argument("--no-x87-locals", action="store_true",
+                    help="keep the x87 stack in F everywhere (for benchmarks)")
     args = ap.parse_args()
 
     t0 = time.time()
     img = Image(args.exe)
     d = Discovery(img).run().partition().mark_text_data()
-    tr = Translator(img, d, regcache=not args.no_regcache)
+    tr = Translator(img, d, regcache=not args.no_regcache, x87_locals=not args.no_x87_locals)
     entries = sorted(d.entries)
     if args.only:
         entries = [int(x, 16) for x in args.only.split(",")]
     os.makedirs(args.out, exist_ok=True)
+    tr.analyze(entries)
 
     per = -(-len(entries) // args.files)
     chunks = [entries[i * per:(i + 1) * per] for i in range(args.files)]
@@ -86,6 +89,7 @@ def main():
 
     print(f"functions {len(entries)} in {len(chunks)} files, imports {len(tr.imports_used)}, "
           f"smc operand reads {tr.smc_uses}, without register caching {tr.uncached}, "
+          f"x87 stack in locals {tr.x87_local} (kept global: {tr.x87_fail}), "
           f"time {time.time() - t0:.1f}s")
     if tr.unsupported:
         print("UNSUPPORTED:", dict(sorted(tr.unsupported.items(), key=lambda x: -x[1])))

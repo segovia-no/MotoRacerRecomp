@@ -26,12 +26,33 @@ every function, before native rewrites of the hot ones (22-hot-functions.md).
    generated code (`RECOMP_GENERATED`, set for the `gamecode` target) `RD*`/`WR*` are macros on `mb`.
    Their temporaries have distinct names (`r_`, `w_`, `p_`): with one shared name `LPUSH32(x)` →
    `WR32(esp, v_)` initialised the inner `v_` from itself (caught by the differential tester).
+3. **x87 stack in locals** (`x87_locals` in `translate.py`):
+   - MSVC code keeps the x87 stack empty at calls and returns (a float result stays in ST0), so the
+     depth relative to function entry is known at every instruction. A dataflow pass over the
+     function's instructions (successors recorded during emission) computes it; `ST(i)` at depth d
+     becomes the C local `x{d-1-i}`, `FPUSH(v)` `x{d} = v`, `FPOP()` nothing, the status word the
+     local `fsw` (`FCOM_L`, `FSTSW` with TOP = `F.top - d`);
+   - the global stack `F` stays at its entry `top` inside the function and is used only across
+     calls: before a call the live locals are pushed onto it, after the call the callee's net effect
+     is applied and the values read back (`FXAM`/`FPREM` likewise);
+   - net effects ("deltas") come from a pre-pass over all functions (`Translator.analyze`, fixpoint
+     over the call graph): +1 for a float result, −1 for `_ftol` (pops its argument), usually 0;
+   - a function keeps the global form if the depth is inconsistent at a join, goes below entry (it
+     reads values the caller left, like `_ftol`: 72 functions), exceeds 8, calls a function without a
+     known delta (3), makes an indirect call with values on the stack (1), or touches `F.top` /
+     the FPU environment (1). 294 functions use locals, including all hot ones (22-hot-functions.md).
 - CMake `MOTORACER_GUEST_OPT` (default ON); OFF builds the old translation (`recomp_main.py
-  --no-regcache`, no `RECOMP_GENERATED`) for benchmarks.
+  --no-regcache`, no `RECOMP_GENERATED`) for benchmarks. `MOTORACER_TRANSLATOR_FLAGS` passes extra
+  translator flags, e.g. `--no-x87-locals`.
 
 ## Verification
 - `tools/recomp/tests/difftest.py` (now compiled with `RECOMP_GENERATED` like the game): 2,405
   instruction forms, 0 failing cases, with both changes.
+- For the x87 locals it also runs every x87 form a second time (`[locals]` cases, 266): no `fninit` in
+  the test code (the reference runs one separately), 4 preloaded values, and exactly as many `fstp` as
+  are left, so the depth is static; 213 of them compile with locals (the rest use `F.top` directly).
+  2,671 cases, 0 failing. Mutation check: mapping `ST(i)` to `x{i}` instead of `x{d-1-i}` fails the
+  `fxch` cases at once.
 - All generated files compile with `-Wuninitialized` without warnings (self-initialised temporaries).
 - E2E races (30 and 60 fps): rendering, steering, lean and AI as before (owner watched two runs).
 
@@ -48,6 +69,14 @@ which did not change):
 | Instructions | 11.71 / 11.64 M | 6.89 / 6.88 M (−41%) |
 | Cycles | 7.25 / 6.25 M | 4.63 / 3.73 M (−37%) |
 | Wall time outside pacing | 3.72 / 3.85 ms | 2.48 / 2.55 ms |
+
+x87 stack in locals (same setup, but a race with left/right steering — more crashes and recoveries,
+so more work per frame than the table above; two alternating rounds):
+| | Without (`--no-x87-locals`) | With |
+|---|---|---|
+| Instructions | 9.97 / 9.21 M | 7.95 / 8.00 M (−13…20%) |
+| Cycles | 5.61 / 5.02 M | 4.05 / 4.02 M (−20…28%) |
+| Game code (`__text`) | 2.91 MB | 3.09 MB (spill/reload code at calls) |
 
 ## Benchmarking notes
 - Method: build both variants (`cmake -B build/benchbase -DMOTORACER_GUEST_OPT=OFF …`), run the same

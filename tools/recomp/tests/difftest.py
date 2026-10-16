@@ -136,17 +136,36 @@ def depth_of(m):
     return 7 if m in X87_PUSHES else 8
 
 
-def build_case(body, x87, depth=8):
+def x87_delta(m):
+    """Net x87 stack effect of a mnemonic."""
+    if m in X87_PUSHES:
+        return 1
+    if m.endswith("pp"):
+        return -2
+    if m.endswith("p") and m not in ("fnop",):
+        return -1
+    return 0
+
+
+LOCAL_DEPTH = 4
+
+
+def build_case(body, x87, depth=8, local=None):
+    """local: the mnemonic, for the x87-locals variant (translate.py keeps the x87 stack in C
+    locals only where the depth is known statically, so this variant has no fninit, preloads
+    LOCAL_DEPTH values and pops exactly what is left)."""
     pre = b"\xff\x35" + struct.pack("<I", FLAGS_IN) + b"\x9d"   # push [FLAGS_IN]; popfd
     post = b""
     if x87:
-        # fninit; fldcw [FPU_IN+32]; fld qword [FPU_IN+24..0]
-        pre += b"\xdb\xe3" + b"\xd9\x2d" + struct.pack("<I", FPU_IN + 64)
+        # [fninit;] fldcw [FPU_IN+64]; fld qword [FPU_IN+8(depth-1)..0]
+        pre += (b"" if local else b"\xdb\xe3") + b"\xd9\x2d" + struct.pack("<I", FPU_IN + 64)
+        if local:
+            depth = LOCAL_DEPTH
         for k in reversed(range(depth)):
             pre += b"\xdd\x05" + struct.pack("<I", FPU_IN + 8 * k)
-        # fnstsw [FPU_OUT]; 8x fstp qword [FPU_OUT+8+8k]
+        # fnstsw [FPU_OUT]; fstp qword [FPU_OUT+8+8k] (8, or what is left)
         post = b"\xdd\x3d" + struct.pack("<I", FPU_OUT)
-        for k in range(8):
+        for k in range(LOCAL_DEPTH + x87_delta(local) if local else 8):
             post += b"\xdd\x1d" + struct.pack("<I", FPU_OUT + 8 + 8 * k)
     return pre + body + post + b"\x9c\xc3"   # pushfd; ret
 
@@ -167,24 +186,29 @@ def main():
     d = Discovery(img).run().partition().mark_text_data()
     forms = collect_forms(img, d, args.per_form, filt)
 
-    cases = []  # (label, code bytes, x87, mnemonic)
+    cases = []  # (label, code bytes, x87, mnemonic, x87-locals variant)
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
     for shape, raws in forms.items():
         for raw in raws:
             ins = next(md.disasm(raw, 0))
-            cases.append((f"{ins.mnemonic} {ins.op_str}", raw, shape[0].startswith("f"), shape[0]))
+            x87 = shape[0].startswith("f")
+            cases.append((f"{ins.mnemonic} {ins.op_str}", raw, x87, shape[0], False))
+            if x87 and shape[0] not in ("fninit", "fincstp", "fdecstp", "ffree", "fnstenv", "fldenv"):
+                cases.append((f"{ins.mnemonic} {ins.op_str} [locals]", raw, x87, shape[0], True))
     if not filt:
         for label, raw in synth_cond_tests():
             ins = next(md.disasm(raw[2:], 0))
-            cases.append((f"{label}: {ins.mnemonic}", raw, False, label))
+            cases.append((f"{label}: {ins.mnemonic}", raw, False, label, False))
 
     code = bytearray()
     starts = []
-    for label, raw, x87, m in cases:
-        blob = build_case(raw, x87, depth_of(m))
+    for label, raw, x87, m, local in cases:
+        blob = build_case(raw, x87, depth_of(m), m if local else None)
         assert len(blob) <= SLOT, label
         starts.append(CODE_BASE + len(code))
         code += blob + b"\xcc" * (SLOT - len(blob))
+    fninit_va = CODE_BASE + len(code)   # reference only: reset the x87 before a [locals] case
+    code += b"\xdb\xe3\xc3"
 
     timg = TestImage(bytes(code))
     td = Discovery(timg)
@@ -250,9 +274,9 @@ def main():
         so.tr_poke(addr, bytes(data), len(data))
         pristine[addr - DATA_LO:addr - DATA_LO + len(data)] = data
 
-    for (label, raw, x87, m), start in zip(cases, starts):
+    for (label, raw, x87, m, local), start in zip(cases, starts):
         fn = getattr(so, fn_name(start))
-        ret_va = start + len(build_case(raw, x87, depth_of(m))) - 1
+        ret_va = start + len(build_case(raw, x87, depth_of(m), m if local else None)) - 1
         memcase = any(c in label for c in ("ptr", "push", "pop", "leave", "movs", "stos", "scas",
                                            "cmps", "lods", "xlat", "pusha", "popa"))
         for t in range(args.trials):
@@ -280,6 +304,8 @@ def main():
                 poke(FPU_IN, b"".join(struct.pack("<d", v) for v in vals) + struct.pack("<H", 0x27F))
 
             # reference
+            if local:
+                uc.emu_start(fninit_va, fninit_va + 2)
             for r in REGS:
                 uc.reg_write(UREG[r], regs[r])
             uc.reg_write(U.UC_X86_REG_EFLAGS, 0x2)
