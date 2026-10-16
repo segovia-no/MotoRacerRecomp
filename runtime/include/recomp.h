@@ -23,11 +23,14 @@ typedef struct {
 /* x87 registers are emulated in double precision, or in float with RECOMP_FPU_FLOAT (CMake
  * MOTORACER_FPU_FLOAT: for CPUs with a single-precision FPU, e.g. the PSP; the game computes in single
  * precision, docs/21-psp-feasibility.md). FM(sin) is sin or sinf to match. */
+/* RECOMP_COUNT_INSNS (CMake MOTORACER_COUNT_INSNS): every translated instruction counts itself, in
+ * total and per guest function (indexed by the function's entry address - 0x400000). */
 #ifdef RECOMP_COUNT_INSNS
 extern uint64_t recomp_icount;
-#define IC() (recomp_icount++)
+extern uint64_t recomp_icf[0x100000];
+#define IC(fn) (recomp_icount++, recomp_icf[((fn) - 0x400000u) & 0xFFFFFu]++)
 #else
-#define IC() ((void)0)
+#define IC(fn) ((void)0)
 #endif
 
 #ifdef RECOMP_FPU_FLOAT

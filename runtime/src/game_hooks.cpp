@@ -41,6 +41,10 @@ using namespace rt;
 #ifdef RECOMP_COUNT_INSNS
 extern "C" uint64_t recomp_icount;
 uint64_t recomp_icount = 0;
+#ifdef RECOMP_COUNT_INSNS
+extern "C" uint64_t recomp_icf[0x100000];
+uint64_t recomp_icf[0x100000];   // per guest function (entry - 0x400000), see recomp.h
+#endif
 #endif
 
 namespace {
@@ -415,6 +419,25 @@ void frame_tick() {
             last_count = recomp_icount;
             last_ms = now;
             frames = 0;
+        }
+    }
+    // MOTORACER_ICOUNT_DUMP=<dir>: every 5 s, <dir>/ic_<ms>.txt with the cumulative per-function
+    // counts ("frames <n>" then "<entry va> <count>"); tools/icprof.py ranks the difference of two.
+    static const char *dump_dir = getenv("MOTORACER_ICOUNT_DUMP");
+    if (dump_dir) {
+        static uint64_t all_frames = 0, last_dump = 0;
+        all_frames++;
+        uint64_t now = SDL_GetTicks();
+        if (now - last_dump >= 5000) {
+            last_dump = now;
+            char path[1024];
+            snprintf(path, sizeof path, "%s/ic_%07llu.txt", dump_dir, (unsigned long long)now);
+            if (FILE *f = fopen(path, "w")) {
+                fprintf(f, "frames %llu\n", (unsigned long long)all_frames);
+                for (uint32_t i = 0; i < 0x100000; i++)
+                    if (recomp_icf[i]) fprintf(f, "%x %llu\n", 0x400000 + i, (unsigned long long)recomp_icf[i]);
+                fclose(f);
+            }
         }
     }
 #endif

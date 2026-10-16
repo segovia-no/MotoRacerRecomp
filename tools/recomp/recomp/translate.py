@@ -273,7 +273,7 @@ class FunctionTranslator:
             nxt = self.body[i + 1] if i + 1 < len(self.body) else None
             self.out.append(f"__LABEL_{va:08x}__")
             self.out.append(f"    /* {va:08x}: {insn.mnem} {insn.op_str} */")
-            self.out.append("    IC();")
+            self.out.append(f"    IC(0x{self.entry:x});")
             if va in GAME_HOOKS:
                 self.emit(f"{GAME_HOOKS[va]}();")
             if va in GAME_JUMP_HOOKS:

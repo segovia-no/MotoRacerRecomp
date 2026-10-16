@@ -134,4 +134,4 @@ EBOOT from their own GOG copy.
    for step 3.
 2. Translator size/speed pass (flag liveness, register locals); re-measure code size and frame time.
 3. Minimal PSP build: platform adapter + GE backend, boot to the title screen in PPSSPP, then on hardware.
-4. Profile on hardware; VFPU replacements for the hottest functions; audio.
+4. Profile on hardware; VFPU replacements for the hottest functions (see 22-hot-functions.md); audio.
