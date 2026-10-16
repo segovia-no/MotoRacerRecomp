@@ -83,3 +83,20 @@ Race at the default (60, vsync): 59.5–60.0 fps, same as with the game's own li
 
 ## Open
 1. Even frame pacing; test on a high-refresh display (120/144 Hz).
+
+## Stutter above the display's refresh rate (owner report, 2026-10-16)
+- Owner's setup: BenQ PD3205U at 60 Hz, `FrameRate=120`, `VSync=0` → very noticeable hiccups.
+- Measured (E2E, frame time `0x4e980c` per race frame):
+  - 60 fps + vsync: 541 × 16 ms, 1026 × 17 ms, 16 × 18 ms, plus 5–6 frames of 33–34 ms per ~27 s;
+  - 120 fps, no vsync, 60 Hz screen: anything from 8 to 35 ms (8/9 runs broken by 13–28 ms frames).
+    A 60 Hz panel shows 60 pictures a second; extra frames are shown at uneven ages (plus tearing).
+- Fix: the runtime caps the frame rate at the display's refresh rate (`host::display_refresh_rate`,
+  logged once: "N fps is above the display's M Hz, capped"); the Recomp page only offers ORIGINAL,
+  DISPLAY (M HZ) and rates below M, and shows "M (DISPLAY MAX)" for a higher ini value.
+- The occasional 33 ms frame at 60 Hz + vsync is a missed refresh while waiting for a drawable (frame
+  breakdown: game 2.7–5.5 ms, submission ~1 ms, `present` 26–30 ms instead of ~12). Not linked to
+  pipeline creation (≤ 0.4 ms) or texture uploads; 3 frames in flight instead of SDL's 2 changed nothing
+  (6 vs 4 slow frames), so it is the macOS window compositor (runs were windowed). Open.
+- Replays store the integer frame time per frame (`0x558aa8`: dt in the top 8 bits, inputs, stick X/Y)
+  and are re-simulated from it, so live races must keep integer frame times; sub-millisecond frame
+  times would make replays drift.

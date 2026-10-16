@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "host_gpu.h"
+#include "host_video.h"
 #include "runtime.h"
 #include "settings.h"
 #include "user32.h"
@@ -67,14 +68,18 @@ std::vector<Row> make_rows() {
     return {
         {"FRAME RATE",
          [] {
-             int r = settings::get().frame_rate;
+             int r = settings::get().frame_rate, hz = host::display_refresh_rate();
              if (r == 0) return std::to_string(settings::get().game_frame_cap) + "   (ORIGINAL)";
-             if (r == -2) return std::string("DISPLAY");
-             if (r == -1) return std::string("UNLIMITED");
+             if (r == -2) return "DISPLAY   (" + std::to_string(hz) + " HZ)";
+             if (r == -1 || r > hz) return std::to_string(hz) + "   (DISPLAY MAX)";
              return std::to_string(r);
          },
          [] {
-             int r = next_of<int>({0, -2, 30, 60, 90, 120, 144, 165, 240}, settings::get().frame_rate);
+             // only rates the display can show (more makes motion uneven, see host_video.cpp)
+             std::vector<int> list{0, -2};
+             for (int r : {30, 60, 75, 90, 100, 120, 144, 165, 240})
+                 if (r < host::display_refresh_rate()) list.push_back(r);
+             int r = next_of<int>(list, settings::get().frame_rate);
              edit().frame_rate = r;
              save("FrameRate", r == 0 ? "game" : r == -2 ? "display" : std::to_string(r));
          }},

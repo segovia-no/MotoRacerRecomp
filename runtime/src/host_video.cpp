@@ -54,19 +54,38 @@ bool bars_black(int w, int h) {
 // see settings.cpp; FrameRate=game paces to its -FrameRateMax value). Also keeps game frames at
 // least 1 ms apart: the game measures frame time with timeGetTime in whole milliseconds and treats
 // 0 ms as 30 ms (0x412164), which would speed up a fast race.
+}  // namespace
+
+int display_refresh_rate() {
+    static int rate = 0;
+    if (!rate) {
+        SDL_DisplayID d = SDL_GetDisplayForWindow(ensure_window());
+        const SDL_DisplayMode *m = d ? SDL_GetCurrentDisplayMode(d) : nullptr;
+        rate = m && m->refresh_rate > 0 ? static_cast<int>(m->refresh_rate + 0.5f) : 60;
+        log("frame rate: display refresh rate %d Hz\n", rate);
+    }
+    return rate;
+}
+
+namespace {
+
 void limit_frame_rate() {
     static uint64_t next = 0, last_ms = 0, count = 0, count_since = 0;
     static const bool fps_log = getenv("MOTORACER_FPS_LOG") != nullptr;
-    static int display_rate = 0;
-    if (!display_rate) {
-        SDL_DisplayID d = SDL_GetDisplayForWindow(ensure_window());
-        const SDL_DisplayMode *m = d ? SDL_GetCurrentDisplayMode(d) : nullptr;
-        display_rate = m && m->refresh_rate > 0 ? static_cast<int>(m->refresh_rate + 0.5f) : 60;
-        log("frame rate: display refresh rate %d Hz\n", display_rate);
-    }
+    int display_rate = display_refresh_rate();
     int rate = settings::get().frame_rate;
     if (rate == 0) rate = settings::get().game_frame_cap ? settings::get().game_frame_cap : -1;
     if (rate == -2) rate = display_rate;
+    // More frames than the display shows only make motion uneven (each refresh shows a frame of a
+    // different age; measured on a 60 Hz screen at 120: frame times 8..27 ms). Cap at the refresh rate.
+    if (rate > display_rate) {
+        static int warned = 0;
+        if (warned != rate) {
+            warned = rate;
+            log("frame rate: %d fps is above the display's %d Hz, capped\n", rate, display_rate);
+        }
+        rate = display_rate;
+    }
     // With vsync at or below the target rate, vsync paces; sleeping as well would now and then
     // miss a refresh (measured 59.4 instead of 60 fps).
     if (settings::get().vsync && rate >= display_rate) rate = -1;
