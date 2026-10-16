@@ -56,7 +56,10 @@ bool cpu_dirty = false;             // the guest back buffer is newer than the G
 std::vector<GeVertex> frame_vertices;
 
 // Debug counters, logged every 5 s with MOTORACER_GE_STATS=1.
-struct Stats { uint32_t draws, tris, clears, flips_gpu, flips_cpu, blts_gpu, blts_cpu, downloads, uploads; } st{};
+struct Stats {
+    uint32_t draws, tris, clears, flips_gpu, flips_cpu, blts_gpu, blts_cpu, downloads, uploads, tex_converts;
+    uint64_t ns_draw, ns_tex;
+} st{};
 void stats_tick() {
     static const bool on = getenv("MOTORACER_GE_STATS") != nullptr;
     static uint64_t last = 0;
@@ -64,9 +67,14 @@ void stats_tick() {
     uint64_t now = SDL_GetTicks();
     if (now - last < 5000) return;
     last = now;
-    log("ge: draws %u tris %u clears %u flip gpu/cpu %u/%u blt gpu/cpu %u/%u downloads %u uploads %u\n", st.draws,
-        st.tris, st.clears, st.flips_gpu, st.flips_cpu, st.blts_gpu, st.blts_cpu, st.downloads, st.uploads);
+    uint64_t ns_ge = psp_ge::take_wait_ns();
+    log("ge: draws %u tris %u clears %u flip gpu/cpu %u/%u blt gpu/cpu %u/%u downloads %u uploads %u texconv %u | "
+        "ms in 5 s: execute %llu, draw %llu (textures %llu), GE wait %llu\n",
+        st.draws, st.tris, st.clears, st.flips_gpu, st.flips_cpu, st.blts_gpu, st.blts_cpu, st.downloads, st.uploads,
+        st.tex_converts, (unsigned long long)(execute_ns / 1000000), (unsigned long long)(st.ns_draw / 1000000), (unsigned long long)(st.ns_tex / 1000000),
+        (unsigned long long)(ns_ge / 1000000));
     st = {};
+    execute_ns = 0;
 }
 std::map<Surface *, Texture> textures;
 
@@ -117,6 +125,8 @@ Texture *texture_for(Surface *s) {
     Texture &t = textures[s];
     uint32_t pal_version = s->palette ? s->palette->version : 0;
     if (t.data && t.version == s->version && t.pal_version == pal_version) return &t;
+    st.tex_converts++;
+    struct TexTimer { uint64_t t0 = SDL_GetTicksNS(); ~TexTimer() { st.ns_tex += SDL_GetTicksNS() - t0; } } timer;
     t.version = s->version;
     t.pal_version = pal_version;
     t.tw = 1;
@@ -288,6 +298,7 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     if (!usable() || !ntri) return;
     st.draws++;
     st.tris += ntri;
+    struct DrawTimer { uint64_t t0 = SDL_GetTicksNS(); ~DrawTimer() { st.ns_draw += SDL_GetTicksNS() - t0; } } timer;
     prepare();
     Texture *tex = texture_for(texture);
     apply_states(rs, tex);

@@ -131,7 +131,7 @@ target_compile_options(motoracer PRIVATE
   $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-unused-parameter>)
 target_link_libraries(motoracer PRIVATE ${SDL3_TARGET})
 if(PSP)
-  target_link_libraries(motoracer PRIVATE pspgu pspge pspdisplay)
+  target_link_libraries(motoracer PRIVATE pspgu pspge pspdisplay psppower)
 endif()
 
 get_filename_component(GAME_DIR_FOR_ICON "${GAME_EXE}" DIRECTORY)

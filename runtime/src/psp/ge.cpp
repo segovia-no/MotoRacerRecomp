@@ -23,6 +23,7 @@ constexpr size_t LIST_BYTES = 512 * 1024;
 alignas(64) unsigned int list[LIST_BYTES / 4];   // commands and vertices; flushed early when half full
 size_t list_used = 0;                            // vertex bytes taken from the open list
 bool inited = false, open = false;
+uint64_t wait_ns = 0;
 int cur = 0;                                     // buffer being drawn (0/1); the other one is shown
 
 uint32_t fb_offset(int i) { return FB_BYTES * static_cast<uint32_t>(i); }
@@ -75,7 +76,9 @@ void finish() {
     if (!open) return;
     sceKernelDcacheWritebackAll();   // vertices, textures and converted frames are in cached RAM
     sceGuFinish();
+    uint64_t t0 = SDL_GetTicksNS();
     sceGuSync(0, 0);
+    wait_ns += SDL_GetTicksNS() - t0;
     open = false;
 }
 
@@ -124,6 +127,12 @@ void show() {
     sceDisplaySetFrameBuf(vram_cpu() + fb_offset(cur) + VIEW_Y0 * FB_STRIDE * 2, FB_STRIDE,
                           PSP_DISPLAY_PIXEL_FORMAT_565, PSP_DISPLAY_SETBUF_NEXTFRAME);
     cur ^= 1;
+}
+
+uint64_t take_wait_ns() {
+    uint64_t w = wait_ns;
+    wait_ns = 0;
+    return w;
 }
 
 uint16_t *draw_buffer() {

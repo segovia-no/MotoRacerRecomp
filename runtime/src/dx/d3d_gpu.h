@@ -21,6 +21,8 @@ struct TLVertex {
 
 bool init();
 
+inline uint64_t execute_ns = 0;   // PSP stats: time in Execute (parsing + this backend)
+
 // Selects the surface the device renders into (the back buffer); sizes the GPU targets.
 void set_target(Surface *rt);
 

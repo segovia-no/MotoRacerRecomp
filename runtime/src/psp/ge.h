@@ -21,6 +21,7 @@ void finish();                 // close it, write back the data cache, let the G
 void show();                   // finish, display the drawn buffer, swap
 uint16_t *draw_buffer();       // CPU (uncached) pointer to the buffer being drawn (RGB565, R low)
 void *list_memory(size_t n);   // memory inside the open display list (vertices)
+uint64_t take_wait_ns();       // time spent waiting for the GE since the last call (stats)
 
 // Pixel transfers between the draw buffer and RAM with the GE's block transfer (not CPU access to
 // VRAM: PPSSPP keeps GE output on the host GPU and only tracks GE transfers, and on hardware it is a

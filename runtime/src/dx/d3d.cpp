@@ -353,7 +353,13 @@ COM_METHOD(Dev_GetStats, 1) {
 COM_METHOD(Dev_Execute, 3) {
     auto *eb = dynamic_cast<ExecuteBuffer *>(lookup(arg(1)));
     if (!eb) return D3DERR_INVALIDPARAMS;
+#ifdef __PSP__
+    uint64_t t0 = SDL_GetTicksNS();
     parse_execute(eb, obj<Device>(self));
+    dx::gpu::execute_ns += SDL_GetTicksNS() - t0;
+#else
+    parse_execute(eb, obj<Device>(self));
+#endif
     return D3D_OK;
 }
 
