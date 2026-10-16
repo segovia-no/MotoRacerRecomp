@@ -40,7 +40,8 @@ SDL_GPUDevice *device() {
     if (!settings::get().vsync && SDL_WindowSupportsGPUPresentMode(dev, win, SDL_GPU_PRESENTMODE_IMMEDIATE))
         mode = SDL_GPU_PRESENTMODE_IMMEDIATE;
     SDL_SetGPUSwapchainParameters(dev, win, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, mode);
-    log("gpu: %s device, window claimed\n", SDL_GetGPUDeviceDriver(dev));
+    log("gpu: %s device, window claimed, %s\n", SDL_GetGPUDeviceDriver(dev),
+        mode == SDL_GPU_PRESENTMODE_VSYNC ? "vsync" : "no vsync");
     return dev;
 }
 

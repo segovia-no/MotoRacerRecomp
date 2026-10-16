@@ -47,8 +47,17 @@ paces frames in the runtime (`limit_frame_rate` in host_video.cpp, `SDL_DelayPre
 apart (dt = 0 would become 30 ms), `unlimited` turns vsync off. `MOTORACER_FRAMERATE` and
 `MOTORACER_FPS_LOG=1` are dev aids.
 
+## GPU wait removed (2026-10-16)
+- `flush()` now waits for the GPU only for a readback (`After::Download`). `present_blt` renders, then
+  presents in a second command buffer, and the CPU goes on with the next frame; SDL releases buffers once
+  the GPU is done with them (the `After::Present` path never waited).
+- Unlimited on the Mac (60 Hz display, windowed): 62–82 → 73–94 fps. The main thread now waits in
+  `CAMetalLayer nextDrawable` (~90%); the same ~80 fps at a 640×480 render target, so the remaining limit
+  is presentation on a 60 Hz display (drawables come back from the compositor), not GPU work.
+- 60 fps races unchanged (E2E: menus, loading, race, HUD correct). The log names the present mode
+  (`gpu: ... window claimed, vsync|no vsync`).
+
 ## Open
-1. Remove the per-frame GPU wait in `present_blt` (performance on every platform).
-2. Find what `x` is in `0x46a880`/`0x46ac1b`; correct the smoothed-dt use and the 20 ms floor for high
+1. Find what `x` is in `0x46a880`/`0x46ac1b`; correct the smoothed-dt use and the 20 ms floor for high
    frame rates (replays take another path there).
-3. Even frame pacing; test on a high-refresh display (120/144 Hz).
+2. Even frame pacing; test on a high-refresh display (120/144 Hz).

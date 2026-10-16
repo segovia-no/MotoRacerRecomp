@@ -560,9 +560,16 @@ void flush(After after) {
             SDL_DownloadFromGPUTexture(cp, &src, &dst);
             SDL_EndGPUCopyPass(cp);
         }
-        SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
-        SDL_WaitForGPUFences(dev, true, &fence, 1);
-        SDL_ReleaseGPUFence(dev, fence);
+        // Only a readback has to wait for the GPU. Otherwise (present_blt renders, then presents in a
+        // second command buffer) the CPU goes on with the next frame while the GPU draws; SDL keeps
+        // released buffers alive until the GPU is done with them.
+        if (!down) {
+            SDL_SubmitGPUCommandBuffer(cmd);
+        } else {
+            SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+            SDL_WaitForGPUFences(dev, true, &fence, 1);
+            SDL_ReleaseGPUFence(dev, fence);
+        }
         if (down) {
             auto *px = static_cast<const uint32_t *>(SDL_MapGPUTransferBuffer(dev, down, false));
             baseline.resize(static_cast<size_t>(g_w) * g_h);
