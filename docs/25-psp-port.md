@@ -53,6 +53,8 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   knows the address is aligned (esp/ebp-relative with aligned displacements), fewer register spills.
 - Memory: game code 5 MB + runtime ~3.6 MB + guest block ~24 MB → fits the 64 MB models (~52 MB for
   the program), not yet the PSP-1000 (~22 MB free).
+- After aligned accesses and fewer spills (23-translator-speed.md, 2026-10-17): MIPS game code
+  5.05 → 3.93 MB (−22%); in one file 60,127 → 42,246 instructions, unaligned pairs 15,573 → 2,016.
 
 ## GE render backend (2026-10-17)
 - `runtime/src/psp/ge.cpp`: GE context. VRAM: two 480x272 16-bit colour buffers and a 16-bit depth

@@ -36,12 +36,15 @@ def main():
                     help="keep guest registers in R everywhere (baseline for benchmarks)")
     ap.add_argument("--no-x87-locals", action="store_true",
                     help="keep the x87 stack in F everywhere (for benchmarks)")
+    ap.add_argument("--no-spill-opt", action="store_true",
+                    help="write back / reload all registers at every call (for benchmarks)")
     args = ap.parse_args()
 
     t0 = time.time()
     img = Image(args.exe)
     d = Discovery(img).run().partition().mark_text_data()
-    tr = Translator(img, d, regcache=not args.no_regcache, x87_locals=not args.no_x87_locals)
+    tr = Translator(img, d, regcache=not args.no_regcache, x87_locals=not args.no_x87_locals,
+                    spill_opt=not args.no_spill_opt)
     entries = sorted(d.entries)
     if args.only:
         entries = [int(x, 16) for x in args.only.split(",")]

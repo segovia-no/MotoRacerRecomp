@@ -1,4 +1,5 @@
 // Indirect-call dispatch, host thunks, traps, logging and crash reporting.
+#include <map>
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -234,3 +235,17 @@ static void on_fault(const plat::Fault &f) {
 void install_crash_handlers() { plat::host().crash.install(on_fault); }
 
 }  // namespace rt
+
+#ifdef RECOMP_CHECK_SAVED
+// CMake MOTORACER_CHECK_SAVED: optimize_spills (translate.py) assumptions checked at run time.
+// what 0: before a call, a register not written back differed from R (dirty tracking wrong);
+// what 1: after a convention call, the callee changed ebx/ebp/esi/edi.
+extern "C" void recomp_check_saved(uint32_t va, int what, uint32_t mask) {
+    if (!mask) return;
+    static std::map<uint64_t, uint32_t> seen;
+    uint32_t &n = seen[(static_cast<uint64_t>(va) << 1) | static_cast<uint64_t>(what)];
+    if (n++ < 3)
+        rt::log("check saved: %s at 0x%08x, registers 0x%02x\n",
+                what ? "callee changed a preserved register" : "stale register at a call", va, mask);
+}
+#endif

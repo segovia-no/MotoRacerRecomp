@@ -41,9 +41,33 @@ every function, before native rewrites of the hot ones (22-hot-functions.md).
      reads values the caller left, like `_ftol`: 72 functions), exceeds 8, calls a function without a
      known delta (3), makes an indirect call with values on the stack (1), or touches `F.top` /
      the FPU environment (1). 294 functions use locals, including all hot ones (22-hot-functions.md).
+4. **Aligned accesses** (`align_accesses`, 2026-10-17): accesses whose address is provably aligned
+   use `RD32A` / `WR32A` & co. (`memcpy` with `__builtin_assume_aligned`): absolute addresses that are
+   multiples of the size (4 for 32/64-bit, 2 for 16-bit), and esp / ebp + a multiple of 4 in functions
+   that keep esp 4-aligned (no 16-bit pushes, no odd esp arithmetic) or have a standard `push ebp;
+   mov ebp, esp` frame with no other ebp writes; push/pop on the local esp likewise (`LPUSH32A`).
+   No effect on x86/arm64 code; on the PSP's MIPS (strict alignment) one `lw`/`sw` instead of
+   `lwl`+`lwr` / `swl`+`swr`.
+5. **Fewer register spills** (`optimize_spills`, 2026-10-17):
+   - a dataflow pass (per instruction, union at joins) tracks which locals were written since the
+     last call or function entry; before a call only those are stored (`SPILL_M(va, mask)`);
+   - after a call that follows the x86 calling convention (guest functions, imports, call_indirect)
+     only eax, ecx, edx and esp are read back (`RELOAD_ABI`); ebx, esi, edi, ebp are callee-saved;
+   - except for guest functions that change callee-saved registers: a pre-pass (`own_clobbers`,
+     fixpoint over calls and tail jumps) marks functions that write ebx/esi/edi/ebp without pushing
+     them, e.g. MSVC's `_EH_prolog` (0x4b6768), which sets the caller's ebp, and function fragments
+     entered by (conditional) tail jumps that run their parent's epilogue; calls to them read back
+     everything;
+   - calls inside a block that then returns (tail jumps, faults: `if (c) { f(); return; }`) restore
+     the dirty set for the code after the block, and use a plain read-back;
+   - check mode: CMake `MOTORACER_CHECK_SAVED` (`RECOMP_CHECK_SAVED`) logs "check saved: ..." when a
+     register considered clean differs from R before a call, or a convention callee changed a
+     callee-saved register. Found, in order: `_EH_prolog`; the in-line conditional calls; fragments
+     entered by conditional tail jumps; tail-call read-backs (false positives). After the fixes a
+     race with menus (60 fps, steering) logs nothing.
 - CMake `MOTORACER_GUEST_OPT` (default ON); OFF builds the old translation (`recomp_main.py
   --no-regcache`, no `RECOMP_GENERATED`) for benchmarks. `MOTORACER_TRANSLATOR_FLAGS` passes extra
-  translator flags, e.g. `--no-x87-locals`.
+  translator flags, e.g. `--no-x87-locals`, `--no-spill-opt`.
 
 ## Verification
 - `tools/recomp/tests/difftest.py` (now compiled with `RECOMP_GENERATED` like the game): 2,405
@@ -86,6 +110,15 @@ Other checks (2026-10-16):
   directories keep their cached value, set it with `-DMOTORACER_GUEST_OPT_LEVEL=-O2`): 2–3.5% fewer
   instructions per frame than `-O1` in two alternating rounds (cycles too noisy to tell), code
   3.09 → 3.01 MB, full parallel build of the game code ~20 s on an M3 Pro.
+
+Aligned accesses + fewer spills (same setup, straight race, PSP profile; second round — the first
+round of the optimised build stalled in a menu with the same keys: not reproduced in two reruns,
+treated as a missed key):
+| | `--no-spill-opt` | With |
+|---|---|---|
+| Instructions | 7.39 / 7.30 M | 4.23 M (−42%) |
+| Cycles | 4.35 / 4.38 M | 3.13 M (−29%) |
+| Game code arm64 / MIPS | 3.01 / 5.05 MB | 2.86 / 3.93 MB |
 
 ## Benchmarking notes
 - Method: build both variants (`cmake -B build/benchbase -DMOTORACER_GUEST_OPT=OFF …`), run the same

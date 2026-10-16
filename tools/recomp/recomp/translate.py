@@ -167,6 +167,7 @@ PURE_CALLS = {
     "WRF32", "WRF64", "WRF80", "PUSH32", "PUSH16", "POP32", "POP16", "PARITY", "EFLAGS_PACK",
     "EFLAGS_UNPACK", "ST", "FPUSH", "FPOP", "FSTSW", "FCOM", "FXAM", "FPREM", "F_ROUND", "F_TO_I16",
     "F_TO_I32", "F_TO_I64", "FNSTENV", "FLDENV", "FM", "trunc", "if", "switch", "while", "sizeof",
+    "RD16A", "RD32A", "RD64A", "RDF32A", "RDF64A", "WR16A", "WR32A", "WR64A", "WRF32A", "WRF64A",
 }
 REG_RE = re.compile(r"\bR\.(eax|ecx|edx|ebx|esp|ebp|esi|edi)\b")
 CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\(")
@@ -206,7 +207,7 @@ def _wrap_calls(line):
         pos = i + 1
 
 
-def cache_registers(out):
+def cache_registers(out, esp_aligned=False):
     body = []
     for ln in out:
         if ln.startswith("__LABEL_") or ln.lstrip().startswith("/*"):
@@ -216,10 +217,170 @@ def cache_registers(out):
         if ln is None:
             return None
         ln = REG_RE.sub(r"\1", ln)
-        ln = STACK_RE.sub(r"L\1(", ln)
+        ln = STACK_RE.sub(r"L\1A(" if esp_aligned else r"L\1(", ln)
         ln = ln.replace("return;", "SPILL(); return;")
         body.append(ln)
     return body
+
+
+# ---------- aligned guest memory accesses ----------
+# Hosts with strict alignment (the PSP's MIPS) need two instructions per load/store when the address
+# may be unaligned. Where the translator can prove alignment, accesses use RD32A / WR32A & co.
+# (recomp.h: memcpy with __builtin_assume_aligned): absolute addresses that are multiples of the
+# access size (4 for 32/64-bit, 2 for 16-bit), and esp / ebp + a multiple of 4 in functions that keep
+# esp 4-aligned (no 16-bit pushes or odd esp arithmetic) or have a standard `push ebp; mov ebp, esp`
+# frame and no other ebp writes.
+ACC_RE = re.compile(r"\b(RD|WR)(16|32|64|F32|F64)\(\(uint32_t\)\((R\.esp|R\.ebp|0x[0-9a-f]+u)(?: \+ 0x([0-9a-f]+)u)?\)")
+
+
+def align_accesses(lines, esp_ok, ebp_ok):
+    def repl(m):
+        kind, size, base, disp = m.group(1), m.group(2), m.group(3), m.group(4)
+        need = 2 if size == "16" else 4
+        if base.startswith("0x"):
+            ok = int(base[2:-1], 16) % need == 0
+        else:
+            ok = (esp_ok if base == "R.esp" else ebp_ok) and (int(disp, 16) if disp else 0) % 4 == 0
+        if not ok:
+            return m.group(0)
+        return f"{kind}{size}A((uint32_t)({base}" + (f" + 0x{disp}u" if disp else "") + ")"
+    return [ln if ln.startswith("__LABEL_") else ACC_RE.sub(repl, ln) for ln in lines]
+
+
+# ---------- register spills at calls ----------
+# cache_registers writes all eight registers to R before every call and reads them all back after.
+# optimize_spills narrows that with a dataflow pass over the function's instructions:
+# - before a call only registers written since the last call (or function entry) are stored
+#   (the others still equal R);
+# - after a call that follows the x86 calling convention (guest functions f_*, imports, call_indirect)
+#   only eax, ecx, edx and esp are read back: the callee preserves ebx, esi, edi and ebp. Other
+#   calls (runtime helpers, hooks: they may change any register) read back everything.
+# RECOMP_CHECK_SAVED (recomp.h) verifies both at run time.
+REGS8 = ("eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi")
+SPILL_EVENT_RE = re.compile(
+    r"\b(eax|ecx|edx|ebx|esp|ebp|esi|edi)\s*(?:[-+*/%&|^]|<<|>>)?=(?!=)|(?:\+\+|--)\s*(eax|ecx|edx|ebx|esp|ebp|esi|edi)\b|"
+    r"\b(eax|ecx|edx|ebx|esp|ebp|esi|edi)\s*(?:\+\+|--)|\b(LPUSH\w*|LPOP\w*)\(|\bSPILL\(\);|\bRELOAD\(\);")
+ABI_CALL_RE = re.compile(r"\bf_[0-9a-f]{8}\(|\bimp_\w+\(|\bcall_indirect\(")
+ALL_REGS = 0xFF
+
+
+CALLEE_SAVED = {"ebx": "ebx", "bx": "ebx", "bl": "ebx", "bh": "ebx", "esi": "esi", "si": "esi",
+                "edi": "edi", "di": "edi", "ebp": "ebp", "bp": "ebp"}
+
+
+def own_clobbers(ft):
+    """Callee-saved registers a function writes without pushing them (e.g. MSVC's _EH_prolog sets
+    the caller's ebp), and the guest functions it calls or tail-jumps to."""
+    written, saved, callees = set(), set(), set()
+    for va in ft.body:
+        i = ft.d.insns[va]
+        m, ops = i.mnem, i.ops
+        if (m == "call" or m.startswith("j") or m == "loop") and ops and ops[0][0] == "imm" \
+                and ops[0][1] in ft.d.entries and ops[0][1] not in ft.body_set:
+            callees.add(ops[0][1])   # calls and (conditional) tail jumps into other entries
+            continue
+        if m == "call" and ops and ops[0][0] == "imm":
+            continue
+        if m == "push" and ops and ops[0][0] == "reg" and ops[0][2] == 4:
+            if ops[0][1] in CALLEE_SAVED:
+                saved.add(CALLEE_SAVED[ops[0][1]])
+            continue
+        if m == "pushal":
+            saved.update(("ebx", "esi", "edi", "ebp"))
+            continue
+        if m in ("cmp", "test", "push", "call", "jmp") or m.startswith("j"):
+            continue
+        if m == "popal":
+            written.update(("ebx", "esi", "edi", "ebp"))
+        if m == "leave":
+            written.add("ebp")
+        if m == "cpuid":
+            written.add("ebx")
+        if any(m.startswith(p) for p in ("rep", "movs", "stos", "scas", "cmps", "lods")):
+            written.update(("esi", "edi"))
+        for k, op in enumerate(ops):
+            if op[0] == "reg" and op[1] in CALLEE_SAVED and (k == 0 or m in ("xchg", "xadd")):
+                written.add(CALLEE_SAVED[op[1]])
+    return written - saved, saved, callees
+
+
+def _spill_walk(text, dirty, out=None, va=0, clobbers=None):
+    """Simulates (and with `out`, rewrites) SPILL / RELOAD in `text` given the dirty-register mask at
+    its start; returns the mask at its end."""
+    pos, abi, before = 0, False, dirty
+    restore_at, restore_to = -1, 0
+    for m in SPILL_EVENT_RE.finditer(text):
+        if restore_at >= 0 and m.start() > restore_at:
+            dirty, restore_at = restore_to, -1
+        tok = m.group(0)
+        if out is not None:
+            out.append(text[pos:m.start()])
+        pos = m.end()
+        reg = m.group(1) or m.group(2) or m.group(3)
+        if reg:
+            dirty |= 1 << REGS8.index(reg)
+            if out is not None:
+                out.append(tok)
+        elif m.group(4):
+            dirty |= 1 << REGS8.index("esp")
+            if out is not None:
+                out.append(tok)
+        elif tok == "SPILL();":
+            before = dirty
+            nxt = text.find("RELOAD();", pos)
+            seg = text[pos:nxt] if nxt >= 0 else text[pos:]
+            abi = bool(ABI_CALL_RE.search(seg))
+            if abi and clobbers is not None:
+                # a guest callee that changes callee-saved registers needs a full read-back
+                for cm in re.finditer(r"\bf_([0-9a-f]{8})\(", seg):
+                    if clobbers.get(int(cm.group(1), 16), True):
+                        abi = False
+            if out is not None:
+                out.append(f"SPILL_M(0x{va:x}u, 0x{dirty:02x}u);")
+        else:   # RELOAD();
+            end = text.find("}", pos)
+            tail = "return;" in text[pos:end if end >= 0 else len(text)]
+            if out is not None:   # (after a tail call nothing reads the registers: plain RELOAD)
+                out.append(f"RELOAD_ABI(0x{va:x}u);" if abi and not tail else "RELOAD();")
+            dirty = 0
+            # a call in a block that then returns (`if (...) { f(); return; }`: tail jumps, faults):
+            # inside the block everything is clean; after the block (the path that did not call)
+            # the registers are as they were before it
+            if tail:
+                restore_at, restore_to = (end if end >= 0 else len(text)), before
+    if out is not None:
+        out.append(text[pos:])
+    if restore_at >= 0:
+        dirty = restore_to
+    return dirty
+
+
+def optimize_spills(ft, body):
+    spans = ft.spans(body)
+    state = {ft.entry: 0}
+    work = [ft.entry]
+    while work:
+        va = work.pop()
+        if va not in spans:
+            continue
+        a, b = spans[va]
+        d = _spill_walk("\n".join(body[a:b]), state[va])
+        for t in ft.succ.get(va, ()):
+            old = state.get(t)
+            new = d if old is None else old | d
+            if new != old:
+                state[t] = new
+                work.append(t)
+    out_body = list(body)
+    for va, (a, b) in spans.items():
+        out = []
+        _spill_walk("\n".join(body[a:b]), state.get(va, ALL_REGS), out, va, ft.tr.clobbers)
+        new = "".join(out).split("\n")
+        if len(new) != b - a:
+            return body
+        out_body[a:b] = new
+    # code before the first instruction (e.g. `goto L_entry;`) has no calls
+    return out_body
 
 
 # ---------- x87 stack in locals ----------
@@ -576,6 +737,43 @@ class FunctionTranslator:
                         self.emit("return; /* falls off decoded code */")
         self.cur = None
 
+    def stack_alignment(self):
+        """(esp stays 4-aligned, ebp is a standard frame pointer) for align_accesses."""
+        insns = [self.d.insns[va] for va in self.body]
+        esp_ok = True
+        for i in insns:
+            m, ops = i.mnem, i.ops
+            if m in ("push", "pop") and ops and ops[0][2] == 2:
+                esp_ok = False
+            elif m in ("pushf", "popf", "pushaw", "popaw"):
+                esp_ok = False
+            elif ops and ops[0][0] == "reg" and ops[0][1] in ("esp", "sp"):
+                if m in ("add", "sub") and ops[1][0] == "imm":
+                    esp_ok = esp_ok and ops[1][1] % 4 == 0
+                elif m == "and":
+                    pass                       # and esp, -N keeps (improves) alignment
+                elif m == "mov" and ops[1] == ("reg", "ebp", 4):
+                    pass                       # checked with ebp below
+                elif m == "lea" and ops[1][0] == "mem" and ops[1][1][0] in ("esp", "ebp") and ops[1][1][1] is None:
+                    esp_ok = esp_ok and ops[1][1][3] % 4 == 0
+                else:
+                    esp_ok = False
+        ebp_ok = False
+        if len(self.body) >= 2 and self.body[0] == self.entry:
+            i0, i1 = self.d.insns[self.body[0]], self.d.insns[self.body[1]]
+            if (i0.mnem == "push" and i0.ops[0] == ("reg", "ebp", 4) and i1.mnem == "mov"
+                    and i1.ops[0] == ("reg", "ebp", 4) and i1.ops[1] == ("reg", "esp", 4)):
+                ebp_ok = True
+                for i in insns[2:]:
+                    writes_ebp = i.ops and i.ops[0][0] == "reg" and i.ops[0][1] in ("ebp", "bp")
+                    if i.mnem == "xchg" and any(o[0] == "reg" and o[1] in ("ebp", "bp") for o in i.ops):
+                        writes_ebp = True
+                    if writes_ebp and i.mnem not in ("push", "pop", "cmp", "test"):
+                        ebp_ok = False
+        if not esp_ok:
+            ebp_ok = False
+        return esp_ok, ebp_ok
+
     def spans(self, lines):
         """insn va -> (first, last+1) line indexes of its code in `lines` (same layout as self.out)."""
         out, cur = {}, None
@@ -588,11 +786,15 @@ class FunctionTranslator:
         return out
 
     def assemble(self):
-        body = cache_registers(self.out) if self.tr.regcache and not self.uses_eh else None
+        esp_ok, ebp_ok = self.stack_alignment()
+        src = align_accesses(self.out, esp_ok, ebp_ok) if self.tr.regcache else self.out
+        body = cache_registers(src, esp_ok) if self.tr.regcache and not self.uses_eh else None
         cached = body is not None
         if not cached:
             body = self.out
             self.tr.uncached += 1
+        if not cached:
+            body = src
         fpu_decl = None
         if cached and self.tr.x87_locals:
             res = x87_locals(self, body)
@@ -603,6 +805,8 @@ class FunctionTranslator:
                     "uint32_t fsw = F.sw; (void)fsw;"
         native = NATIVE_FUNCS.get(self.entry)
         name = fn_name(self.entry) + ("_t" if native else "")
+        if cached and self.tr.spill_opt:
+            body = optimize_spills(self, body)
         lines = [f"void {name}(void) {{",
                  "    uint32_t cf = 0, zf = 0, sf = 0, of = 0, pf = 0, af = 0;",
                  "    (void)cf; (void)zf; (void)sf; (void)of; (void)pf; (void)af;"]
@@ -1287,10 +1491,12 @@ class FunctionTranslator:
 
 
 class Translator:
-    def __init__(self, img, discovery, regcache=True, x87_locals=True):
+    def __init__(self, img, discovery, regcache=True, x87_locals=True, spill_opt=True):
         self.img = img
         self.regcache = regcache
         self.x87_locals = x87_locals
+        self.spill_opt = spill_opt
+        self.clobbers = None   # guest function -> changes callee-saved registers (analyze)
         self.d = discovery
         self.imports_used = {}
         self.unsupported = {}
@@ -1334,6 +1540,20 @@ class Translator:
                 break
             deltas = new
         self.x87_deltas = deltas
+        # callee-saved registers each guest function may change (fixpoint over calls / tail jumps)
+        info = {e: own_clobbers(ft) for e, ft in self.emitted.items()}
+        clob = {e: set(w) for e, (w, _, _) in info.items()}
+        for _ in range(30):
+            changed = False
+            for e, (w, saved, callees) in info.items():
+                for c in callees:
+                    extra = (clob.get(c, {"ebx", "esi", "edi", "ebp"}) - saved) - clob[e]
+                    if extra:
+                        clob[e] |= extra
+                        changed = True
+            if not changed:
+                break
+        self.clobbers = {e: bool(c) for e, c in clob.items()}
 
     def translate_function(self, entry):
         ft = self.emitted.get(entry)

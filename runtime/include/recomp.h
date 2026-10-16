@@ -94,6 +94,30 @@ static inline uint16_t POP16(void) { uint16_t v = RD16(R.esp); R.esp += 2; retur
 #define LPUSH16(v) do { uint16_t p_ = (v); esp -= 2; WR16(esp, p_); } while (0)
 #define LPOP32() (esp += 4, RD32(esp - 4))
 #define LPOP16() (esp += 2, RD16(esp - 2))
+#define LPUSH32A(v) do { uint32_t p_ = (v); esp -= 4; WR32A(esp, p_); } while (0)
+#define LPUSH16A(v) do { uint16_t p_ = (v); esp -= 2; WR16A(esp, p_); } while (0)
+#define LPOP32A() (esp += 4, RD32A(esp - 4))
+#define LPOP16A() (esp += 2, RD16A(esp - 2))
+/* optimize_spills (translate.py): SPILL_M stores only the registers in mask m (bits: eax ecx edx
+ * ebx esp ebp esi edi) — the others still equal R; RELOAD_ABI after a call that follows the x86
+ * calling convention reads back only eax, ecx, edx and esp. RECOMP_CHECK_SAVED checks both. */
+#ifdef RECOMP_CHECK_SAVED
+void recomp_check_saved(uint32_t va, int what, uint32_t mask);
+#define SPILL_M(va, m)                                                                            \
+    (recomp_check_saved((va), 0, ((R.eax != eax) << 0 | (R.ecx != ecx) << 1 | (R.edx != edx) << 2 |  \
+                                  (R.ebx != ebx) << 3 | (R.esp != esp) << 4 | (R.ebp != ebp) << 5 |  \
+                                  (R.esi != esi) << 6 | (R.edi != edi) << 7) & ~(m)), SPILL())
+#define RELOAD_ABI(va)                                                                            \
+    (recomp_check_saved((va), 1, (R.ebx != ebx) << 3 | (R.ebp != ebp) << 5 | (R.esi != esi) << 6 |   \
+                                 (R.edi != edi) << 7), RELOAD())
+#else
+#define SPILL_M(va, m)                                                                            \
+    ((void)(va), ((m) & 0x01) ? (void)(R.eax = eax) : (void)0, ((m) & 0x02) ? (void)(R.ecx = ecx) : (void)0, \
+     ((m) & 0x04) ? (void)(R.edx = edx) : (void)0, ((m) & 0x08) ? (void)(R.ebx = ebx) : (void)0,          \
+     ((m) & 0x10) ? (void)(R.esp = esp) : (void)0, ((m) & 0x20) ? (void)(R.ebp = ebp) : (void)0,          \
+     ((m) & 0x40) ? (void)(R.esi = esi) : (void)0, ((m) & 0x80) ? (void)(R.edi = edi) : (void)0)
+#define RELOAD_ABI(va) ((void)(va), eax = R.eax, ecx = R.ecx, edx = R.edx, esp = R.esp)
+#endif
 /* x87 stack in locals (x87_locals in translate.py): FCOM on the local status word. */
 #define FCOM_L(sw, a, b)                                                                         \
     do { fpu_t a_ = (a), b_ = (b); sw &= ~0x4500u;                                               \
@@ -211,8 +235,30 @@ void x86_unimpl(uint32_t va, const char *what);
 #define WR64(a, v) do { uint64_t w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 8); } while (0)
 #define WRF32(a, v) do { float w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 4); } while (0)
 #define WRF64(a, v) do { double w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 8); } while (0)
+/* proven-aligned accesses (align_accesses in translate.py): one load/store on strict-alignment CPUs */
+#define AL_(a, n) __builtin_assume_aligned(mb + (uint32_t)(a), n)
+#define RD16A(a) ({ uint16_t r_; memcpy(&r_, AL_(a, 2), 2); r_; })
+#define RD32A(a) ({ uint32_t r_; memcpy(&r_, AL_(a, 4), 4); r_; })
+#define RD64A(a) ({ uint64_t r_; memcpy(&r_, AL_(a, 4), 8); r_; })
+#define RDF32A(a) ({ float r_; memcpy(&r_, AL_(a, 4), 4); r_; })
+#define RDF64A(a) ({ double r_; memcpy(&r_, AL_(a, 4), 8); r_; })
+#define WR16A(a, v) do { uint16_t w_ = (v); memcpy(AL_(a, 2), &w_, 2); } while (0)
+#define WR32A(a, v) do { uint32_t w_ = (v); memcpy(AL_(a, 4), &w_, 4); } while (0)
+#define WR64A(a, v) do { uint64_t w_ = (v); memcpy(AL_(a, 4), &w_, 8); } while (0)
+#define WRF32A(a, v) do { float w_ = (v); memcpy(AL_(a, 4), &w_, 4); } while (0)
+#define WRF64A(a, v) do { double w_ = (v); memcpy(AL_(a, 4), &w_, 8); } while (0)
 #else
 #define MEM_LOCAL() ((void)0)
+#define RD16A RD16
+#define RD32A RD32
+#define RD64A RD64
+#define RDF32A RDF32
+#define RDF64A RDF64
+#define WR16A WR16
+#define WR32A WR32
+#define WR64A WR64
+#define WRF32A WRF32
+#define WRF64A WRF64
 #endif
 
 #ifdef __cplusplus
