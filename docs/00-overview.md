@@ -34,6 +34,7 @@ Not yet: Linux / Steam Deck, Windows, multiplayer (stubbed by decision), GDI tex
 - [11-d3d-plan.md](11-d3d-plan.md) — phase 6 plan: game uses Direct3D v1 execute buffers; Metal backend + resolution scaling
 - [12-roadmap.md](12-roadmap.md) — owner roadmap: QoL (options menu, controller menus, trigger buttons), widescreen, Linux/Steam Deck, Windows
 - [14-draw-distance.md](14-draw-distance.md) — track sections drawn ahead, per-detail-level table (bike LOD, culling), DrawDistance
+- [16-frame-rate.md](16-frame-rate.md) — game frame timing (limiter, frame time, replays), higher frame rates: measurements and engine assumptions
 - [13-e2e-testing.md](13-e2e-testing.md) — unattended E2E runs: scripted keys, snapshots, contact sheets, menu navigation facts
 - [15-ports-plan.md](15-ports-plan.md) — Linux / Steam Deck / Windows ports: plan, platform adapters (P0 done), shader pipeline, risks
 
