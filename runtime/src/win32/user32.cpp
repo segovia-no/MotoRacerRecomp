@@ -735,7 +735,46 @@ STDCALL(USER32, PeekMessageA, 5) {
     return 1;
 }
 
-STDCALL(USER32, TranslateMessage, 1) { return 0; }
+// WM_KEYDOWN -> WM_CHAR (WM_SYSKEYDOWN -> WM_SYSCHAR) for keys that type a character, US layout,
+// as Windows does. The game's window procedure (0x432980) keeps the last WM_CHAR in 0x51be90; the
+// end-of-race record pages (8: 0x44aee0, 9: 0x44d540) read the initials from it.
+namespace {
+uint32_t vk_to_char(uint32_t vk, bool shift, bool caps) {
+    if (vk >= 'A' && vk <= 'Z') return (shift != caps) ? vk : vk + 32;
+    if (vk >= '0' && vk <= '9') return shift ? static_cast<uint8_t>(")!@#$%^&*("[vk - '0']) : vk;
+    if (vk >= 0x60 && vk <= 0x69) return '0' + (vk - 0x60);   // numpad digits
+    switch (vk) {
+    case 0x08: case 0x09: case 0x0D: case 0x1B: case 0x20: return vk;   // Backspace Tab Enter Esc Space
+    case 0x6A: return '*';
+    case 0x6B: return '+';
+    case 0x6D: return '-';
+    case 0x6E: return '.';
+    case 0x6F: return '/';
+    case 0xBA: return shift ? ':' : ';';
+    case 0xBB: return shift ? '+' : '=';
+    case 0xBC: return shift ? '<' : ',';
+    case 0xBD: return shift ? '_' : '-';
+    case 0xBE: return shift ? '>' : '.';
+    case 0xBF: return shift ? '?' : '/';
+    case 0xC0: return shift ? '~' : '`';
+    case 0xDB: return shift ? '{' : '[';
+    case 0xDC: return shift ? '|' : '\\';
+    case 0xDD: return shift ? '}' : ']';
+    case 0xDE: return shift ? '"' : '\'';
+    default: return 0;
+    }
+}
+}  // namespace
+
+STDCALL(USER32, TranslateMessage, 1) {
+    uint32_t p = arg(0);
+    uint32_t hwnd = RD32(p), msg = RD32(p + 4), vk = RD32(p + 8), lp = RD32(p + 12);
+    if (msg != WM_KEYDOWN && msg != WM_SYSKEYDOWN) return 0;
+    uint32_t ch = vk_to_char(vk, w32::key_state(0x10) & 0x8000, w32::key_state(0x14) & 1);
+    if (!ch || (w32::key_state(0x11) & 0x8000)) return 0;   // Ctrl combinations type control codes
+    post_message(hwnd, msg == WM_KEYDOWN ? WM_CHAR : 0x0106 /* WM_SYSCHAR */, ch, lp);
+    return 1;
+}
 
 STDCALL(USER32, DispatchMessageA, 1) {
     uint32_t p = arg(0);

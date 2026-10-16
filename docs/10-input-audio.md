@@ -117,3 +117,26 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
 - **Verified (E2E, Mac):** three F7 taps in a race gave dials → digital → hidden → dials, with matching log lines.
   `MOTORACER_AUTOKEYS` now accepts `F1`–`F10`. The Back button path is not E2E-tested (no joystick injection in
   tests); it uses the same key injection as the menu buttons.
+
+## Typed text: TranslateMessage and the record initials (owner report, 2026-10-16)
+- **Symptom:** after a race, the TOP 5 record screen asked for initials but typing did nothing.
+- **Cause:** `TranslateMessage` was a stub, so no `WM_CHAR` was ever generated. The game is MFC:
+  `CWinThread::Run` (`0x4c670e`) runs the game in OnIdle and pumps messages with `PumpMessage`
+  (`0x4c6d18`: GetMessage → PreTranslateMessage → TranslateMessage → DispatchMessage). The window
+  procedure `0x432980` stores the last `WM_CHAR` in `0x51be90` (scancode in `0x50bbb0`); the record page
+  (page 9, TOP 5, per frame `0x44d540`) takes up to 3 initials from it in solo races (`0x4dbffc`):
+  count `0x540070` (3 = nothing to enter), rows being entered `0x5401c4` (bit per row), names at
+  `0x5cf509 + row·0xf9`, Backspace deletes, Enter confirms, letters are upper-cased (`0x4b55a0`). Page 8
+  (`0x44aee0`) reads it the same way for longer text (up to 0x3fe). The startup ENTER YOUR NAME screen
+  uses WM_KEYDOWN (and an arrow-key letter grid), so it always worked.
+- **Fix:** `TranslateMessage` posts `WM_CHAR` (`WM_SYSCHAR` for WM_SYSKEYDOWN) for keys that type a
+  character, US layout: letters (Shift / Caps Lock), digits and their shifted symbols, numpad digits and
+  operators, punctuation, Space, Backspace, Tab, Enter, Esc; nothing while Ctrl is held.
+- **Gamepad (no keyboard on a Steam Deck):** while page 9 is active in a solo race, D-pad up/down
+  cycles the current letter (A–Z, 0–9) in place, right or A keeps it, left or B deletes, Start (or A with
+  no letter pending) confirms. The game keeps only the last WM_CHAR, so the runtime queues characters
+  and posts one every 60 ms (Backspace + new letter when cycling). Normal menu mapping is suspended there.
+- **Verified:** E2E on the startup name screen: typing still adds each letter once ("DSI" + "ABC").
+  Page 9 test (temporary harness: jump to page 9, mark row 1 as a new record after the page's init):
+  typing "mac" took the count from 0 to 3; owner confirmed typing initials works. The gamepad path is not
+  E2E-tested (no joystick injection in tests).

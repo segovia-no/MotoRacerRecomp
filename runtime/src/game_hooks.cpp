@@ -348,6 +348,15 @@ bool first_run() {
     return !defaults_applied;
 }
 
+// Record page: page 9 (per frame 0x44d540) takes up to 3 initials from WM_CHAR in solo races
+// (0x4dbffc), count at 0x540070. The page manager [0x4dc0c4] keeps the current page at +0x3c.
+bool initials_entry_active() {
+    uint32_t pages = RD32(0x4dc0c4);
+    return pages && RD32(pages + 0x3c) == 9 && RD32(0x4dbffc);
+}
+
+int initials_count() { return static_cast<int>(RD32(0x540070)); }
+
 bool speedometer_button() {
     if (SDL_GetTicks() - race_hud_ms > 300) return false;
     for (uint32_t i = 0; i < 7; i++)

@@ -189,7 +189,69 @@ void nav(uint32_t vk, bool down, bool always = false) {
 }
 }  // namespace
 
+// ---------- gamepad initials on the record page ----------
+// The end-of-race record page (9) only takes typed characters (WM_CHAR, up to 3 initials,
+// Backspace, Enter). With a gamepad: D-pad up/down cycles the current letter in place, right or A
+// keeps it, left or B deletes, Start (or A with no letter pending) confirms. The game keeps only the
+// last WM_CHAR it received, so characters are queued and sent 60 ms apart.
+namespace {
+const char kInitialChars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+int initial_pending = -1;            // index into kInitialChars of the letter being chosen
+std::string char_queue;
+uint64_t char_next = 0;
+
+void queue_char(char c) { char_queue.push_back(c); }
+
+bool initials_event(const SDL_Event &e) {
+    if (e.type != SDL_EVENT_GAMEPAD_BUTTON_DOWN || !game::initials_entry_active()) {
+        if (!game::initials_entry_active()) initial_pending = -1;
+        return game::initials_entry_active() && e.type == SDL_EVENT_GAMEPAD_BUTTON_UP;
+    }
+    const int n = static_cast<int>(sizeof kInitialChars - 1);
+    auto cycle = [&](int dir) {
+        if (initial_pending < 0) {
+            if (game::initials_count() >= 3) return;
+            initial_pending = dir > 0 ? 0 : n - 1;
+        } else {
+            queue_char(0x08);
+            initial_pending = (initial_pending + dir + n) % n;
+        }
+        queue_char(kInitialChars[initial_pending]);
+    };
+    switch (e.gbutton.button) {
+    case SDL_GAMEPAD_BUTTON_DPAD_UP: cycle(1); break;
+    case SDL_GAMEPAD_BUTTON_DPAD_DOWN: cycle(-1); break;
+    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: initial_pending = -1; break;
+    case SDL_GAMEPAD_BUTTON_SOUTH:
+        if (initial_pending >= 0) initial_pending = -1;
+        else queue_char(0x0D);
+        break;
+    case SDL_GAMEPAD_BUTTON_DPAD_LEFT:
+    case SDL_GAMEPAD_BUTTON_EAST:
+        initial_pending = -1;
+        queue_char(0x08);
+        break;
+    case SDL_GAMEPAD_BUTTON_START:
+        initial_pending = -1;
+        queue_char(0x0D);
+        break;
+    default: break;
+    }
+    return true;
+}
+
+void send_queued_chars() {
+    if (char_queue.empty()) return;
+    uint64_t now = SDL_GetTicks();
+    if (now < char_next) return;
+    char_next = now + 60;
+    if (main_window) post_message(main_window, WM_CHAR, static_cast<uint8_t>(char_queue[0]), 1);
+    char_queue.erase(0, 1);
+}
+}  // namespace
+
 void controller_event(const SDL_Event &e) {
+    if (initials_event(e)) return;
     if ((e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP) &&
         e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) {
         bool down = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
@@ -265,6 +327,7 @@ void autokeys_tick() {
 // Auto-repeat for a held direction (like keyboard typematic): 400 ms delay, then every 120 ms.
 void controller_tick() {
     autokeys_tick();
+    send_queued_chars();
     if (!held_vk || !nav_down[held_vk]) return;
     uint64_t now = SDL_GetTicks();
     if (now - held_since > 400 && now - last_repeat > 120) {
