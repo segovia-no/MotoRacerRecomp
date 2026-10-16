@@ -100,6 +100,12 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
 - HUD (lap times, position, time, gauge backgrounds) was missing / wrong: Direct3D MODULATE takes the
   alpha from a texture that has an alpha channel, the GE multiplies it with the vertex alpha, and the
   game's HUD vertices carry alpha 0. Vertex alpha is now forced to 255 for those draws.
+- Doubled speedometer / tachometer: the gauge cluster is one 256x256 4444 texture drawn as two quads
+  over the same rectangle, one of them mirrored (back-facing); the game relies on Direct3D culling
+  (CULLMODE CCW) to drop it, and the GE backend did not cull. Now culled on the CPU while building the
+  triangle list, with the desktop backend's convention (CCW: screen-space cross product < 0).
+  Found with `MOTORACER_GE_DUMP=<frame>` (logs every draw of that frame and saves each texture as
+  the guest surface and the converted GE copy into the snapshot dir).
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).

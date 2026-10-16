@@ -30,7 +30,7 @@ namespace {
 enum {
     RS_TEXTUREADDRESS = 3, RS_ZENABLE = 7, RS_SHADEMODE = 9, RS_ZWRITEENABLE = 14, RS_ALPHATESTENABLE = 15,
     RS_TEXTUREMAG = 17, RS_TEXTUREMIN = 18, RS_SRCBLEND = 19, RS_DESTBLEND = 20, RS_TEXTUREMAPBLEND = 21,
-    RS_ZFUNC = 23, RS_ALPHAREF = 24, RS_ALPHABLENDENABLE = 27, RS_COLORKEYENABLE = 41,
+    RS_CULLMODE = 22, RS_ZFUNC = 23, RS_ALPHAREF = 24, RS_ALPHABLENDENABLE = 27, RS_COLORKEYENABLE = 41,
 };
 
 struct GeVertex {
@@ -65,6 +65,7 @@ uint32_t pending_flags = 0, pending_argb = 0;
 float pending_depth = 1.f;
 bool cpu_dirty = false;             // the guest back buffer is newer than the GE buffer
 std::vector<FrameVertex> frame_vertices;
+uint32_t st_frames = 0;   // presented GPU frames (MOTORACER_GE_DUMP)
 
 // Debug counters, logged every 5 s with MOTORACER_GE_STATS=1.
 struct Stats {
@@ -401,11 +402,18 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     apply_states(rs, tex);
     const float su = tex ? static_cast<float>(texture->w) : 1.f, sv = tex ? static_cast<float>(texture->h) : 1.f;
     tri_out.clear();
+    // Direct3D culling (D3DCULL_CW 2 / CCW 3), done here as in the desktop backend: the game relies
+    // on it, e.g. the gauge cluster is drawn twice, once mirrored (back-facing).
+    const uint32_t cull = rs[RS_CULLMODE];
     for (uint32_t t = 0; t < ntri; t++) {
         const FrameVertex *v[3];
         for (int k = 0; k < 3; k++) {
             uint32_t idx = indices[3 * t + k];
             v[k] = &frame_vertices[base + (idx < nverts ? idx : 0)];
+        }
+        if (cull == 2 || cull == 3) {
+            float c = (v[1]->g.x - v[0]->g.x) * (v[2]->g.y - v[0]->g.y) - (v[1]->g.y - v[0]->g.y) * (v[2]->g.x - v[0]->g.x);
+            if ((cull == 3 && c < 0.f) || (cull == 2 && c > 0.f)) continue;
         }
         if (tex && perspective()) {
             subdivide(*v[0], *v[1], *v[2], 0);
@@ -413,10 +421,57 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             for (int k = 0; k < 3; k++) tri_out.push_back(*v[k]);
         }
     }
+    // Debug: MOTORACER_GE_DUMP=<frame> logs every draw of that presented frame (HUD investigations).
+    static const int dump_frame = getenv("MOTORACER_GE_DUMP") ? atoi(getenv("MOTORACER_GE_DUMP")) : -1;
+    if (dump_frame >= 0 && static_cast<int>(st_frames) == dump_frame) {
+        float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f, u0 = 1e9f, u1 = -1e9f, v0 = 1e9f, v1 = -1e9f;
+        float r0 = 1e9f, r1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
+        for (uint32_t t = 0; t < ntri * 3; t++) {
+            const FrameVertex &fv = frame_vertices[base + (indices[t] < nverts ? indices[t] : 0)];
+            x0 = std::min(x0, fv.g.x); x1 = std::max(x1, fv.g.x); y0 = std::min(y0, fv.g.y); y1 = std::max(y1, fv.g.y);
+            u0 = std::min(u0, fv.g.u); u1 = std::max(u1, fv.g.u); v0 = std::min(v0, fv.g.v); v1 = std::max(v1, fv.g.v);
+            r0 = std::min(r0, fv.rhw); r1 = std::max(r1, fv.rhw); z0 = std::min(z0, fv.g.z); z1 = std::max(z1, fv.g.z);
+        }
+        // save the guest surface and the converted GE copy of each texture once (snapshot dir)
+        static std::map<Surface *, bool> saved;
+        const char *dir = getenv("MOTORACER_SNAPSHOT_DIR");
+        if (texture && tex && dir && !saved[texture] && texture->bpp == 16) {
+            saved[texture] = true;
+            char path[512];
+            snprintf(path, sizeof path, "%s/tex_%p_guest.bmp", dir, (void *)texture);
+            if (SDL_Surface *g = SDL_CreateSurfaceFrom(static_cast<int>(texture->w), static_cast<int>(texture->h),
+                                                       texture->gmask == 0x00F0 ? SDL_PIXELFORMAT_ARGB4444
+                                                       : texture->gmask == 0x03E0 ? SDL_PIXELFORMAT_ARGB1555
+                                                                                  : SDL_PIXELFORMAT_RGB565,
+                                                       M + texture->mem, static_cast<int>(texture->pitch))) {
+                SDL_SaveBMP(g, path);
+                SDL_DestroySurface(g);
+            }
+            snprintf(path, sizeof path, "%s/tex_%p_ge.bmp", dir, (void *)texture);
+            SDL_PixelFormat f = tex->psm == GU_PSM_4444 ? SDL_PIXELFORMAT_ABGR4444
+                                : tex->psm == GU_PSM_5551 ? SDL_PIXELFORMAT_ABGR1555 : SDL_PIXELFORMAT_BGR565;
+            if (tex->psm != GU_PSM_8888)
+                if (SDL_Surface *g = SDL_CreateSurfaceFrom(static_cast<int>(texture->w), static_cast<int>(texture->h), f,
+                                                           tex->data, tex->tbw * 2)) {
+                    SDL_SaveBMP(g, path);
+                    SDL_DestroySurface(g);
+                }
+            log("ge dump: saved texture %p (version %u, converted version %u, ckey %d %04x-%04x, masks %04x/%04x/%04x/%04x)\n",
+                (void *)texture, texture->version, tex->version, texture->ckey_src, texture->ckey_lo, texture->ckey_hi,
+                texture->rmask, texture->gmask, texture->bmask, texture->amask);
+        }
+        log("ge dump: tex %p %ux%u psm %d a%d | tris %u -> %zu | xy %.1f,%.1f..%.1f,%.1f uv %.3f,%.3f..%.3f,%.3f "
+            "rhw %.4g..%.4g z %.0f..%.0f | zen %u zw %u zf %u blend %u %u/%u at %u ck %u tmb %u\n",
+            (void *)texture, texture ? texture->w : 0, texture ? texture->h : 0, tex ? tex->psm : -1, tex ? tex->alpha : 0,
+            ntri, tri_out.size() / 3, x0, y0, x1, y1, u0, v0, u1, v1, r0, r1, z0, z1, rs[RS_ZENABLE],
+            rs[RS_ZWRITEENABLE], rs[RS_ZFUNC], rs[RS_ALPHABLENDENABLE], rs[RS_SRCBLEND], rs[RS_DESTBLEND],
+            rs[RS_ALPHATESTENABLE], rs[RS_COLORKEYENABLE], rs[RS_TEXTUREMAPBLEND]);
+    }
     // Direct3D MODULATE takes alpha from the texture alone when it has an alpha channel; the GE's
     // modulate multiplies it with the vertex alpha, and the game's HUD vertices carry alpha 0.
     const uint32_t blend = rs[RS_TEXTUREMAPBLEND];
     const uint32_t force_alpha = (tex && tex->alpha && blend != 3 && blend != 4) ? 0xFF000000u : 0;
+    if (tri_out.empty()) return;
     auto *out = static_cast<GeVertex *>(psp_ge::list_memory(tri_out.size() * sizeof(GeVertex)));
     for (size_t i = 0; i < tri_out.size(); i++) {
         GeVertex g = tri_out[i].g;
@@ -479,6 +534,7 @@ bool present_flip(Surface *back) {
     if (cpu_dirty) upload_target();
     psp_ge::show();
     end_frame();
+    st_frames++;
     return true;
 }
 
