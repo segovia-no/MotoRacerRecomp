@@ -70,8 +70,15 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   colour key (keyed textures get alpha 0), flat / gouraud, texture blend (MODULATE with texture alpha
   only when the format has alpha, DECAL, DECALALPHA, MODULATEALPHA, ADD), filtering, wrap / clamp.
   Textures converted on change: 565 → 5650 (R/B swapped), keyed 565 / 1555 → 5551, 4444 → 4444,
-  8-bit → 8888 through the palette. Not done: fog, specular, perspective-correct texturing (through
-  mode is affine; possible with the 3D pipeline and w from rhw).
+  8-bit → 8888 through the palette.
+- Fog / specular: not needed — the game never enables Direct3D fog (render state 28; the only
+  `mov [reg], 0x1c` in the code is the CRT's errno) and SPECULARENABLE is always 0 (render-state log).
+- Perspective-correct texturing (2026-10-17): through mode interpolates uv affinely. Instead of the
+  GE's 3D pipeline (its depth would be 1/w with 16 bits instead of the game's linear depth, and the
+  HUD would need a separate path), textured triangles larger than 24 px with a depth ratio > 1.15 are
+  split (up to 3 levels) at edge midpoints with perspective-correct uv; position, depth and colour stay
+  screen-linear as in Direct3D. Race: ~150k extra triangles per 5 s, ~3% of the frame time, frame
+  rate unchanged (PPSSPP). `MOTORACER_GE_PERSPECTIVE=0` turns it off.
 - `runtime/src/psp/gpu_psp.cpp` (`host::gpu`): CPU-drawn frames (menus) as scaled 5650 sprites.
 - PSP startup sets the CPU to 333 MHz (`scePowerSetClockFrequency`; homebrew starts at 222 MHz).
 - Dev tooling: `psp_env.txt` next to the EBOOT sets environment variables (autokeys, snapshots,
@@ -98,7 +105,6 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   `SDL_CreateGPUDevice` (no SDL_GPU on the PSP) — next: the GE backend.
 - 2026-10-17: GE backend: intro, title, menus, bike selection, loading and races render correctly in
   PPSSPP (scripted E2E). Race 16–35 fps (emulated).
-- Next candidates: fog, perspective-
-  correct texturing, PSP button mapping, audio check, a real PSP, the PSP-1000 memory budget.
+- Next candidates: PSP button mapping, audio check, a real PSP, the PSP-1000 memory budget.
   Writing GE vertices straight from the native vertex loops (skipping Direct3D) would save at most
   the Execute share (~10%).

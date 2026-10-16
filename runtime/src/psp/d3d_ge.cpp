@@ -39,6 +39,12 @@ struct GeVertex {
     float x, y, z;
 };
 
+// A frame vertex: the GE vertex plus rhw (1/w), for perspective-correct subdivision.
+struct FrameVertex {
+    GeVertex g;
+    float rhw;
+};
+
 struct Texture {
     uint32_t version = ~0u, pal_version = ~0u;
     void *data = nullptr;
@@ -58,11 +64,11 @@ bool frame_used = false;            // GE drawing since the last present / downl
 uint32_t pending_flags = 0, pending_argb = 0;
 float pending_depth = 1.f;
 bool cpu_dirty = false;             // the guest back buffer is newer than the GE buffer
-std::vector<GeVertex> frame_vertices;
+std::vector<FrameVertex> frame_vertices;
 
 // Debug counters, logged every 5 s with MOTORACER_GE_STATS=1.
 struct Stats {
-    uint32_t draws, tris, clears, flips_gpu, flips_cpu, blts_gpu, blts_cpu, downloads, uploads, tex_converts;
+    uint32_t draws, tris, clears, flips_gpu, flips_cpu, blts_gpu, blts_cpu, downloads, uploads, tex_converts, subdivided;
     uint64_t ns_draw, ns_tex;
 } st{};
 void stats_tick() {
@@ -73,9 +79,9 @@ void stats_tick() {
     if (now - last < 5000) return;
     last = now;
     uint64_t ns_ge = psp_ge::take_wait_ns();
-    log("ge: draws %u tris %u clears %u flip gpu/cpu %u/%u blt gpu/cpu %u/%u downloads %u uploads %u texconv %u | "
+    log("ge: draws %u tris %u (+%u split) clears %u flip gpu/cpu %u/%u blt gpu/cpu %u/%u downloads %u uploads %u texconv %u | "
         "ms in 5 s: execute %llu, draw %llu (textures %llu), GE wait %llu\n",
-        st.draws, st.tris, st.clears, st.flips_gpu, st.flips_cpu, st.blts_gpu, st.blts_cpu, st.downloads, st.uploads,
+        st.draws, st.tris, st.subdivided, st.clears, st.flips_gpu, st.flips_cpu, st.blts_gpu, st.blts_cpu, st.downloads, st.uploads,
         st.tex_converts, (unsigned long long)(execute_ns / 1000000), (unsigned long long)(st.ns_draw / 1000000), (unsigned long long)(st.ns_tex / 1000000),
         (unsigned long long)(ns_ge / 1000000));
     st = {};
@@ -285,6 +291,59 @@ void apply_states(const uint32_t *rs, Texture *tex) {
     sceGuTexFlush();
 }
 
+// ---------- perspective-correct texturing by subdivision ----------
+// The GE's through mode interpolates texture coordinates linearly on screen (affine); Direct3D
+// interpolates them perspective-correctly. Textured triangles that are large on screen and span a
+// wide depth range are split (up to 3 levels, 64 pieces) at edge midpoints whose uv come from
+// perspective-correct interpolation (uv/w averaged and divided by the averaged 1/w). Position,
+// depth and colour stay linear on screen, which is how Direct3D rasterises them too, so the depth
+// buffer is unchanged. MOTORACER_GE_PERSPECTIVE=0 turns it off.
+std::vector<FrameVertex> tri_out;
+
+bool perspective() {
+    static const bool on = !getenv("MOTORACER_GE_PERSPECTIVE") || strcmp(getenv("MOTORACER_GE_PERSPECTIVE"), "0");
+    return on;
+}
+
+uint32_t mix_color(uint32_t a, uint32_t b) {
+    return ((a >> 1) & 0x7F7F7F7Fu) + ((b >> 1) & 0x7F7F7F7Fu) + (a & b & 0x01010101u);
+}
+
+FrameVertex midpoint(const FrameVertex &a, const FrameVertex &b) {
+    FrameVertex m;
+    m.g.x = (a.g.x + b.g.x) * 0.5f;
+    m.g.y = (a.g.y + b.g.y) * 0.5f;
+    m.g.z = (a.g.z + b.g.z) * 0.5f;
+    m.g.color = mix_color(a.g.color, b.g.color);
+    m.rhw = (a.rhw + b.rhw) * 0.5f;
+    m.g.u = (a.g.u * a.rhw + b.g.u * b.rhw) * 0.5f / m.rhw;
+    m.g.v = (a.g.v * a.rhw + b.g.v * b.rhw) * 0.5f / m.rhw;
+    return m;
+}
+
+void subdivide(const FrameVertex &a, const FrameVertex &b, const FrameVertex &c, int depth) {
+    if (depth < 3) {
+        float rmin = std::min(a.rhw, std::min(b.rhw, c.rhw)), rmax = std::max(a.rhw, std::max(b.rhw, c.rhw));
+        auto len2 = [](const FrameVertex &p, const FrameVertex &q) {
+            float dx = p.g.x - q.g.x, dy = p.g.y - q.g.y;
+            return dx * dx + dy * dy;
+        };
+        float longest = std::max(len2(a, b), std::max(len2(b, c), len2(c, a)));
+        // split when the depth ratio is > 1.15 and an edge is longer than 24 pixels
+        if (rmax > rmin * 1.15f && longest > 24.f * 24.f) {
+            FrameVertex ab = midpoint(a, b), bc = midpoint(b, c), ca = midpoint(c, a);
+            subdivide(a, ab, ca, depth + 1);
+            subdivide(ab, b, bc, depth + 1);
+            subdivide(ca, bc, c, depth + 1);
+            subdivide(ab, bc, ca, depth + 1);
+            return;
+        }
+    }
+    tri_out.push_back(a);
+    tri_out.push_back(b);
+    tri_out.push_back(c);
+}
+
 void end_frame() {
     frame_used = false;
     frame_vertices.clear();
@@ -320,7 +379,8 @@ uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
         const TLVertex &v = verts[i];
         float z = 65535.f * (1.f - v.sz);
         z = z < 0.f ? 0.f : z > 65535.f ? 65535.f : z;
-        frame_vertices.push_back({v.tu, v.tv, argb_to_abgr(v.color), v.sx * scale + off_x, v.sy * scale + off_y, z});
+        float rhw = v.rhw > 1e-12f ? v.rhw : 1e-12f;
+        frame_vertices.push_back({{v.tu, v.tv, argb_to_abgr(v.color), v.sx * scale + off_x, v.sy * scale + off_y, z}, rhw});
     }
     return base;
 }
@@ -335,16 +395,29 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     Texture *tex = texture_for(texture);
     apply_states(rs, tex);
     const float su = tex ? static_cast<float>(texture->w) : 1.f, sv = tex ? static_cast<float>(texture->h) : 1.f;
-    auto *out = static_cast<GeVertex *>(psp_ge::list_memory(ntri * 3 * sizeof(GeVertex)));
-    for (uint32_t t = 0; t < ntri * 3; t++) {
-        uint32_t idx = indices[t];
-        GeVertex v = frame_vertices[base + (idx < nverts ? idx : 0)];
-        v.u *= su;
-        v.v *= sv;
-        out[t] = v;
+    tri_out.clear();
+    for (uint32_t t = 0; t < ntri; t++) {
+        const FrameVertex *v[3];
+        for (int k = 0; k < 3; k++) {
+            uint32_t idx = indices[3 * t + k];
+            v[k] = &frame_vertices[base + (idx < nverts ? idx : 0)];
+        }
+        if (tex && perspective()) {
+            subdivide(*v[0], *v[1], *v[2], 0);
+        } else {
+            for (int k = 0; k < 3; k++) tri_out.push_back(*v[k]);
+        }
     }
+    auto *out = static_cast<GeVertex *>(psp_ge::list_memory(tri_out.size() * sizeof(GeVertex)));
+    for (size_t i = 0; i < tri_out.size(); i++) {
+        GeVertex g = tri_out[i].g;
+        g.u *= su;
+        g.v *= sv;
+        out[i] = g;
+    }
+    st.subdivided += static_cast<uint32_t>(tri_out.size() / 3 - ntri);
     sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_2D,
-                   static_cast<int>(ntri * 3), nullptr, out);
+                   static_cast<int>(tri_out.size()), nullptr, out);
 }
 
 void clear(uint32_t flags, uint32_t argb, float depth) {
