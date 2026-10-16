@@ -113,6 +113,13 @@ struct HudQuad {
     size_t cmd;                    // index into frame_cmds
 };
 std::vector<HudQuad> hud_quads;      // this frame's HUD quads (see hud_apply)
+// A middle-column HUD element followed from frame to frame (see hud_apply).
+struct HudTrack {
+    float w, h, cx, cy;   // guest size and centre last frame
+    float sx, sy;         // screen offset of the centre (frozen once it moves)
+    bool moving;
+};
+std::vector<HudTrack> hud_tracks;
 std::vector<uint32_t> frame_indices;
 std::vector<Cmd> frame_cmds;
 bool failed = false;
@@ -680,7 +687,8 @@ uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
 //  - in the middle third its centre is moved by hud_map (continuous, k times the distance from the
 //    screen centre near the centre, compressed towards the edges) and its size is scaled by k, so
 //    centred messages keep their layout ("03" above "GET READY") and moving ones (the "4 LAPS"
-//    banner falls across the screen) still cross the screen once.
+//    banner falls across the screen) still cross the screen once. Elements are followed from frame
+//    to frame: once one moves, its offset is frozen and it moves exactly as the game moves it.
 float hud_factor() {
     if (g_w <= 640) return 1.f;
     float k = settings::get().hud_scale > 0 ? settings::get().hud_scale : static_cast<float>(g_w) / 640.f;
@@ -720,7 +728,7 @@ bool hud_record(uint32_t base, uint32_t nverts, const uint16_t *indices, uint32_
 
 // Groups the frame's HUD quads into elements and scales them (before the vertices are uploaded).
 void hud_apply() {
-    if (hud_quads.empty()) return;
+    if (hud_quads.empty()) { hud_tracks.clear(); return; }
     float k = hud_factor(), rt_scale = static_cast<float>(rt_w) / static_cast<float>(g_w);
     size_t n = hud_quads.size();
     // union-find over the 2D sprites: sprites touching after growing each by half the smaller
@@ -757,26 +765,44 @@ void hud_apply() {
                 break;
             }
     }
-    std::vector<uint8_t> done(frame_vertices.size(), 0);
+    // Placement per element: anchor (ax, ay) the element is scaled about, plus an offset (sx, sy).
+    struct Place { float ax, ay, sx, sy; };
+    std::map<size_t, Place> places;
+    std::vector<HudTrack> tracks;
     float W = static_cast<float>(g_w), H = static_cast<float>(g_h);
+    for (auto &[r, b] : boxes) {
+        float cx = (b[0] + b[2]) * 0.5f, cy = (b[1] + b[3]) * 0.5f, w = b[2] - b[0], h = b[3] - b[1];
+        if (cx < W / 3.f || cx > W * 2.f / 3.f) {   // side columns: anchored to the screen edges
+            places[r] = {cx < W / 3.f ? 0.f : W, cy < H / 3.f ? 0.f : cy > H * 2.f / 3.f ? H : H * 0.5f, 0, 0};
+            continue;
+        }
+        // Middle column, at rest: centre moved by hud_map, kept on screen if it was fully on screen.
+        float sx = hud_map(cx, W, k) - cx, sy = hud_map(cy, H, k) - cy;
+        float nx0 = cx + (b[0] - cx) * k + sx, nx1 = cx + (b[2] - cx) * k + sx;
+        float ny0 = cy + (b[1] - cy) * k + sy, ny1 = cy + (b[3] - cy) * k + sy;
+        if (b[0] >= 0 && b[2] <= W) sx += nx0 < 0 ? -nx0 : nx1 > W ? W - nx1 : 0;
+        if (b[1] >= 0 && b[3] <= H) sy += ny0 < 0 ? -ny0 : ny1 > H ? H - ny1 : 0;
+        // Moving (the "4 LAPS" banner falls with gravity): hud_map's slope varies (k at the centre and
+        // edges, less in between), so mapping each frame would make it speed up and slow down. Same-size
+        // element near last frame's position = the same element; once it moves, its offset is frozen
+        // and it follows the game's own motion 1:1.
+        const HudTrack *prev = nullptr;
+        float best = H * 0.15f;
+        for (const HudTrack &t : hud_tracks) {
+            if (std::fabs(t.w - w) > 1.5f || std::fabs(t.h - h) > 1.5f) continue;
+            float d = std::max(std::fabs(cx - t.cx), std::fabs(cy - t.cy));
+            if (d <= best) { best = d; prev = &t; }
+        }
+        bool moving = prev && (prev->moving || best > 0.25f);
+        if (moving) { sx = prev->sx; sy = prev->sy; }
+        tracks.push_back({w, h, cx, cy, sx, sy, moving});
+        places[r] = {cx, cy, sx, sy};
+    }
+    hud_tracks = std::move(tracks);
+    std::vector<uint8_t> done(frame_vertices.size(), 0);
     for (size_t i = 0; i < n; i++) {
         if (!scaled[i]) continue;   // a model in the world, drawn in front
-        const auto &b = boxes[root(i)];
-        float cx = (b[0] + b[2]) * 0.5f, cy = (b[1] + b[3]) * 0.5f, ax, ay, sx = 0, sy = 0;
-        if (cx < W / 3.f || cx > W * 2.f / 3.f) {   // side columns: anchored to the screen edges
-            ax = cx < W / 3.f ? 0.f : W;
-            ay = cy < H / 3.f ? 0.f : cy > H * 2.f / 3.f ? H : H * 0.5f;
-        } else {                                    // middle column: centre moved by hud_map
-            ax = cx;
-            ay = cy;
-            sx = hud_map(cx, W, k) - cx;
-            sy = hud_map(cy, H, k) - cy;
-            // keep an element that was fully on screen on screen
-            float nx0 = cx + (b[0] - cx) * k + sx, nx1 = cx + (b[2] - cx) * k + sx;
-            float ny0 = cy + (b[1] - cy) * k + sy, ny1 = cy + (b[3] - cy) * k + sy;
-            if (b[0] >= 0 && b[2] <= W) sx += nx0 < 0 ? -nx0 : nx1 > W ? W - nx1 : 0;
-            if (b[1] >= 0 && b[3] <= H) sy += ny0 < 0 ? -ny0 : ny1 > H ? H - ny1 : 0;
-        }
+        auto [ax, ay, sx, sy] = places[root(i)];
         for (uint32_t vi : hud_quads[i].verts) {
             if (done[vi]) continue;
             done[vi] = 1;

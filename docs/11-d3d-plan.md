@@ -184,6 +184,17 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   element. Now elements are built from sprites only; a model joins an element only if its bounding
   box lies inside the element's sprite box (gauge needles inside their dial), otherwise it is left
   alone. Owner-confirmed at the end of a lap.
+- Bug (owner, 2026-10-16): the "4 LAPS" banner no longer fell smoothly: it sped up and slowed down on
+  its way down. Traced per frame at 1920×1080 (k = 3): the game moves it with gravity (centre y 28.5 at
+  rest, then steps of 1, 2, … 20 px per frame, off the bottom). `hud_map` has slope k near the top,
+  centre and bottom and a smaller slope in between, so the on-screen steps went 3 → 6, then 1.3,
+  then 39–45 through the centre, then 5–6. A fixed map cannot keep static centred text in its
+  original layout and move a falling element at an even speed at the same time.
+  Fix: middle-column elements are followed between frames (same size within 1.5 px, nearest centre
+  within 15% of the height). At rest they are placed by `hud_map` as before. Once one moves, the
+  offset from its last resting frame is frozen and it follows the game's motion 1:1 (no on-screen
+  clamp, so it can leave the screen). Verified by E2E trace: on-screen steps equal the game's
+  (1, 1, 2, … 20 px), the banner leaves at the bottom; "03"/"GET READY"/countdown are never seen as moving.
 - `MOTORACER_SNAPSHOT_EVERY=<frames>` sets the GPU snapshot interval (default 120) for animations.
 
 ### Options > D3D is the native renderer switch (2026-10-14)
