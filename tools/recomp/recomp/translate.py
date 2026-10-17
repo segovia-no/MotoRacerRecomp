@@ -121,10 +121,16 @@ GAME_HOOKS = {
 # MSVC CRT _ftol (fnstcw / fldcw truncate / fistp qword / restore): calls are inlined (FTOL in recomp.h).
 FTOL_VA = 0x4B3048
 
-# Guest functions with a native version (runtime/src/native_render.cpp, docs/24-native-render.md):
+# Guest functions with a native version (runtime/src/native_geom.cpp, docs/27-native-geometry.md):
 # f_<va> calls the native function, which returns 0 to run the translated body (kept as f_<va>_t).
 # (0x419d60, the triangle emitter, was tried: no gain over the translated code, docs/24.)
-NATIVE_FUNCS = {}
+NATIVE_FUNCS = {
+    0x49B2C0: "native_transform",   # vertex transform + projection
+    0x49B7F0: "native_faces",       # face visibility -> polygon setup
+    0x49C110: "native_faces2",      # face visibility (variant) -> polygon setup / special
+    0x49C590: "native_poly_setup",  # polygon setup
+    0x49CA70: "native_poly_special",  # special polygon setup (check mode records the calls)
+}
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function).
 GAME_JUMP_HOOKS = {

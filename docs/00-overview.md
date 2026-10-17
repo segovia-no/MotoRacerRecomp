@@ -45,6 +45,7 @@ Not yet: Linux / Steam Deck, Windows, multiplayer (stubbed by decision), GDI tex
 - [24-native-render.md](24-native-render.md) — render-list flush 0x4af570 reversed (execute-buffer object, polygon records, vertex formats), native vertex loops with a check mode and same-input cost measurement (−14% instructions, −4% cycles per frame)
 - [25-psp-port.md](25-psp-port.md) — PSP port: pspdev + PPSSPP setup, PSP build (compact guest address space, PSP adapter), sizes, status
 - [26-psp-profile.md](26-psp-profile.md) — PSP hot functions: estimated MIPS cost per guest function, MIPS-specific overheads (parity, soft double conversion, rep movs, 64-bit division), candidates
+- [27-native-geometry.md](27-native-geometry.md) — native vertex transform, face visibility loops and polygon setup (check mode, PSP timings, alignment of packed objects, local memory base fix)
 - [13-e2e-testing.md](13-e2e-testing.md) — unattended E2E runs: scripted keys, snapshots, contact sheets, menu navigation facts
 - [15-ports-plan.md](15-ports-plan.md) — Linux / Steam Deck / Windows ports: plan, platform adapters (P0 done), shader pipeline, risks
 

@@ -71,3 +71,8 @@ check, `0x41a310` end / Execute, `0x41dde0` / `0x41e000` / `0x41e1b0` / `0x41e2b
   (hoisting, fewer loads); straight transcriptions of x86 loops gain little. For the PSP the larger
   win is skipping Direct3D entirely (writing GE vertices in these loops instead of TLVERTEX records
   that the runtime then translates again).
+
+## Note (2026-10-17)
+The local memory base described above (`MEM_LOCAL`) was not in effect in this file until
+2026-10-17: `runtime.h` includes `recomp.h` before the file's own `#define RECOMP_GENERATED`. Fixed
+with `runtime/include/recomp_mem_local.h` (27-native-geometry.md).

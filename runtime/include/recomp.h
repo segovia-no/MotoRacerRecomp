@@ -216,6 +216,12 @@ void game_hook_opponents(void);
 int native_flat_vertices(void);
 int native_tex_vertices(void);
 void native_vertices_check(void);
+/* whole functions (NATIVE_FUNCS in translate.py, runtime/src/native_geom.cpp): nonzero = done */
+int native_transform(void);
+int native_faces(void);
+int native_poly_setup(void);
+int native_faces2(void);
+int native_poly_special(void);
 int game_hook_options_rows(void);     /* jump hooks: nonzero = take the jump */
 int game_hook_options_action(void);
 int game_hook_options_info(void);
@@ -234,32 +240,7 @@ void x86_unimpl(uint32_t va, const char *what);
  * MEM_LOCAL at the top of every translated function), so stores through it don't make the compiler
  * reload the global M. Defined last: the inline helpers above keep using M. */
 #ifdef RECOMP_GENERATED
-#define MEMBASE mb
-#define MEM_LOCAL() uint8_t *const mb = M
-#define RD8(a) (mb[(uint32_t)(a)])
-#define RD16(a) ({ uint16_t r_; memcpy(&r_, mb + (uint32_t)(a), 2); r_; })
-#define RD32(a) ({ uint32_t r_; memcpy(&r_, mb + (uint32_t)(a), 4); r_; })
-#define RD64(a) ({ uint64_t r_; memcpy(&r_, mb + (uint32_t)(a), 8); r_; })
-#define RDF32(a) ({ float r_; memcpy(&r_, mb + (uint32_t)(a), 4); r_; })
-#define RDF64(a) ({ double r_; memcpy(&r_, mb + (uint32_t)(a), 8); r_; })
-#define WR8(a, v) (mb[(uint32_t)(a)] = (uint8_t)(v))
-#define WR16(a, v) do { uint16_t w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 2); } while (0)
-#define WR32(a, v) do { uint32_t w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 4); } while (0)
-#define WR64(a, v) do { uint64_t w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 8); } while (0)
-#define WRF32(a, v) do { float w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 4); } while (0)
-#define WRF64(a, v) do { double w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 8); } while (0)
-/* proven-aligned accesses (align_accesses in translate.py): one load/store on strict-alignment CPUs */
-#define AL_(a, n) __builtin_assume_aligned(mb + (uint32_t)(a), n)
-#define RD16A(a) ({ uint16_t r_; memcpy(&r_, AL_(a, 2), 2); r_; })
-#define RD32A(a) ({ uint32_t r_; memcpy(&r_, AL_(a, 4), 4); r_; })
-#define RD64A(a) ({ uint64_t r_; memcpy(&r_, AL_(a, 4), 8); r_; })
-#define RDF32A(a) ({ float r_; memcpy(&r_, AL_(a, 4), 4); r_; })
-#define RDF64A(a) ({ double r_; memcpy(&r_, AL_(a, 4), 8); r_; })
-#define WR16A(a, v) do { uint16_t w_ = (v); memcpy(AL_(a, 2), &w_, 2); } while (0)
-#define WR32A(a, v) do { uint32_t w_ = (v); memcpy(AL_(a, 4), &w_, 4); } while (0)
-#define WR64A(a, v) do { uint64_t w_ = (v); memcpy(AL_(a, 4), &w_, 8); } while (0)
-#define WRF32A(a, v) do { float w_ = (v); memcpy(AL_(a, 4), &w_, 4); } while (0)
-#define WRF64A(a, v) do { double w_ = (v); memcpy(AL_(a, 4), &w_, 8); } while (0)
+#include "recomp_mem_local.h"
 #else
 #define MEMBASE M
 #define MEM_LOCAL() ((void)0)

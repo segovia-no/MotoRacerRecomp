@@ -15,8 +15,7 @@
 #include "runtime.h"
 // Guest memory through a local base pointer (MEM_LOCAL), as in the generated code: with the global M,
 // every store would make the compiler reload M.
-#define RECOMP_GENERATED
-#include "recomp.h"
+#include "recomp_mem_local.h"
 
 namespace {
 
