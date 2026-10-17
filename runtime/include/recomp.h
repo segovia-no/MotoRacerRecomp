@@ -24,13 +24,15 @@ typedef struct {
  * MOTORACER_FPU_FLOAT: for CPUs with a single-precision FPU, e.g. the PSP; the game computes in single
  * precision, docs/21-psp-feasibility.md). FM(sin) is sin or sinf to match. */
 /* RECOMP_COUNT_INSNS (CMake MOTORACER_COUNT_INSNS): every translated instruction counts itself, in
- * total and per guest function (indexed by the function's entry address - 0x400000). */
+ * total, per guest function (indexed by the function's entry address - 0x400000) and per
+ * instruction address. */
 #ifdef RECOMP_COUNT_INSNS
 extern uint64_t recomp_icount;
 extern uint64_t recomp_icf[0x100000];
-#define IC(fn) (recomp_icount++, recomp_icf[((fn) - 0x400000u) & 0xFFFFFu]++)
+extern uint32_t recomp_icv[0x100000];   /* per instruction address - 0x400000 (hot spots inside functions) */
+#define IC(fn, va) (recomp_icount++, recomp_icf[((fn) - 0x400000u) & 0xFFFFFu]++, recomp_icv[((va) - 0x400000u) & 0xFFFFFu]++)
 #else
-#define IC(fn) ((void)0)
+#define IC(fn, va) ((void)0)
 #endif
 
 #ifdef RECOMP_FPU_FLOAT
@@ -224,6 +226,8 @@ int native_faces2(void);
 int native_poly_special(void);
 int native_getc(void);   /* runtime/src/native_load.cpp */
 int native_cfile_read(void);
+int native_rgb_row(void);
+void native_rgb_row_check(void);
 int game_hook_options_rows(void);     /* jump hooks: nonzero = take the jump */
 int game_hook_options_action(void);
 int game_hook_options_info(void);

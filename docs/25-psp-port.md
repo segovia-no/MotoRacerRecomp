@@ -151,7 +151,16 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   `CFile::Read` `0x4c5e9d` reads the host file directly (`rt::read_file`), without the ReadFile
   import path.
 - PPSSPP, Start on bike select → first race frame: ~11.5 s translated, ~9.5 s native (was ~29 s
-  before the buffered files). A temporary per-call `getenv` in the getc hook made it ~2x slower
+  before the buffered files).
+- Per-instruction counts (counting builds now count per instruction address too: `ic_*.va` dumps
+  next to the per-function ones) located the hot loop of the texture loader `0x41c050`: the 24-bit
+  row loop `0x41cdb6..0x41d087`, 2.8 M pixels per race load (three getc, colour-key fix-ups, alpha
+  value, channels rounded into the 16-bit format). Native as a jump hook (`native_rgb_row`); rows
+  touching the colour-conversion rectangle (double-precision helpers) or skipping source pixels
+  (128-wide) stay translated. Check mode compares each row at `0x41d08d`: 10,000 rows, 0
+  mismatches.
+- PPSSPP timeline now: track select → bike select ~3.5 s, Start → first race frame ~3.1 s; first
+  race frame 33.0 s after boot in the scripted run (36.5 s all translated). A temporary per-call `getenv` in the getc hook made it ~2x slower
   for a while: newlib's getenv scans the whole environment.
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)

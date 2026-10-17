@@ -44,6 +44,8 @@ uint64_t recomp_icount = 0;
 #ifdef RECOMP_COUNT_INSNS
 extern "C" uint64_t recomp_icf[0x100000];
 uint64_t recomp_icf[0x100000];   // per guest function (entry - 0x400000), see recomp.h
+extern "C" uint32_t recomp_icv[0x100000];
+uint32_t recomp_icv[0x100000];   // per instruction address
 #endif
 #endif
 
@@ -539,6 +541,13 @@ void rt::icount_dump(const char *tag) {
         fprintf(f, "frames %llu\n", (unsigned long long)icount_frames);
         for (uint32_t i = 0; i < 0x100000; i++)
             if (recomp_icf[i]) fprintf(f, "%x %llu\n", 0x400000 + i, (unsigned long long)recomp_icf[i]);
+        fclose(f);
+    }
+    // per instruction address: <name>.va ("<va> <count>"), tools/icprof.py --va <function>
+    snprintf(path, sizeof path, "%s/ic_%07llu%s%s.va", dir, (unsigned long long)SDL_GetTicks(), *tag ? "_" : "", tag);
+    if (FILE *f = fopen(path, "w")) {
+        for (uint32_t i = 0; i < 0x100000; i++)
+            if (recomp_icv[i]) fprintf(f, "%x %u\n", 0x400000 + i, recomp_icv[i]);
         fclose(f);
     }
 #else

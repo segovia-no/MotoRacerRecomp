@@ -116,6 +116,8 @@ GAME_HOOKS = {
     0x47B5AF: "game_hook_opponents",
     # Render-list flush 0x4af570: where both per-vertex loops end (check mode of the native loops).
     0x4AF9FE: "native_vertices_check",
+    # texture loader 0x41c050: after the 24-bit row loop (check mode compares, native_load.cpp)
+    0x41D08D: "native_rgb_row_check",
 }
 
 # MSVC CRT _ftol (fnstcw / fldcw truncate / fistp qword / restore): calls are inlined (FTOL in recomp.h).
@@ -147,6 +149,8 @@ GAME_JUMP_HOOKS = {
     # Render-list flush 0x4af570: native per-vertex loops (untextured / textured), continuing after them
     0x4AF89B: ("native_flat_vertices", 0x4AF9FE),
     0x4AF9AF: ("native_tex_vertices", 0x4AF9FE),
+    # Texture loader 0x41c050: native 24-bit row loop, continuing after it
+    0x41CDB6: ("native_rgb_row", 0x41D08D),
 }
 
 
@@ -728,7 +732,7 @@ class FunctionTranslator:
             nxt = self.body[i + 1] if i + 1 < len(self.body) else None
             self.out.append(f"__LABEL_{va:08x}__")
             self.out.append(f"    /* {va:08x}: {insn.mnem} {insn.op_str} */")
-            self.out.append(f"    IC(0x{self.entry:x});")
+            self.out.append(f"    IC(0x{self.entry:x}, 0x{va:x});")
             if va in GAME_HOOKS:
                 self.emit(f"{GAME_HOOKS[va]}();")
             if va in GAME_JUMP_HOOKS:
