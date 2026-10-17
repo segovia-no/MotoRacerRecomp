@@ -129,6 +129,10 @@ void show() {
     cur ^= 1;
 }
 
+static uint32_t epoch = 0;
+uint32_t state_epoch() { return epoch; }
+void touch_state() { epoch++; }
+
 uint64_t take_wait_ns() {
     uint64_t w = wait_ns;
     wait_ns = 0;

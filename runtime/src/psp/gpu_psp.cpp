@@ -55,6 +55,7 @@ void draw_frame(const uint16_t *img, uint32_t w, uint32_t h, uint32_t stride) {
         sceGuDrawArray(GU_SPRITES, GU_TEXTURE_32BITF | GU_VERTEX_32BITF | GU_TRANSFORM_2D, 2, nullptr, v);
     }
     sceGuDisable(GU_TEXTURE_2D);
+    touch_state();   // the Direct3D backend's state cache is stale now
     show();
 }
 

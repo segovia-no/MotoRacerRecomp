@@ -124,12 +124,24 @@ void report_stats() {
     for (auto &[st, n] : stats.transform_states) log("  TRANSFORMSTATE %u x%llu\n", st, (unsigned long long)n);
 }
 
+// The per-opcode / per-state histograms (std::map updates for every render state, 3-6 per polygon)
+// cost measurable time on the PSP: there they are collected only with MOTORACER_D3D_STATS=1.
+bool collect_stats() {
+#ifdef __PSP__
+    static const bool on = getenv("MOTORACER_D3D_STATS") && strcmp(getenv("MOTORACER_D3D_STATS"), "0");
+    return on;
+#else
+    return true;
+#endif
+}
+
 Surface *texture_from_handle(uint32_t h) {
     auto it = texture_handles.find(h);
     return it == texture_handles.end() ? nullptr : it->second;
 }
 
 void parse_execute(ExecuteBuffer *eb, Device *dev) {
+    const bool counting = collect_stats();
     stats.executes++;
     gpu::set_target(dev->target);
     uint32_t vtx_off;
@@ -148,7 +160,7 @@ void parse_execute(ExecuteBuffer *eb, Device *dev) {
     while (p + 4 <= end && guard-- > 0) {
         uint8_t op = RD8(p), sz = RD8(p + 1);
         uint16_t count = RD16(p + 2);
-        stats.opcodes[op] += count ? count : 1;
+        if (counting) stats.opcodes[op] += count ? count : 1;
         uint32_t data = p + 4;
         if (op == 12) {   // D3DOP_BRANCHFORWARD: D3DBRANCH {mask, value, bNegate, offset}
             bool taken = false;
@@ -181,21 +193,21 @@ void parse_execute(ExecuteBuffer *eb, Device *dev) {
         case 8:                                   // D3DOP_STATERENDER: {type, value}
             for (uint16_t i = 0; i < count; i++) {
                 uint32_t type = RD32(data + 8 * i), value = RD32(data + 8 * i + 4);
-                stats.render_states[type][value]++;
+                if (counting) stats.render_states[type][value]++;
                 if (type < 256) dev->rs[type] = value;
             }
             break;
         case 7:
-            for (uint16_t i = 0; i < count; i++) stats.light_states[RD32(data + 8 * i)]++;
+            if (counting) for (uint16_t i = 0; i < count; i++) stats.light_states[RD32(data + 8 * i)]++;
             break;
         case 6:
-            for (uint16_t i = 0; i < count; i++) stats.transform_states[RD32(data + 8 * i)]++;
+            if (counting) for (uint16_t i = 0; i < count; i++) stats.transform_states[RD32(data + 8 * i)]++;
             break;
         case 9:                                   // D3DOP_PROCESSVERTICES: {flags, wStart, wDest, dwCount}
             for (uint16_t i = 0; i < count; i++) {
                 uint32_t pv = data + 16 * i;
                 uint32_t flags = RD32(pv), start = RD16(pv + 4), dest = RD16(pv + 6), n = RD32(pv + 8);
-                stats.process_ops[flags]++;
+                if (counting) stats.process_ops[flags]++;
                 if ((flags & 3) != 2) {           // only D3DPROCESSVERTICES_COPY (TLVERTEX) is used by the game
                     static bool warned = false;
                     if (!warned) { warned = true; log("D3D: PROCESSVERTICES flags %x not supported\n", flags); }
@@ -213,7 +225,7 @@ void parse_execute(ExecuteBuffer *eb, Device *dev) {
         p = data + static_cast<uint32_t>(sz) * count;
     }
     uint64_t now = SDL_GetTicks();
-    if (now - last_report_ms > 10000) {
+    if (counting && now - last_report_ms > 10000) {
         last_report_ms = now;
         report_stats();
     }

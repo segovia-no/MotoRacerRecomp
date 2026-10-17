@@ -52,6 +52,18 @@ struct Texture {
     bool alpha = false;
 };
 
+// The game sends 3-6 render states with every polygon, mostly unchanged: GE commands are sent only
+// for values that differ from the last ones sent (the GE keeps its state across display lists).
+// psp_ge::state_epoch() changes when other code (the CPU-frame presenter) changes GE state.
+struct GeState {
+    uint32_t epoch = ~0u;
+    int depth_test = -1, depth_func = -1, depth_mask = -1, blend = -1, bsrc = -1, bdst = -1;
+    unsigned bsfix = 0, bdfix = 0;
+    int alpha_test = -1, alpha_ref = -1, shade = -1, texturing = -1, psm = -1, tfx = -1, tcc = -1;
+    int fmin = -1, fmag = -1, wrap = -1;
+    const void *tdata = nullptr;
+} gs;
+
 Surface *target = nullptr;
 uint32_t g_w = 0, g_h = 0;
 int off_x = 0, off_y = 0;           // the target is centred in the 480x360 buffer
@@ -72,10 +84,13 @@ struct Stats {
     uint32_t draws, tris, clears, flips_gpu, flips_cpu, blts_gpu, blts_cpu, downloads, uploads, tex_converts, subdivided;
     uint64_t ns_draw, ns_tex;
 } st{};
-void stats_tick() {
+bool stats_on() {
     static const bool on = getenv("MOTORACER_GE_STATS") != nullptr;
+    return on;
+}
+void stats_tick() {
     static uint64_t last = 0;
-    if (!on) return;
+    if (!stats_on()) return;
     uint64_t now = SDL_GetTicks();
     if (now - last < 5000) return;
     last = now;
@@ -191,6 +206,7 @@ Texture *texture_for(Surface *s) {
     struct TexTimer { uint64_t t0 = SDL_GetTicksNS(); ~TexTimer() { st.ns_tex += SDL_GetTicksNS() - t0; } } timer;
     t.version = s->version;
     t.pal_version = pal_version;
+    gs.tdata = nullptr;   // new contents (memalign may return the same address): reload the GE texture
     t.tw = 1;
     while (static_cast<uint32_t>(t.tw) < s->w) t.tw <<= 1;
     t.th = 1;
@@ -270,49 +286,59 @@ int depth_func(uint32_t d3d) {   // depth is inverted (near = 65535)
     }
 }
 
+
 void apply_states(const uint32_t *rs, Texture *tex) {
-    if (rs[RS_ZENABLE]) {
-        sceGuEnable(GU_DEPTH_TEST);
-        sceGuDepthFunc(depth_func(rs[23]));
-    } else {
-        sceGuDisable(GU_DEPTH_TEST);
+    if (gs.epoch != psp_ge::state_epoch()) gs = GeState{}, gs.epoch = psp_ge::state_epoch();
+    int dt = rs[RS_ZENABLE] ? 1 : 0;
+    if (dt != gs.depth_test) { dt ? sceGuEnable(GU_DEPTH_TEST) : sceGuDisable(GU_DEPTH_TEST); gs.depth_test = dt; }
+    if (dt) {
+        int f = depth_func(rs[23]);
+        if (f != gs.depth_func) { sceGuDepthFunc(f); gs.depth_func = f; }
     }
-    sceGuDepthMask(rs[RS_ZWRITEENABLE] ? GU_FALSE : GU_TRUE);
-    if (rs[RS_ALPHABLENDENABLE]) {
+    int dm = rs[RS_ZWRITEENABLE] ? GU_FALSE : GU_TRUE;
+    if (dm != gs.depth_mask) { sceGuDepthMask(dm); gs.depth_mask = dm; }
+    int bl = rs[RS_ALPHABLENDENABLE] ? 1 : 0;
+    if (bl != gs.blend) { bl ? sceGuEnable(GU_BLEND) : sceGuDisable(GU_BLEND); gs.blend = bl; }
+    if (bl) {
         unsigned sfix = 0, dfix = 0;
-        int s = blend_factor(rs[RS_SRCBLEND], true, &sfix), d = blend_factor(rs[RS_DESTBLEND], false, &dfix);
-        sceGuEnable(GU_BLEND);
-        sceGuBlendFunc(GU_ADD, s, d, sfix, dfix);
-    } else {
-        sceGuDisable(GU_BLEND);
+        int sf = blend_factor(rs[RS_SRCBLEND], true, &sfix), df = blend_factor(rs[RS_DESTBLEND], false, &dfix);
+        if (sf != gs.bsrc || df != gs.bdst || sfix != gs.bsfix || dfix != gs.bdfix) {
+            sceGuBlendFunc(GU_ADD, sf, df, sfix, dfix);
+            gs.bsrc = sf; gs.bdst = df; gs.bsfix = sfix; gs.bdfix = dfix;
+        }
     }
     bool keyed = rs[RS_COLORKEYENABLE] && tex && tex->alpha;
-    if (rs[RS_ALPHATESTENABLE] || keyed) {
-        sceGuEnable(GU_ALPHA_TEST);
-        sceGuAlphaFunc(GU_GREATER, rs[RS_ALPHATESTENABLE] ? static_cast<int>(rs[RS_ALPHAREF] & 255) : 0, 0xFF);
-    } else {
-        sceGuDisable(GU_ALPHA_TEST);
+    int at = (rs[RS_ALPHATESTENABLE] || keyed) ? 1 : 0;
+    if (at != gs.alpha_test) { at ? sceGuEnable(GU_ALPHA_TEST) : sceGuDisable(GU_ALPHA_TEST); gs.alpha_test = at; }
+    if (at) {
+        int ref = rs[RS_ALPHATESTENABLE] ? static_cast<int>(rs[RS_ALPHAREF] & 255) : 0;
+        if (ref != gs.alpha_ref) { sceGuAlphaFunc(GU_GREATER, ref, 0xFF); gs.alpha_ref = ref; }
     }
-    sceGuShadeModel(rs[RS_SHADEMODE] == 1 ? GU_FLAT : GU_SMOOTH);
-    if (!tex) {
-        sceGuDisable(GU_TEXTURE_2D);
-        return;
+    int sh = rs[RS_SHADEMODE] == 1 ? GU_FLAT : GU_SMOOTH;
+    if (sh != gs.shade) { sceGuShadeModel(sh); gs.shade = sh; }
+    int tx = tex ? 1 : 0;
+    if (tx != gs.texturing) { tx ? sceGuEnable(GU_TEXTURE_2D) : sceGuDisable(GU_TEXTURE_2D); gs.texturing = tx; }
+    if (!tex) return;
+    if (tex->data != gs.tdata || tex->psm != gs.psm) {
+        sceGuTexMode(tex->psm, 0, 0, 0);
+        sceGuTexImage(0, tex->tw, tex->th, tex->tbw, tex->data);
+        sceGuTexFlush();
+        gs.tdata = tex->data;
+        gs.psm = tex->psm;
     }
-    sceGuEnable(GU_TEXTURE_2D);
-    sceGuTexMode(tex->psm, 0, 0, 0);
-    sceGuTexImage(0, tex->tw, tex->th, tex->tbw, tex->data);
+    int tfx, tcc;
     switch (rs[RS_TEXTUREMAPBLEND]) {
-    case 1: case 7: sceGuTexFunc(GU_TFX_REPLACE, GU_TCC_RGBA); break;   // DECAL / COPY
-    case 3: sceGuTexFunc(GU_TFX_DECAL, GU_TCC_RGBA); break;             // DECALALPHA
-    case 4: sceGuTexFunc(GU_TFX_MODULATE, GU_TCC_RGBA); break;          // MODULATEALPHA
-    case 8: sceGuTexFunc(GU_TFX_ADD, GU_TCC_RGBA); break;               // ADD
-    default: sceGuTexFunc(GU_TFX_MODULATE, tex->alpha ? GU_TCC_RGBA : GU_TCC_RGB); break;   // MODULATE
+    case 1: case 7: tfx = GU_TFX_REPLACE; tcc = GU_TCC_RGBA; break;   // DECAL / COPY
+    case 3: tfx = GU_TFX_DECAL; tcc = GU_TCC_RGBA; break;             // DECALALPHA
+    case 4: tfx = GU_TFX_MODULATE; tcc = GU_TCC_RGBA; break;          // MODULATEALPHA
+    case 8: tfx = GU_TFX_ADD; tcc = GU_TCC_RGBA; break;               // ADD
+    default: tfx = GU_TFX_MODULATE; tcc = tex->alpha ? GU_TCC_RGBA : GU_TCC_RGB; break;   // MODULATE
     }
-    int filt = rs[RS_TEXTUREMAG] >= 2 ? GU_LINEAR : GU_NEAREST;
-    sceGuTexFilter(rs[RS_TEXTUREMIN] >= 2 ? GU_LINEAR : GU_NEAREST, filt);
+    if (tfx != gs.tfx || tcc != gs.tcc) { sceGuTexFunc(tfx, tcc); gs.tfx = tfx; gs.tcc = tcc; }
+    int fmag = rs[RS_TEXTUREMAG] >= 2 ? GU_LINEAR : GU_NEAREST, fmin = rs[RS_TEXTUREMIN] >= 2 ? GU_LINEAR : GU_NEAREST;
+    if (fmag != gs.fmag || fmin != gs.fmin) { sceGuTexFilter(fmin, fmag); gs.fmin = fmin; gs.fmag = fmag; }
     int wrap = rs[RS_TEXTUREADDRESS] == 3 ? GU_CLAMP : GU_REPEAT;
-    sceGuTexWrap(wrap, wrap);
-    sceGuTexFlush();
+    if (wrap != gs.wrap) { sceGuTexWrap(wrap, wrap); gs.wrap = wrap; }
 }
 
 // ---------- perspective-correct texturing by subdivision ----------
@@ -418,7 +444,10 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     if (!usable() || !ntri) return;
     st.draws++;
     st.tris += ntri;
-    struct DrawTimer { uint64_t t0 = SDL_GetTicksNS(); ~DrawTimer() { st.ns_draw += SDL_GetTicksNS() - t0; } } timer;
+    struct DrawTimer {   // two clock reads per draw: only with the stats on
+        uint64_t t0 = stats_on() ? SDL_GetTicksNS() : 0;
+        ~DrawTimer() { if (t0) st.ns_draw += SDL_GetTicksNS() - t0; }
+    } timer;
     prepare();
     Texture *tex = texture_for(texture);
     apply_states(rs, tex);

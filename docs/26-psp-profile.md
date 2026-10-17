@@ -64,3 +64,24 @@ backend) 8–13% of the frame.
 - difftest 0 failures; desktop and PPSSPP races normal. MIPS game code 3.93 → 4.06 MB (inlined copy
   loops). PPSSPP race: 168–266 frames per 5 s (34–53 fps), was 111–186 (22–36 fps).
 
+
+## Done: Direct3D backend per-polygon overheads (2026-10-17)
+Race in PPSSPP, same scripted run (deterministic: identical runs give identical counts), presented
+frames per 5 s in the last six windows:
+| Build | frames | per window |
+|---|---|---|
+| quick wins (baseline) | 1,238 | 124 200 204 252 256 202 |
+| + GE state cache | 1,315 (+6%) | 135 211 218 235 266 250 |
+| + no histograms / timers | 1,341 (+2%) | 132 217 223 244 270 255 |
+- GE state cache (`runtime/src/psp/d3d_ge.cpp`, `apply_states`): the game sends 3–6 render states
+  with every polygon, mostly unchanged; the backend sent ~20 GE commands per draw (incl. a texture
+  flush). It now keeps the last values sent and sends only changes; the texture image / flush only
+  when the texture (or its converted contents) changes. `psp_ge::touch_state()` invalidates the
+  cache when other code changes GE state (the CPU-frame presenter). GE draw time in the race
+  ~800 → ~600 ms per 5 s.
+- The execute-buffer parser updated `std::map` histograms (opcodes, every render state's value) for
+  the 10-s "D3D stats" log: on the PSP only with `MOTORACER_D3D_STATS=1` now. The per-draw timer (two
+  clock reads) only with `MOTORACER_GE_STATS=1`. Parsing time ~540 → ~450 ms per 5 s.
+- Batching consecutive draws with identical state into one GE draw was tried: no gain (the state
+  cache already removes the redundant commands; draws are ~4.5 triangles), not kept.
+- Snapshots: menus, race HUD, transparency and tunnels unchanged.
