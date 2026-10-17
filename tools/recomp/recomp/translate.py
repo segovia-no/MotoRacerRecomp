@@ -139,6 +139,11 @@ NATIVE_FUNCS = {
     0x49C590: "native_poly_setup",  # polygon setup
     0x497080: "native_clip",        # triangle clipping against the screen
     0x49CA70: "native_poly_special",  # special polygon setup (check mode records the calls)
+    0x419D60: "native_emit_triangle",   # execute-buffer object methods (native_render.cpp)
+    0x419EE0: "native_emit_line",
+    0x41DDE0: "native_blend_states",
+    0x41E2B0: "native_wrap_states",
+    0x41E380: "native_state_1a",
     0x42F650: "native_getc",        # per-byte file reader used by the loaders (native_load.cpp)
     0x4C5E9D: "native_cfile_read",  # CFile::Read (track loader)
     0x4B2BB0: "native_sprintf",     # CRT sprintf

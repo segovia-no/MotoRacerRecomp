@@ -220,6 +220,11 @@ int native_tex_vertices(void);
 void native_vertices_check(void);
 void native_bucket_skip(void);
 int native_flush_polygon(void);
+int native_emit_triangle(void);
+int native_emit_line(void);
+int native_blend_states(void);
+int native_wrap_states(void);
+int native_state_1a(void);
 void native_flush_check(void);
 /* whole functions (NATIVE_FUNCS in translate.py, runtime/src/native_geom.cpp): nonzero = done */
 int native_transform(void);

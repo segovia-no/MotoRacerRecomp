@@ -25,6 +25,7 @@ extern "C" void f_0049c590_t(void);
 extern "C" void f_0049c110_t(void);
 extern "C" void f_0049ca70(void);
 extern "C" void f_00497080_t(void);
+extern "C" void f_0049ca70_t(void);
 
 namespace {
 
@@ -569,6 +570,71 @@ void clip_triangle() {
     R.esp = sp + 12;   // ret 8
 }
 
+
+// ---- 0x49ca70: polygon setup for "special" faces (from 0x49c110) — fast path ----
+// stdcall (face, depth, verts, variant, flags). Bucket _ftol(depth * [0x4d1f9c]) (negative: nothing),
+// at most 0x1f3e; min / max bucket; face+0x3a = material, or with an override active
+// ([0x4dc0c4] -> 0 and [0x4dc098] <= 1) 0, or 0x2a for materials with flags 9; then (pool not full)
+// a render node (face, depth, next, verts, texture [0x4f9304 + 4 * (id * 206 + variant)], variant).
+// Faces to clip go through the translated code.
+uint32_t special_bucket() {   // the bucket poly_special would use (check mode)
+    MEM_LOCAL();
+    const int32_t lo = static_cast<int32_t>(FTOL(static_cast<fpu_t>(RDF32(R.esp + 8)) * static_cast<fpu_t>(RDF32(BUCKET_SCALE))));
+    return lo < 0 ? 0 : lo >= 0x1f3f ? 0x1f3e : static_cast<uint32_t>(lo);
+}
+
+bool poly_special() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, face = RD32(sp + 4), depth = RD32(sp + 8), verts = RD32(sp + 12), var = RD32(sp + 16),
+                   flags = RD32(sp + 20);
+    if (flags && RD32(CLIP_ON) && !RD32(CLIP_OFF)) return false;
+    R.esp = sp + 0x18;   // ret 0x14
+    const int64_t r = FTOL(static_cast<fpu_t>(RDF32(sp + 8)) * static_cast<fpu_t>(RDF32(BUCKET_SCALE)));
+    uint32_t bucket = static_cast<uint32_t>(r), edx = static_cast<uint32_t>(static_cast<uint64_t>(r) >> 32);
+    if (static_cast<int32_t>(bucket) < 0) {
+        R.eax = bucket;
+        R.edx = edx;
+        return true;
+    }
+    if (static_cast<int32_t>(bucket) >= 0x1f3f) bucket = 0x1f3e;
+    if (static_cast<int32_t>(bucket) > static_cast<int32_t>(RD32(BUCKET_MAX))) WR32(BUCKET_MAX, bucket);
+    if (static_cast<int32_t>(RD32(BUCKET_MIN)) > static_cast<int32_t>(bucket)) WR32(BUCKET_MIN, bucket);
+    const uint16_t material = RD16(face);
+    WR16(face + 0x3a, material);
+    edx = (edx & 0xffff0000u) | material;
+    uint32_t ecx = face;
+    if (const uint32_t p = RD32(MAT_OVERRIDE)) {
+        ecx = RD32(p);
+        if (!ecx && static_cast<int32_t>(RD32(MAT_MODE)) <= 1) {
+            ecx = face;
+            edx = material;
+            WR16(face + 0x3a, 0);
+            if ((RD32(MATERIALS + 4u * material) & 9) == 9) WR16(face + 0x3a, 0x2a);
+        }
+    }
+    const uint32_t n = RD32(NODE_COUNT);
+    if (static_cast<int32_t>(n) >= static_cast<int32_t>(NODE_LIMIT)) {
+        R.eax = n;
+        R.ecx = ecx;
+        R.edx = edx;
+        return true;
+    }
+    const uint32_t id = RD16(face + 0x36);
+    const uint32_t node = NODES + n * 24u, head = HEADS + bucket * 4u, tex = RD32(0x4f9304 + 4 * (id * 206 + var));
+    WR32(node, face);
+    WR32(node + 8, RD32(head));
+    WR32(node + 12, verts);
+    WR32(head, node);
+    WR32(node + 4, depth);
+    WR32(node + 16, tex);
+    WR32(node + 20, var);
+    WR32(NODE_COUNT, n + 1);
+    R.eax = n + 1;
+    R.ecx = tex;
+    R.edx = node;
+    return true;
+}
+
 }  // namespace
 
 extern "C" int native_poly_setup(void) {   // 0x49c590
@@ -648,9 +714,22 @@ int run_faces(Variant var, int timing, void (*translated)(void), const char *nam
 
 extern "C" int native_faces(void) { return run_faces(FACES_7F0, 1, f_0049b7f0_t, "faces 0x49b7f0"); }
 extern "C" int native_faces2(void) { return run_faces(FACES_110, 3, f_0049c110_t, "faces 0x49c110"); }
-extern "C" int native_poly_special(void) {   // 0x49ca70: check mode records the calls
+extern "C" int native_poly_special(void) {   // 0x49ca70
+    MEM_LOCAL();
     if (recording) record_call(0x49ca70);
-    return 0;
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) return poly_special() ? 1 : 0;
+    const uint32_t face = RD32A(R.esp + 4), n = RD32A(NODE_COUNT);
+    const std::vector<Region> regions = {{BUCKET_MIN, 4}, {BUCKET_MAX, 4}, {NODE_COUNT, 4}, {face + 0x3a, 2},
+                                         {NODES + n * 24u, 24}, {HEADS + special_bucket() * 4u, 4}};
+    Snapshot before = take(regions);
+    if (!poly_special()) return 0;
+    Snapshot nat = take(regions);
+    restore(before);
+    f_0049ca70_t();
+    compare("poly special 0x49ca70", nat, take(regions));
+    return 1;
 }
 
 extern "C" int native_transform(void) {

@@ -106,3 +106,21 @@ targets): next node `0x4afcd3`, no room `0x4afcd8`, buffer full `0x4afd3e`.
   mismatches. Owner-tested on desktop and PSP.
 - PPSSPP: render-heavy screens (~350 draws per frame) 335 → 488 frames per 5 s (+46%); race windows
   within run-to-run noise.
+
+## Execute-buffer methods natively (2026-10-17)
+- `0x419d60` triangle / `0x419ee0` line emitter: when the texture changed (`[0x4e4f3c]` ≠ id, or
+  −100), a STATERENDER of the texture handle (`[0x53c538 + 4·[0x4f9550 + 4·(id·206 + variant)]]`
+  for render flag 1 and id < 0x2d, else 0) and a new TRIANGLE (op 3, size 8) / LINE (op 2, size 4)
+  header whose address goes to `[0x53bcf0]`; then the header's count + 1 and the primitive
+  (triangle flags 0x300 / 0x1f / 0x700 by shape). 0 when the buffer has no room (`[0x53bcec]`).
+- `0x41dde0(enable, additive)`: alpha blending — states 0x13 / 0x14 (5 / 6 or 6 / 6 with additive,
+  `[0x4dc1cc]`; else 2 / 3), 0x1b and (unless the player flag `[0x53c770 + 404·[0x53be30]]`) 0x21 =
+  `[0x4e4f10]`, 0xf = 0, 0x15 = `[0x53bc10]`; disabling: 0x1b / 0x21 = 0, 0xf, 0x15; nothing when
+  already off (`[0x4e4f2c]`).
+- `0x41e2b0(on)`: states 0x11 / 0x12 = 2 / 1, cached in `[0x4e4f34]`; `0x41e380(value, force)`: state
+  0x1a, cached in `[0x4e4f38]`. All reset the texture state to −100.
+- The flush calls them directly; NATIVE_FUNCS wrappers for the other callers (check mode per call).
+- Check-mode bug found on the way: the flush check did not snapshot the open TRIANGLE header's
+  count, which sits before the write pointer — in check mode it was incremented twice (native, then
+  translated) and the screen showed garbage triangles (normal mode was not affected).
+- PPSSPP race: +4% with the emitters.

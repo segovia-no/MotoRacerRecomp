@@ -16,7 +16,9 @@ words and guest memory, floating point in `fpu_t` with the x87 code's operation 
 
 | `0x497080` | triangle clipping (Sutherland–Hodgman) against x ≤ xmax+1, y ≤ ymax+1, x > xmin, y > ymin; clip vertices of 28 bytes (screen x/y, light as ints; u/z, v/z, 1/z floats) in two swapping 8-entry buffers `0x60d2d0` / `0x60d1e8`; new vertices: limit, ints `_ftol(v + (n−v)·d/e)`, floats `(n−v)·t + v`; final u, v divided back by 1/z | whole function (2026-10-17) |
 
-Not done: `0x49ca70` (special polygons).
+`0x49ca70` (special polygons, from `0x49c110`, ~730 calls per frame): fast path native like
+`0x49c590` (bucket, min / max, material override: 0 or 0x2a for flags 9, node with the texture
+`[0x4f9304 + 4·(id·206 + variant)]` and the variant); faces to clip stay translated.
 
 ## Floating-point contraction
 The first native clipper differed from the translated code in the last bit of some floats (23 of
