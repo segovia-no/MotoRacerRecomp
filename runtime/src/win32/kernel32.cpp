@@ -2,6 +2,8 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <map>
 #include <vector>
@@ -490,7 +492,45 @@ STDCALL(KERNEL32, LockResource, 1) { return arg(0); }
 // =====================================================================================
 // Files
 // =====================================================================================
+// MOTORACER_IO_STATS=1: opens / reads / seeks with time spent, logged once a second while files are
+// used (loading-time investigations, docs/25).
+namespace {
+struct IoStats {
+    uint64_t opens = 0, reads = 0, bytes = 0, seeks = 0, ns = 0, last_log = 0;
+} io;
+bool io_stats_on() {
+    static const bool on = getenv("MOTORACER_IO_STATS") && strcmp(getenv("MOTORACER_IO_STATS"), "0");
+    return on;
+}
+uint64_t now_ns() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+void io_tick() {
+    const uint64_t t = now_ns();
+    if (t - io.last_log < 1000000000ull) return;
+    if (io.opens || io.reads || io.seeks)
+        log("io: t=%llu ms opens %llu reads %llu (%llu KB) seeks %llu, %llu ms in file calls\n",
+            static_cast<unsigned long long>(t / 1000000), static_cast<unsigned long long>(io.opens),
+            static_cast<unsigned long long>(io.reads), static_cast<unsigned long long>(io.bytes / 1024),
+            static_cast<unsigned long long>(io.seeks), static_cast<unsigned long long>(io.ns / 1000000));
+    io = IoStats{};
+    io.last_log = t;
+}
+struct IoTimer {
+    uint64_t t0;
+    IoTimer() : t0(io_stats_on() ? now_ns() : 0) {}
+    ~IoTimer() {
+        if (!t0) return;
+        io.ns += now_ns() - t0;
+        io_tick();
+    }
+};
+}  // namespace
+
 STDCALL(KERNEL32, CreateFileA, 7) {
+    IoTimer timer;
+    io.opens++;
     std::string gp = read_cstr(arg(0));
     std::string hp = host_path(gp);
     uint32_t access = arg(1), disp = arg(4);
@@ -520,9 +560,12 @@ STDCALL(KERNEL32, CreateFileA, 7) {
 }
 
 STDCALL(KERNEL32, ReadFile, 5) {
+    IoTimer timer;
     File *f = handle_as<File>(arg(0));
     if (!f) { set_last_error(ERROR_INVALID_HANDLE); return 0; }
     int64_t n = f->host->read(M + arg(1), arg(2));
+    io.reads++;
+    if (n > 0) io.bytes += static_cast<uint64_t>(n);
     if (arg(3)) WR32(arg(3), n < 0 ? 0 : static_cast<uint32_t>(n));
     return n >= 0;
 }
@@ -536,6 +579,8 @@ STDCALL(KERNEL32, WriteFile, 5) {
 }
 
 STDCALL(KERNEL32, SetFilePointer, 4) {
+    IoTimer timer;
+    io.seeks++;
     File *f = handle_as<File>(arg(0));
     if (!f) { set_last_error(ERROR_INVALID_HANDLE); return 0xFFFFFFFF; }
     int64_t off = static_cast<int32_t>(arg(1));

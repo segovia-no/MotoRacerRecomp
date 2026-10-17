@@ -126,6 +126,16 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   with the red / blue swap folded in. Main menu 104 → 243 frames per 5 s (~21 → ~49 fps); intro /
   title / name entry windows 2–2.5x faster. Same picture.
 
+## Loading time (2026-10-17)
+- Owner report: loading too long. `MOTORACER_IO_STATS=1` (kernel32 file shims: opens / reads /
+  seeks / time, once a second) showed the race load reading the track with ~8,000 `ReadFile` calls
+  per second of a few bytes each, ~890 ms of every second inside the file calls (~0.11 ms per PSP
+  `sceIoRead`), for ~24 s.
+- Read-only files on the PSP now go through a 32 KB buffer (`PspReadFile` in
+  `runtime/src/platform/psp.cpp`; seeks only move the position, large reads go straight to the
+  destination). The same phase: ~48,000 reads per second, ~4 s. Start → race ~29 s → ~12 s in
+  PPSSPP; the rest is the game's own processing while it loads.
+
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).
 - Time per 5 s in the race: Direct3D Execute (parsing + GE backend) 400–660 ms (8–13%), of which the
