@@ -79,6 +79,8 @@ bool cpu_dirty = false;             // the guest back buffer is newer than the G
 std::vector<FrameVertex> frame_vertices;
 uint32_t st_frames = 0;   // presented GPU frames (MOTORACER_GE_DUMP)
 
+std::map<Surface *, Texture> textures;
+
 // Debug counters, logged every 5 s with MOTORACER_GE_STATS=1.
 struct Stats {
     uint32_t draws, tris, clears, flips_gpu, flips_cpu, blts_gpu, blts_cpu, downloads, uploads, tex_converts, subdivided;
@@ -95,6 +97,10 @@ void stats_tick() {
     if (now - last < 5000) return;
     last = now;
     uint64_t ns_ge = psp_ge::take_wait_ns();
+    uint64_t tex_bytes = 0;
+    for (auto &[surf, t] : textures)
+        if (t.data) tex_bytes += static_cast<uint64_t>(t.tbw) * t.th * (t.psm == GU_PSM_8888 ? 4 : 2);
+    log("ge: %zu textures %.2f MB | ", textures.size(), tex_bytes / 1048576.0);
     log("ge: draws %u tris %u (+%u split) clears %u flip gpu/cpu %u/%u blt gpu/cpu %u/%u downloads %u uploads %u texconv %u | "
         "ms in 5 s: execute %llu, draw %llu (textures %llu), GE wait %llu\n",
         st.draws, st.tris, st.subdivided, st.clears, st.flips_gpu, st.flips_cpu, st.blts_gpu, st.blts_cpu, st.downloads, st.uploads,
@@ -103,7 +109,6 @@ void stats_tick() {
     st = {};
     execute_ns = 0;
 }
-std::map<Surface *, Texture> textures;
 
 uint32_t argb_to_abgr(uint32_t c) { return (c & 0xFF00FF00u) | ((c >> 16) & 0xFF) | ((c & 0xFF) << 16); }
 

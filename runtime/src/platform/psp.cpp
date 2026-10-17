@@ -15,6 +15,9 @@ extern "C" void call_on_stack(void *stack_top, void (*fn)(void));   // stack_mip
 
 namespace plat {
 
+uint8_t *host_stack = nullptr;   // the recompiled code's stack (high-water mark: memory stats)
+size_t host_stack_bytes = 0;
+
 namespace {
 
 // No MMU: the guest address space is one zeroed block (compact layout, runtime.h); commit is a no-op
@@ -34,6 +37,9 @@ public:
     bool run_on_large_stack(uint64_t bytes, void (*fn)()) override {
         void *stack = malloc(static_cast<size_t>(bytes));
         if (!stack) return false;
+        memset(stack, 0xA5, static_cast<size_t>(bytes));   // high-water mark (MOTORACER_MEM_STATS)
+        host_stack = static_cast<uint8_t *>(stack);
+        host_stack_bytes = static_cast<size_t>(bytes);
         call_on_stack(static_cast<char *>(stack) + (bytes & ~15ull), fn);
         return true;
     }
@@ -211,3 +217,10 @@ Host &host() {
 }
 
 }  // namespace plat
+
+// bytes of the host stack ever used (memory stats)
+size_t psp_host_stack_used() {
+    size_t i = 0;
+    while (i < plat::host_stack_bytes && plat::host_stack[i] == 0xA5) i++;
+    return plat::host_stack_bytes - i;
+}

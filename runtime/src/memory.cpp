@@ -6,6 +6,12 @@
 // 64 KB-aligned regions from [VALLOC_LO, VALLOC_HI). Bookkeeping lives on the host so guest
 // corruption can't break it.
 #include <algorithm>
+#include <cstdlib>
+#ifdef __PSP__
+#include <malloc.h>
+#include <pspsysmem.h>
+size_t psp_host_stack_used();
+#endif
 #include <string>
 #include <vector>
 #include <map>
@@ -20,10 +26,9 @@ namespace {
 
 constexpr uint32_t ALIGN = 16;
 
+// Arena blocks: heap blocks lie inside the block by construction; VirtualAlloc reservations may extend
+// past what is backed in the compact layout (only commits must fit: check_guest_range in VirtualAlloc).
 void commit(uint32_t va, uint32_t size) {
-    // VirtualAlloc reservations may extend past the compact block (only commits must fit: see
-    // check_guest_range in VirtualAlloc).
-    if (va < VALLOC_LO || va >= VALLOC_HI) check_guest_range(va, size);
     if (!plat::host().memory.commit(M + va, size)) fatal("cannot commit guest memory 0x%08x+0x%x", va, size);
 }
 
@@ -100,7 +105,14 @@ void check_guest_range(uint32_t va, uint32_t size) {
     if (va < GUEST_LO || va + static_cast<uint64_t>(size) > GUEST_HI)
         fatal("guest memory 0x%08x+0x%x is outside the host block (compact layout: raise RECOMP_GUEST_HEAP_MB "
               "or VALLOC_BACKED)", va, size);
+#ifdef RECOMP_COMPACT_GUEST
+    if (va >= VALLOC_LO && va < VALLOC_HI && va + static_cast<uint64_t>(size) > VALLOC_LO + VALLOC_BACKED)
+        fatal("VirtualAlloc commit 0x%08x+0x%x past the backed %u KB (raise VALLOC_BACKED)", va, size,
+              VALLOC_BACKED / 1024);
+#endif
 }
+
+
 
 void memory_init() {
     auto &vm = plat::host().memory;
@@ -226,5 +238,22 @@ void memory_stats_log() {
         "largest:%s\n",
         heap.in_use / 1048576.0, heap.peak / 1048576.0, heap.live.size(), varena.in_use / 1048576.0,
         varena.peak / 1048576.0, touched * 4096 / 1048576.0, top.c_str());
+    // guest stack high-water mark: the stack region is zero at start; lowest non-zero dword
+    uint32_t low = STACK_HI;
+    for (uint32_t a = STACK_LO; a < STACK_HI; a += 64)
+        if (RD32(a) | RD32(a + 16) | RD32(a + 32) | RD32(a + 48)) { low = a; break; }
+    log("memstats: guest stack used %u KB of %u KB\n", (STACK_HI - low) / 1024, (STACK_HI - STACK_LO) / 1024);
+#ifdef __PSP__
+    log("memstats: host stack used %zu KB of %llu KB\n", psp_host_stack_used() / 1024,
+        static_cast<unsigned long long>(HOST_STACK_BYTES / 1024));
+#endif
+#ifdef __PSP__
+    // host side: newlib malloc (runtime, SDL, converted textures, the guest block) and the kernel's
+    // free user memory
+    struct mallinfo mi = mallinfo();
+    log("memstats: host malloc in use %.2f MB (arena %.2f MB), kernel free %.2f MB (largest block %.2f MB)\n",
+        mi.uordblks / 1048576.0, mi.arena / 1048576.0, sceKernelTotalFreeMemSize() / 1048576.0,
+        sceKernelMaxFreeMemSize() / 1048576.0);
+#endif
 }
 }  // namespace rt

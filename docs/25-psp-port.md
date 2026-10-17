@@ -163,6 +163,27 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   race frame 33.0 s after boot in the scripted run (36.5 s all translated). A temporary per-call `getenv` in the getc hook made it ~2x slower
   for a while: newlib's getenv scans the whole environment.
 
+## Memory budget, PSP-1000 (2026-10-17, in progress)
+- `MOTORACER_MEM_STATS=1` on the PSP also logs newlib's `mallinfo`, the guest-stack and host-stack
+  high-water marks, and `MOTORACER_GE_STATS` the converted-texture count / size.
+- Measured in a race (PPSSPP): ELF 9.28 MB (text 7.57: game code 3.82, other 1.17, SDL3 1.00,
+  libstdc++ 0.86; bss 1.69: SDL's PSP renderer `DisplayList` 1 MB — unused, comes with SDL's video
+  subsystem — and our 512 KB GE list), malloc 27.2 MB: guest block 24.06 MB (stack 1 MB, image
+  3.2 MB, 0.8 MB unused gap, heap 18 MB of which the race uses 10.5 MB, VirtualAlloc backing 1 MB of
+  which the CRT commits 256 KB), host stack 2 MB, textures / SDL / buffers ~1 MB.
+- Guest stack: 29 KB used of 1 MB; host stack (the recompiled code): 3 KB of 2 MB. Both now 256 KB,
+  VirtualAlloc backing 512 KB: malloc 27.2 → 24.2 MB.
+- A PSP-1000 has ~24 MB for the program; with the 9.3 MB ELF that leaves ~14 MB for malloc: still
+  ~10 MB over. Remaining levers: the guest heap (18 MB; a race peaks at 10.5 MB — needs measuring
+  over other tracks / modes), the game's 640x480 surfaces (4 x 600 KB in the heap during a race),
+  8-bit textures stored as 32-bit GE copies, the unused 1 MB SDL renderer array.
+- Two dead ends: (1) choosing the heap size by probing `malloc`: the PSP's newlib does not check its
+  partition's end, huge requests "succeed" with memory the program does not own, and PPSSPP crashed
+  later; (2) moving the VirtualAlloc arena into the unused gap below the engine tables: the CRT's
+  4 MB small-block-heap reservation then covered heap addresses, and the CRT decides by address
+  range whether a pointer is its own — free() broke at the title screen. Reservations must be
+  distinct address space.
+
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).
 - Time per 5 s in the race: Direct3D Execute (parsing + GE backend) 400–660 ms (8–13%), of which the

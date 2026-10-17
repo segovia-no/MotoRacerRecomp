@@ -296,6 +296,7 @@ STDCALL(KERNEL32, VirtualAlloc, 4) {
     if ((type & 0x2000) || !addr) {   // MEM_RESERVE, or commit without a reservation
         uint32_t a = valloc_reserve(addr & ~0xFFFFu, size + (addr & 0xFFFF));
         if (!a) return 0;
+        if (type & 0x1000) check_guest_range(addr ? addr & ~0xFFFu : a, size);   // MEM_COMMIT too
         return addr ? addr : a;
     }
     check_guest_range(addr & ~0xFFFu, size + (addr & 0xFFF));   // compact layout: must be backed
