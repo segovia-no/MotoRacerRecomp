@@ -82,6 +82,12 @@ void set_music_gain(float g) { g_music = g; }
 float sfx_gain() { return g_sfx; }
 float music_gain() { return g_music; }
 
+uint32_t audio_device_rate() {
+    SDL_AudioSpec out{};
+    if (!audio_init() || !SDL_GetAudioDeviceFormat(device, &out, nullptr) || out.freq <= 0) return 44100;
+    return static_cast<uint32_t>(out.freq);
+}
+
 void audio_close_source(SDL_AudioStream *s) {
     if (!s) return;
     SDL_UnbindAudioStream(s);

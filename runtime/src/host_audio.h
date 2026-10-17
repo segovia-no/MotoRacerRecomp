@@ -1,5 +1,5 @@
-// Host audio: one SDL playback device; every sound source is an SDL_AudioStream bound to it
-// (SDL mixes them). Sources pull data through a callback on SDL's audio thread.
+// Host audio: one SDL playback device; each sound source (DirectSound's mixer, the CD music) is an
+// SDL_AudioStream bound to it. Sources pull data through a callback on SDL's audio thread.
 #pragma once
 #include <SDL3/SDL_audio.h>
 
@@ -15,6 +15,7 @@ bool audio_init();   // false if no audio device (game then runs silent)
 SDL_AudioStream *audio_open_source(const SDL_AudioSpec &spec,
                                    std::function<int(uint8_t *dst, int bytes)> pull);
 void audio_close_source(SDL_AudioStream *s);
+uint32_t audio_device_rate();   // the playback device's sample rate (44100 without a device)
 
 // Volumes from the game's Options page (WINMM mixer), 0..1.
 void set_master_gain(float g);

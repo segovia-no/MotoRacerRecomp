@@ -1,11 +1,14 @@
-// DirectSound (DirectX 3/5) on SDL3 audio streams.
+// DirectSound (DirectX 3/5) with its own software mixer on one SDL3 audio stream.
 //
 // Secondary buffers keep their samples in guest memory so Lock returns real guest pointers.
-// Each buffer that has been played owns an SDL_AudioStream fed from the audio thread: samples
-// are converted to float stereo with DirectSound volume/pan applied, and SetFrequency maps to
-// the stream's frequency ratio. The primary buffer is a formality (SDL does the mixing).
+// Buffers that have been played are voices of one mixer: on SDL's audio thread it produces float
+// stereo at the device's rate, each voice stepped at its frequency (SetFrequency: the engines'
+// pitch) with linear interpolation, DirectSound volume / pan applied. Until 2026-10-17 every
+// buffer was an SDL stream of its own, and SDL resampled ~24 engine sounds separately: 12-18% of a
+// PSP race frame (docs/26-psp-profile.md). The primary buffer is a formality.
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <mutex>
@@ -40,16 +43,25 @@ struct Buffer : ComObj {
     Format fmt;
     uint32_t mem = 0, size = 0;   // guest sample memory (shared by duplicates)
     std::shared_ptr<int> mem_owner;
-    uint32_t play_pos = 0;
-    bool playing = false, looping = false;
+    uint32_t play_pos = 0;        // bytes, a multiple of the block size
+    uint32_t frac = 0;            // position between two frames (16-bit fraction), the mixer's
+    bool playing = false, looping = false, voice = false;
     int32_t volume = 0, pan = 0;
     uint32_t freq = 0;            // 0 = original
-    SDL_AudioStream *stream = nullptr;
-    ~Buffer() override {
-        if (stream) host::audio_close_source(stream);
-        if (mem_owner && mem_owner.use_count() == 1 && mem) heap_free(mem);
-    }
+    ~Buffer() override;
 };
+
+std::vector<Buffer *> voices;     // buffers that have been played (under mu)
+SDL_AudioStream *mix_stream = nullptr;
+uint32_t mix_rate = 44100;
+
+Buffer::~Buffer() {
+    if (voice) {
+        std::lock_guard<std::mutex> lock(mu);
+        voices.erase(std::remove(voices.begin(), voices.end(), this), voices.end());
+    }
+    if (mem_owner && mem_owner.use_count() == 1 && mem) heap_free(mem);
+}
 
 struct Device : ComObj {
     uint32_t hwnd = 0, level = 0;
@@ -70,46 +82,79 @@ Format read_format(uint32_t p) {
 
 float db_to_gain(int32_t hundredths) { return hundredths <= -10000 ? 0.f : std::pow(10.f, hundredths / 2000.f); }
 
-// Audio thread: produce float stereo frames from the guest buffer.
-int pull(Buffer *b, uint8_t *dst, int bytes) {
-    std::lock_guard<std::mutex> lock(mu);
-    if (!b->playing || !b->size) return 0;
-    float vol = db_to_gain(b->volume) * host::sfx_gain();
-    float gl = vol * (b->pan > 0 ? db_to_gain(-b->pan) : 1.f);
-    float gr = vol * (b->pan < 0 ? db_to_gain(b->pan) : 1.f);
-    auto *out = reinterpret_cast<float *>(dst);
-    int frames = bytes / 8, n = 0;
-    uint32_t bs = b->fmt.block ? b->fmt.block : 1;
+// One voice into `out` (float stereo, `frames` frames, added): steps through the buffer at its
+// frequency relative to the mix rate (16.16 fixed point) with linear interpolation between frames.
+template <int BITS, int CH>
+void mix_voice(Buffer *b, float *out, int frames, float gl, float gr) {
+    const uint32_t bs = b->fmt.block ? b->fmt.block : 1;
+    const uint32_t count = b->size / bs;
+    if (!count) { b->playing = false; return; }
+    const uint32_t rate = b->freq ? b->freq : b->fmt.rate;
+    const uint32_t step = static_cast<uint32_t>((static_cast<uint64_t>(rate) << 16) / mix_rate);
     const uint8_t *base = M + b->mem;
-    while (n < frames) {
-        if (b->play_pos + bs > b->size) {
-            if (!b->looping) { b->playing = false; b->play_pos = 0; break; }
-            b->play_pos = 0;
+    auto sample = [&](uint32_t i, int c) -> float {
+        const uint8_t *s = base + i * bs;
+        if (BITS == 8) return (s[c] - 128) * (1.f / 128.f);
+        int16_t v;
+        memcpy(&v, s + 2 * c, 2);
+        return v * (1.f / 32768.f);
+    };
+    uint32_t pos = b->play_pos / bs, frac = b->frac;
+    if (pos >= count) pos = 0;
+    for (int n = 0; n < frames; n++) {
+        const uint32_t next = pos + 1 < count ? pos + 1 : (b->looping ? 0 : pos);
+        const float t = static_cast<float>(frac) * (1.f / 65536.f);
+        const float l0 = sample(pos, 0), l1 = sample(next, 0);
+        const float l = l0 + (l1 - l0) * t;
+        float r = l;
+        if (CH == 2) {
+            const float r0 = sample(pos, 1), r1 = sample(next, 1);
+            r = r0 + (r1 - r0) * t;
         }
-        const uint8_t *s = base + b->play_pos;
-        float l, r;
-        if (b->fmt.bits == 8) {
-            l = (s[0] - 128) / 128.f;
-            r = b->fmt.channels > 1 ? (s[1] - 128) / 128.f : l;
-        } else {
-            int16_t a, c;
-            memcpy(&a, s, 2);
-            l = a / 32768.f;
-            if (b->fmt.channels > 1) { memcpy(&c, s + 2, 2); r = c / 32768.f; } else r = l;
+        out[2 * n] += l * gl;
+        out[2 * n + 1] += r * gr;
+        frac += step;
+        pos += frac >> 16;
+        frac &= 0xffff;
+        if (pos >= count) {
+            if (!b->looping) { b->playing = false; pos = 0; frac = 0; break; }
+            pos %= count;
         }
-        out[2 * n] = l * gl;
-        out[2 * n + 1] = r * gr;
-        n++;
-        b->play_pos += bs;
     }
-    return n * 8;
+    b->play_pos = pos * bs;
+    b->frac = frac;
 }
 
-void ensure_stream(Buffer *b) {
-    if (b->stream || b->primary) return;
-    SDL_AudioSpec spec{SDL_AUDIO_F32, 2, static_cast<int>(b->fmt.rate ? b->fmt.rate : 22050)};
-    b->stream = host::audio_open_source(spec, [b](uint8_t *dst, int bytes) { return pull(b, dst, bytes); });
-    if (b->stream && b->freq) SDL_SetAudioStreamFrequencyRatio(b->stream, static_cast<float>(b->freq) / b->fmt.rate);
+// Audio thread: all playing voices, float stereo at the mix rate. 0 when nothing plays.
+int mix(uint8_t *dst, int bytes) {
+    std::lock_guard<std::mutex> lock(mu);
+    const int frames = bytes / 8;
+    auto *out = reinterpret_cast<float *>(dst);
+    bool any = false;
+    for (Buffer *b : voices) {
+        if (!b->playing || !b->size) continue;
+        if (!any) { memset(out, 0, static_cast<size_t>(frames) * 8); any = true; }
+        const float vol = db_to_gain(b->volume) * host::sfx_gain();
+        const float gl = vol * (b->pan > 0 ? db_to_gain(-b->pan) : 1.f);
+        const float gr = vol * (b->pan < 0 ? db_to_gain(b->pan) : 1.f);
+        const bool stereo = b->fmt.channels > 1;
+        if (b->fmt.bits == 8) stereo ? mix_voice<8, 2>(b, out, frames, gl, gr) : mix_voice<8, 1>(b, out, frames, gl, gr);
+        else stereo ? mix_voice<16, 2>(b, out, frames, gl, gr) : mix_voice<16, 1>(b, out, frames, gl, gr);
+    }
+    return any ? frames * 8 : 0;
+}
+
+// a played buffer becomes a voice (and the mixer's stream opens on the first one)
+void make_voice(Buffer *b) {
+    if (b->primary || b->voice) return;
+    if (!mix_stream) {
+        mix_rate = host::audio_device_rate();
+        SDL_AudioSpec spec{SDL_AUDIO_F32, 2, static_cast<int>(mix_rate)};
+        mix_stream = host::audio_open_source(spec, mix);
+    }
+    std::lock_guard<std::mutex> lock(mu);
+    voices.push_back(b);
+    b->voice = true;
 }
 
 Buffer *new_buffer(uint32_t desc) {
@@ -203,8 +248,7 @@ COM_METHOD(B_QueryInterface, 2) {
 }
 COM_METHOD(B_AddRef, 0) { return add_ref(self); }
 COM_METHOD(B_Release, 0) {
-    // Stop under the lock, but destroy outside it: SDL waits for an in-flight pull(), which
-    // itself takes the lock.
+    // Stop under the lock; the destructor takes it again to leave the mixer's voices.
     if (Buffer *b = dynamic_cast<Buffer *>(lookup(self)); b && b->refs == 1) {
         std::lock_guard<std::mutex> lock(mu);
         b->playing = false;
@@ -281,7 +325,7 @@ COM_METHOD(B_Lock, 7) {
 COM_METHOD(B_Play, 3) {
     Buffer *b = obj<Buffer>(self);
     if (b->primary) return S_OK;
-    ensure_stream(b);
+    make_voice(b);
     std::lock_guard<std::mutex> lock(mu);
     b->looping = arg(3) & DSBPLAY_LOOPING;
     b->playing = true;
@@ -291,8 +335,9 @@ COM_METHOD(B_Play, 3) {
 COM_METHOD(B_SetCurrentPosition, 1) {
     Buffer *b = obj<Buffer>(self);
     std::lock_guard<std::mutex> lock(mu);
-    b->play_pos = b->size ? arg(1) % b->size : 0;
-    if (b->stream) SDL_ClearAudioStream(b->stream);
+    const uint32_t bs = b->fmt.block ? b->fmt.block : 1;
+    b->play_pos = b->size ? (arg(1) % b->size) / bs * bs : 0;
+    b->frac = 0;
     return S_OK;
 }
 
@@ -315,10 +360,8 @@ COM_METHOD(B_SetPan, 1) {
 }
 
 COM_METHOD(B_SetFrequency, 1) {
-    Buffer *b = obj<Buffer>(self);
-    b->freq = arg(1);
-    if (b->stream && b->fmt.rate)
-        SDL_SetAudioStreamFrequencyRatio(b->stream, b->freq ? static_cast<float>(b->freq) / b->fmt.rate : 1.f);
+    std::lock_guard<std::mutex> lock(mu);
+    obj<Buffer>(self)->freq = arg(1);
     return S_OK;
 }
 
@@ -326,7 +369,6 @@ COM_METHOD(B_Stop, 0) {
     Buffer *b = obj<Buffer>(self);
     std::lock_guard<std::mutex> lock(mu);
     b->playing = false;
-    if (b->stream) SDL_ClearAudioStream(b->stream);
     return S_OK;
 }
 

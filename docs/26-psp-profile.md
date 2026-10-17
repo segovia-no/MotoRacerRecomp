@@ -199,3 +199,16 @@ path), matrix multiply `0x403a80` 3.6%, `0x4232e0` 3.2%, `0x46cd20` 3.1%, `0x46b
 `0x485e50` 2.6%, `0x4b0f60` 2.6%, `0x40c960` 2.5%, `0x47ecd0` 2.4%, `0x469c60` 2.3%; 21 functions
 make half of it, 48 three quarters. By 16 KB of code: `0x40c000` 15% (track / collision helpers),
 `0x46c000` 9%, `0x468000` 9%, `0x4b0000` 8% (plane / vector helpers), `0x420000` 7%.
+
+## Own DirectSound mixer (2026-10-17)
+`dx/dsound.cpp` now mixes itself: buffers that have been played are voices of one mixer, which
+fills a single SDL stream (float stereo at the device's rate) on SDL's audio thread — each voice
+stepped at its frequency in 16.16 fixed point (SetFrequency, the engines' pitch) with linear
+interpolation between frames, DirectSound volume / pan / SFX gain as before; non-looping voices stop
+at their end. SDL now resamples nothing for the effects (the CD music stream is already in the
+device format). Positions advance by what was mixed (no SDL read-ahead), SetCurrentPosition / Stop no
+longer need to drain a stream. The game's buffers: 16-bit mono, 8,000–22,050 Hz, up to ~15 playing.
+- PPSSPP race (profiler): audio mixing 3.1 → 1.1 ms per frame (18% → 7%); first race window 17.7 →
+  15.8 ms per frame, the next 16.5 → 15.5.
+- Same mixer on every platform (one code path); linear interpolation instead of SDL's windowed-sinc
+  resampler, as 1990s software mixers did.
