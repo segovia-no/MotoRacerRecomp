@@ -118,6 +118,10 @@ GAME_HOOKS = {
     0x4AF9FE: "native_vertices_check",
     # render-list flush: skip runs of empty depth buckets (native_render.cpp)
     0x4AFD00: "native_bucket_skip",
+    # one polygon of the flush done natively: its exits (check mode compares)
+    0x4AFCD3: "native_flush_check",
+    0x4AFCD8: "native_flush_check",
+    0x4AFD3E: "native_flush_check",
     # texture loader 0x41c050: after the 24-bit row loop (check mode compares, native_load.cpp)
     0x41D08D: "native_rgb_row_check",
 }
@@ -142,7 +146,8 @@ NATIVE_FUNCS = {
     0x4B8800: "native_output",      # CRT _output (printf engine)
 }
 
-# Hooks that can redirect control: `if (hook()) goto target;` (target in the same function).
+# Hooks that can redirect control: `if (hook()) goto target;` (target in the same function); with a
+# tuple of targets the hook returns 1, 2, ... to take the first, second, ... (0: continue).
 GAME_JUMP_HOOKS = {
     # Options page per-frame function 0x443200 (recomp_menu.cpp):
     # first row about to be drawn -> the Recomp page draws its own rows and the Back button, then
@@ -155,6 +160,9 @@ GAME_JUMP_HOOKS = {
     # Render-list flush 0x4af570: native per-vertex loops (untextured / textured), continuing after them
     0x4AF89B: ("native_flat_vertices", 0x4AF9FE),
     0x4AF9AF: ("native_tex_vertices", 0x4AF9FE),
+    # Render-list flush: one polygon natively (native_render.cpp); exits: next node, no room left,
+    # execute buffer full
+    0x4AF6CB: ("native_flush_polygon", (0x4AFCD3, 0x4AFCD8, 0x4AFD3E)),
     # Texture loader 0x41c050: native 24-bit row loop, continuing after it
     0x41CDB6: ("native_rgb_row", 0x41D08D),
 }
@@ -743,7 +751,11 @@ class FunctionTranslator:
                 self.emit(f"{GAME_HOOKS[va]}();")
             if va in GAME_JUMP_HOOKS:
                 name, target = GAME_JUMP_HOOKS[va]
-                self.emit(f"{{ int h; h = {name}(); if (h) {self.goto(target)} }}")
+                if isinstance(target, tuple):   # several exits: the hook returns 1, 2, ... for each
+                    jumps = " ".join(f"if (h == {i + 1}) {self.goto(t)}" for i, t in enumerate(target))
+                    self.emit(f"{{ int h; h = {name}(); {jumps} }}")
+                else:
+                    self.emit(f"{{ int h; h = {name}(); if (h) {self.goto(target)} }}")
             try:
                 falls = self.insn(insn)
             except Unsupported as e:

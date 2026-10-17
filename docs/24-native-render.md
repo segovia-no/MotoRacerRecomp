@@ -85,3 +85,24 @@ buckets (`head[b] = 0; b += step; until b == end`) to draw ~600 polygons. `nativ
 bucket before the next non-empty one; the translated block takes the final step as before (same
 memory and registers). Not with the abort flag `[esp+0x30]` or a pending resume (`[esp+0x44]`,
 `[esp+0x48]` = 1). PPSSPP race: +10% frames.
+
+## One polygon natively (2026-10-17)
+`native_flush_polygon` (jump hook at `0x4af6cb`, the start of a node) does a whole polygon: counters,
+the room check `0x41ad80` (inlined: `[0x53bdf8] + 4 >= [0x53bcf4]` or instruction pointer + 0x70
+`>=` `[0x53bcec]`), textured or not (type 0 / 5 / 0xc, texture id ≥ 0x2e, or no handle in
+`[0x4f9550 + 4·(id·206 + variant)]`), the colour (16-bit colour table through the pixel-format masks
+for untextured polygons, else `+0x3c`), half light for types 0x15 / 0x20 / 0x27, alpha 0x80 for
+0x2c / 0x3e / 0xc (0x44 per player state), the shape (line / triangle / quad), the vertex loops (the
+native ones), then the render states — `0x41e2b0` (`[0x53be0c]`), `0x41e380` (`[0x4e4f14]`),
+`0x41e000` (types 0x44 / 0x45), `0x41e1b0` (textures with flags 0x12 and render flag 1), else
+`0x41dde0` — the texture-variant cache `[0x4f9620 + id·824]`, the render flags `[esp+0x24]` (the
+texture-state reset `0x41e730` = `[0x4e4f3c] = -100` inlined), the line / triangle switch, and the
+emitters `0x419ee0` / `0x419d60` (a quad's second triangle from index − 3). The render-state methods
+and emitters stay translated (guest calls). Exits (translator: jump hooks can now have several
+targets): next node `0x4afcd3`, no room `0x4afcd8`, buffer full `0x4afd3e`.
+- Check mode: the native polygon runs first, its results are kept, memory is restored and the
+  translated code runs; compared at the three exits (execute-buffer object, vertex and instruction
+  areas, the flush's stack frame, polygon record, node, the globals involved). Desktop race: 0
+  mismatches. Owner-tested on desktop and PSP.
+- PPSSPP: render-heavy screens (~350 draws per frame) 335 → 488 frames per 5 s (+46%); race windows
+  within run-to-run noise.

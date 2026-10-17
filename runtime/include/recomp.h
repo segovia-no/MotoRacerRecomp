@@ -219,6 +219,8 @@ int native_flat_vertices(void);
 int native_tex_vertices(void);
 void native_vertices_check(void);
 void native_bucket_skip(void);
+int native_flush_polygon(void);
+void native_flush_check(void);
 /* whole functions (NATIVE_FUNCS in translate.py, runtime/src/native_geom.cpp): nonzero = done */
 int native_transform(void);
 int native_faces(void);

@@ -16,6 +16,7 @@
 // Guest memory through a local base pointer (MEM_LOCAL), as in the generated code: with the global M,
 // every store would make the compiler reload M.
 #include "recomp_mem_local.h"
+#include "native_check.h"
 
 namespace {
 
@@ -264,4 +265,233 @@ extern "C" void native_bucket_skip(void) {
     WR32(HEADS + 4 * b, 0);
     for (uint32_t nb = b + step; nb != end && RD32(HEADS + 4 * nb) == 0; nb += step) b = nb;
     WR32(sp + 0x28, b);
+}
+
+// ---- one polygon of the render-list flush, 0x4af6cb..0x4afcd3 (docs/24-native-render.md) ----
+// Jump hook at 0x4af6cb with three exits: 1 = next node (0x4afcd3), 2 = no room left in the execute
+// buffer (0x4afcd8), 3 = an emitter reported a full buffer (0x4afd3e). The flush's stack slots and
+// the globals are left as the translated code leaves them; registers other than ebx are dead at
+// the exits. The execute-buffer object's room check (0x41ad80) and texture-state reset (0x41e730) are
+// inlined; its render-state methods and the triangle / line emitters stay translated (guest calls).
+extern "C" void f_0041e2b0(void);
+extern "C" void f_0041e380(void);
+extern "C" void f_0041e000(void);
+extern "C" void f_0041e1b0(void);
+extern "C" void f_0041dde0(void);
+extern "C" void f_00419d60(void);
+extern "C" void f_00419ee0(void);
+
+namespace {
+
+// thiscall / stdcall guest call with the callee popping its arguments; returns eax
+uint32_t guest_call(void (*fn)(void), uint32_t ret_va, uint32_t self, std::initializer_list<uint32_t> args) {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp;
+    uint32_t a = sp - 4 * static_cast<uint32_t>(args.size());
+    for (uint32_t v : args) { WR32(a, v); a += 4; }
+    R.esp = sp - 4 * static_cast<uint32_t>(args.size()) - 4;
+    WR32(R.esp, ret_va);
+    R.ecx = self;
+    fn();
+    R.esp = sp;
+    return R.eax;
+}
+
+constexpr uint32_t TEX_STATE = 0x4e4f3c, TEX_RESET = 0xffffff9cu;
+constexpr uint32_t ROOM_VERTS = 0x53bdf8, ROOM_VERTS_MAX = 0x53bcf4, ROOM_INS_END = 0x53bcec;
+
+int flush_polygon() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, node = R.ebx, eb = RD32(EB_OBJ);
+    WR32(0x624370, RD32(0x624370) + 1);
+    WR32(0x51bfd0, RD32(0x51bfd0) + 1);
+    // 0x41ad80: room for another polygon?
+    if (static_cast<int32_t>(RD32(ROOM_VERTS) + 4) >= static_cast<int32_t>(RD32(ROOM_VERTS_MAX)) ||
+        RD32(eb + 8) + 0x70 >= RD32(ROOM_INS_END)) {
+        R.eax = 1;
+        return 2;
+    }
+    WR32(sp + 0x4c, RD32(sp + 0x4c) + 1);
+    uint32_t poly = RD32(node);
+    const uint32_t ctab = RD32(node + 0x10);
+    WR32(sp + 0x14, 0);
+    bool untex = false;
+    const uint16_t type = RD16(poly + 0x3a);
+    if (type == 0xc || type == 5 || type == 0) {
+        untex = true;
+    } else {
+        const uint32_t id = RD16(poly + 0x36);
+        if (id >= 0x2e) {
+            untex = true;
+        } else {
+            const uint32_t var = RD32(node + 0x14);
+            if (RD32(0x4f9550 + 4 * (id * 206 + (var == 0xffffffffu ? 0 : var))) == 0xffffffffu) untex = true;
+        }
+    }
+    if (untex) WR32(sp + 0x14, 1);
+    // colour: from the object's 16-bit colour table (untextured), else the record's
+    uint32_t c16;
+    if (ctab && untex && (c16 = RD16(poly + 2)) < 0x100) {
+        const uint32_t dx = RD16(ctab + 2 * c16);
+        uint32_t c = ((RD32(0x4ee9d0) & dx) >> (RD8(0x4ee9c4) & 31)) << ((RD8(0x4ee9b8) + 0x10) & 31);
+        c |= ((RD32(0x4ee9d4) & dx) >> (RD8(0x4ee9c8) & 31)) << ((RD8(0x4ee9bc) + 8) & 31);
+        c |= (RD32(0x4ee9d8) & dx) << (RD8(0x4ee9c0) & 31);
+        WR32(COLOR, c);
+    } else {
+        WR32(COLOR, RD32(poly + 0x3c));
+    }
+    WR32(HALF_LIGHT, (type == 0x15 || type == 0x27 || type == 0x20) ? 1 : 0);
+    WR8(poly + 0x3f, 0xff);
+    bool half_alpha = type == 0x2c || type == 0x3e || type == 0xc;
+    if (!half_alpha && type == 0x44) half_alpha = RD32(RD32(0x53be30) * 404u + 0x53c76c) != 0;
+    if (half_alpha) WR8(COLOR + 3, 0x80);
+    // shape: line (2 vertices), triangle (3), quad (4, two triangles)
+    WR32(sp + 0x20, 0);
+    const bool line = (RD8(poly + 0x38) & 0x10) != 0;
+    uint32_t n;
+    if (line) { WR32(sp + 0x38, 0); n = 2; }
+    else if (RD16(poly + 0x34) == 0xffff) { WR32(sp + 0x38, 0); n = 3; }
+    else { WR32(sp + 0x38, 2); n = 4; }
+    if (n) {
+        WR32(sp + 0x20, n);   // the untextured loop's counter (the textured loop leaves it at n too)
+        const LoopOut o = untex ? flat_vertices(poly, n, node) : tex_vertices(poly, n, node, R.ebp, sp);
+        WR32(sp + 0x14, o.s14);
+        WR32(sp + 0x18, o.s18);
+        WR32(sp + 0x1c, o.s1c);
+        WR32(sp + 0x20, o.s20);
+    }
+    // 0x4af9fe
+    WR32(ROOM_VERTS, RD32(ROOM_VERTS) + RD32(sp + 0x20));
+    const uint32_t lflags = RD32(RD32(sp + 0x18) + 0xc);
+    poly = RD32(node);
+    WR32(sp + 0x1c, 0);
+    WR32(sp + 0x14, (lflags & 0x40000000u) ? 1 : 0);
+    const uint32_t id = RD16(poly + 0x36);
+    if (RD32(0x4f9300 + id * 824u)) WR32(sp + 0x1c, RD32(node + 0x10));
+    const uint16_t cx = RD16(poly + 0x3a);
+    const uint32_t mat = RD32(0x6d1f88 + 4u * cx);
+    if (RD32(0x53be0c)) guest_call(f_0041e2b0, 0x4afa83, eb, {(mat & 8) ? 0u : 1u});
+    if (RD32(0x4e4f14) != 0xffffffffu)
+        guest_call(f_0041e380, 0x4afaac, eb, {RD32(sp + 0x14) ? 0u : RD32(0x4e4f14), 0u});
+    // render flags (edi) and the blend / alpha states
+    uint32_t flags = 0;
+    bool to_l4b = false, done = false;
+    if (!(cx == 5 || cx == 0)) {
+        if (cx == 0xc) to_l4b = true;
+        else flags = 1;
+    }
+    if (!to_l4b) {
+        if (cx == 0xc || cx == 0x2c || cx == 0x3e) {
+            to_l4b = true;
+        } else if (cx == 0x44 || cx == 0x45) {
+            guest_call(f_0041e000, 0x4afb49, eb, {1u});
+            done = true;
+        } else {
+            if (RD32(0x4dc1bc) || RD32(0x4dc1c0)) {
+                const uint32_t tf = RD16(0x4f954c + id * 824u);
+                if ((tf & 0x10) && (tf & 2) && (flags & 1)) {
+                    guest_call(f_0041e1b0, 0x4afb34, eb, {1u});
+                    done = true;
+                }
+            }
+            if (!done) {
+                guest_call(f_0041dde0, 0x4afb65, eb, {0u, 0u});
+                done = true;
+            }
+        }
+    }
+    if (to_l4b) {
+        flags |= 8;
+        guest_call(f_0041dde0, 0x4afb65, eb, {1u, cx != 0xc ? 1u : 0u});
+    }
+    // texture variant (special entries)
+    const uint32_t var = RD32(node + 0x14);
+    if (RD32(sp + 0x1c) && var != 0xffffffffu) {
+        flags |= 0x10;
+        const uint32_t p = 0x4f9620 + id * 824u;
+        if (RD32(p) != var) {
+            WR32(p, var);
+            WR32(TEX_STATE, TEX_RESET);   // 0x41e730
+        }
+    } else {
+        WR32(node + 0x14, 0);
+    }
+    if (flags != RD32(sp + 0x24)) {
+        WR32(TEX_STATE, TEX_RESET);
+        WR32(sp + 0x24, flags);
+    }
+    WR32(0x625730, RD32(0x625730) + 1);
+    const uint32_t st = RD32(sp + 0x34);
+    if (line) {
+        if (st == 1) { WR32(sp + 0x34, 0); WR32(TEX_STATE, TEX_RESET); }
+    } else {
+        if (st == 0) { WR32(sp + 0x34, 1); WR32(TEX_STATE, TEX_RESET); }
+    }
+    // primitives
+    const uint32_t f = RD32(sp + 0x24), v2 = RD32(node + 0x14);
+    if (line) {
+        if (!guest_call(f_00419ee0, 0x4afc27, eb, {RD32(sp + 0x12), 0u, id, f, v2})) return 3;
+        WR16(sp + 0x12, static_cast<uint16_t>(RD16(sp + 0x12) + 2));
+    } else {
+        const uint32_t shape = RD32(0x4e8930) ? RD32(sp + 0x38) : 0u;
+        if (!guest_call(f_00419d60, 0x4afc75, eb, {RD32(sp + 0x12), shape, id, f, v2})) return 3;
+        WR16(sp + 0x12, static_cast<uint16_t>(RD16(sp + 0x12) + 3));
+    }
+    if (RD32(sp + 0x38) && !line) {
+        WR32(0x625730, RD32(0x625730) + 1);
+        const uint32_t first = static_cast<uint16_t>(RD16(sp + 0x12) - 3);
+        if (!guest_call(f_00419d60, 0x4afcca, eb, {first, 1u, id, RD32(sp + 0x24), RD32(node + 0x14)})) return 3;
+        WR16(sp + 0x12, static_cast<uint16_t>(RD16(sp + 0x12) + 1));
+    }
+    return 1;
+}
+
+struct FlushPending {
+    bool active = false;
+    int exit = 0;
+    native::Snapshot native;
+    std::vector<native::Region> regions;
+} flush_pending;
+
+}  // namespace
+
+extern "C" int native_flush_polygon(void) {
+    MEM_LOCAL();
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    const uint32_t sp = R.esp, node = R.ebx;
+    if (md == ON) {
+        const int r = flush_polygon();
+        R.ebx = node;
+        R.esp = sp;
+        return r;
+    }
+    // check: native first, then the translated code on the same input; compared at the exits
+    const uint32_t eb = RD32(EB_OBJ), poly = RD32(node), id = RD16(poly + 0x36);
+    std::vector<native::Region> regions = {{eb, 16}, {RD32(eb + 4), 4 * 32}, {RD32(eb + 8), 0x70}, {sp, 0x60}, {poly, 0x40},
+                                   {node, 0x18}, {0x624370, 4}, {0x51bfd0, 4}, {COLOR, 4}, {HALF_LIGHT, 4},
+                                   {ROOM_VERTS, 4}, {0x625730, 4}, {TEX_STATE, 4}, {0x4e4f2c, 4}, {0x4e4f34, 8},
+                                   {0x53bcf0, 4}, {0x4f9620 + id * 824u, 4}};
+    native::Snapshot before = native::take(regions);
+    const int r = flush_polygon();
+    R.ebx = node;
+    R.esp = sp;
+    flush_pending.native = native::take(regions);
+    flush_pending.exit = r;
+    flush_pending.regions = regions;
+    flush_pending.active = true;
+    native::restore(before);
+    return 0;
+}
+
+// GAME_HOOKs at the three exits (check mode)
+extern "C" void native_flush_check(void) {
+    if (!flush_pending.active) return;
+    flush_pending.active = false;
+    native::Snapshot tr = native::take(flush_pending.regions);
+    native::Snapshot &nat = flush_pending.native;
+    nat.r.eax = tr.r.eax; nat.r.ecx = tr.r.ecx; nat.r.edx = tr.r.edx;   // dead at the exits
+    nat.r.esi = tr.r.esi; nat.r.edi = tr.r.edi; nat.r.ebp = tr.r.ebp;
+    nat.f = tr.f;
+    native::compare("flush polygon 0x4af6cb", nat, tr);
 }
