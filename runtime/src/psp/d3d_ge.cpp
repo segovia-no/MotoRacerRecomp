@@ -583,6 +583,9 @@ bool present_flip(Surface *back) {
 bool present_blt(Surface *src, Surface *, int32_t, int32_t, uint32_t, uint32_t) {
     bool r = present_flip(src);
     if (r) { st.flips_gpu--; st.blts_gpu++; } else { st.flips_cpu--; st.blts_cpu++; }
+    // the race presents by Blt: log when that starts (loading-time measurements, with the stats)
+    static uint32_t blts = 0;
+    if (r && stats_on() && ++blts == 1) log("ge: first Blt present (race) at %llu ms\n", (unsigned long long)SDL_GetTicks());
     return r;
 }
 

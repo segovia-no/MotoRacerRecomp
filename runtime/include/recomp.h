@@ -222,6 +222,8 @@ int native_faces(void);
 int native_poly_setup(void);
 int native_faces2(void);
 int native_poly_special(void);
+int native_getc(void);   /* runtime/src/native_load.cpp */
+int native_cfile_read(void);
 int game_hook_options_rows(void);     /* jump hooks: nonzero = take the jump */
 int game_hook_options_action(void);
 int game_hook_options_info(void);

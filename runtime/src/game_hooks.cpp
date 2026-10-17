@@ -434,23 +434,17 @@ void frame_tick() {
             frames = 0;
         }
     }
-    // MOTORACER_ICOUNT_DUMP=<dir>: every 5 s, <dir>/ic_<ms>.txt with the cumulative per-function
-    // counts ("frames <n>" then "<entry va> <count>"); tools/icprof.py ranks the difference of two.
-    static const char *dump_dir = getenv("MOTORACER_ICOUNT_DUMP");
-    if (dump_dir) {
-        static uint64_t all_frames = 0, last_dump = 0;
-        all_frames++;
+    // MOTORACER_ICOUNT_DUMP=<dir>: every 5 s (MOTORACER_ICOUNT_DUMP_MS), <dir>/ic_<ms>.txt with the
+    // cumulative per-function counts ("frames <n>" then "<entry va> <count>"); tools/icprof.py ranks
+    // the difference of two. (Also at every file open with MOTORACER_IO_STATS: icount_dump.)
+    if (getenv("MOTORACER_ICOUNT_DUMP")) {
+        static uint64_t last_dump = 0;
+        static const uint64_t every = getenv("MOTORACER_ICOUNT_DUMP_MS") ? strtoull(getenv("MOTORACER_ICOUNT_DUMP_MS"), nullptr, 10) : 5000;
+        icount_frames++;
         uint64_t now = SDL_GetTicks();
-        if (now - last_dump >= 5000) {
+        if (now - last_dump >= every) {
             last_dump = now;
-            char path[1024];
-            snprintf(path, sizeof path, "%s/ic_%07llu.txt", dump_dir, (unsigned long long)now);
-            if (FILE *f = fopen(path, "w")) {
-                fprintf(f, "frames %llu\n", (unsigned long long)all_frames);
-                for (uint32_t i = 0; i < 0x100000; i++)
-                    if (recomp_icf[i]) fprintf(f, "%x %llu\n", 0x400000 + i, (unsigned long long)recomp_icf[i]);
-                fclose(f);
-            }
+            rt::icount_dump("");
         }
     }
 #endif
@@ -532,3 +526,22 @@ extern "C" void game_hook_bike_lod(void) {
     if (d > 1.f) ST(0) /= 3.0 * d;
 }
 
+
+#ifdef RECOMP_COUNT_INSNS
+#endif
+void rt::icount_dump(const char *tag) {
+#ifdef RECOMP_COUNT_INSNS
+    static const char *dir = getenv("MOTORACER_ICOUNT_DUMP");
+    if (!dir) return;
+    char path[1024];
+    snprintf(path, sizeof path, "%s/ic_%07llu%s%s.txt", dir, (unsigned long long)SDL_GetTicks(), *tag ? "_" : "", tag);
+    if (FILE *f = fopen(path, "w")) {
+        fprintf(f, "frames %llu\n", (unsigned long long)icount_frames);
+        for (uint32_t i = 0; i < 0x100000; i++)
+            if (recomp_icf[i]) fprintf(f, "%x %llu\n", 0x400000 + i, (unsigned long long)recomp_icf[i]);
+        fclose(f);
+    }
+#else
+    (void)tag;
+#endif
+}

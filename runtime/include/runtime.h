@@ -108,6 +108,15 @@ extern LoadedImage image;
 void load_image(const std::string &exe_path);
 void setup_thread_environment(const std::string &command_line);
 
+// counting builds (MOTORACER_COUNT_INSNS) with MOTORACER_ICOUNT_DUMP=<dir>: write the per-function
+// instruction counts now (game_hooks.cpp); no-op otherwise
+void icount_dump(const char *tag);
+inline uint64_t icount_frames = 0;
+
+// ---------- files ----------
+// ReadFile for native code (native_load.cpp): false when `handle` is not a file
+bool read_file(uint32_t handle, uint32_t dst, uint32_t n, uint32_t *got);
+
 // ---------- process ----------
 extern std::string guest_command_line;
 void set_last_error(uint32_t e);

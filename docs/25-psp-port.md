@@ -135,6 +135,24 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   `runtime/src/platform/psp.cpp`; seeks only move the position, large reads go straight to the
   destination). The same phase: ~48,000 reads per second, ~4 s. Start → race ~29 s → ~12 s in
   PPSSPP; the rest is the game's own processing while it loads.
+- `MOTORACER_IO_STATS=1` logs each file open with a timestamp (phase markers), `=2` also counts and
+  times every call (two clock reads per call: on the PSP that inflates small-read phases several
+  times — measure durations with `=1`). With a counting build (`MOTORACER_COUNT_INSNS`) and
+  `MOTORACER_ICOUNT_DUMP=<dir>`, every open also writes an instruction-count dump named after the
+  file, so `tools/icprof.py` profiles each loading phase.
+- Loading phases (desktop counting build, x86 instructions): track select → bike select:
+  ILE01.BKF → ile01.trk 158 M (`0x41c050` 61%, `0x401160` 35%); the .trk itself 16 M (read field
+  by field: ~190,000 `CFile::Read` calls); bike-select menu; Start → race (SFX.BKF … bestscor.dat)
+  ~145 M, mostly `0x41c050`.
+- `getc(handle)` `0x42f650` (archive layer `0x4309e0` over the 16 KB-buffered reader `0x42f690`)
+  was ~70% of the instructions of the decoding phases and runs continuously in the animated menus
+  (~300,000 bytes per second): native fast path in `runtime/src/native_load.cpp` (buffered byte, no
+  seek; refills / seeks / errors run the translated code). Check mode: 11 M calls, 0 mismatches.
+  `CFile::Read` `0x4c5e9d` reads the host file directly (`rt::read_file`), without the ReadFile
+  import path.
+- PPSSPP, Start on bike select → first race frame: ~11.5 s translated, ~9.5 s native (was ~29 s
+  before the buffered files). A temporary per-call `getenv` in the getc hook made it ~2x slower
+  for a while: newlib's getenv scans the whole environment.
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).

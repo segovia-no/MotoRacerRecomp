@@ -492,8 +492,8 @@ STDCALL(KERNEL32, LockResource, 1) { return arg(0); }
 // =====================================================================================
 // Files
 // =====================================================================================
-// MOTORACER_IO_STATS=1: opens / reads / seeks with time spent, logged once a second while files are
-// used (loading-time investigations, docs/25).
+// MOTORACER_IO_STATS=1: file opens with timestamps; =2: also opens / reads / seeks with time spent,
+// logged once a second while files are used (loading-time investigations, docs/25).
 namespace {
 struct IoStats {
     uint64_t opens = 0, reads = 0, bytes = 0, seeks = 0, ns = 0, last_log = 0;
@@ -502,13 +502,17 @@ bool io_stats_on() {
     static const bool on = getenv("MOTORACER_IO_STATS") && strcmp(getenv("MOTORACER_IO_STATS"), "0");
     return on;
 }
+int io_level() {   // 1: opens with timestamps, 2: also per-call counts and time (two clock reads per call)
+    static const int lv = getenv("MOTORACER_IO_STATS") ? atoi(getenv("MOTORACER_IO_STATS")) : 0;
+    return lv;
+}
 uint64_t now_ns() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 void io_tick() {
     const uint64_t t = now_ns();
-    if (t - io.last_log < 1000000000ull) return;
+    if (t - io.last_log < 1000000000ull || io_level() < 2) return;
     if (io.opens || io.reads || io.seeks)
         log("io: t=%llu ms opens %llu reads %llu (%llu KB) seeks %llu, %llu ms in file calls\n",
             static_cast<unsigned long long>(t / 1000000), static_cast<unsigned long long>(io.opens),
@@ -519,7 +523,7 @@ void io_tick() {
 }
 struct IoTimer {
     uint64_t t0;
-    IoTimer() : t0(io_stats_on() ? now_ns() : 0) {}
+    IoTimer() : t0(io_level() >= 2 ? now_ns() : 0) {}
     ~IoTimer() {
         if (!t0) return;
         io.ns += now_ns() - t0;
@@ -547,6 +551,11 @@ STDCALL(KERNEL32, CreateFileA, 7) {
     plat::FileError err;
     auto hf = plat::host().fs.open(hp, rd, wr, d, &err);
     if (trace_imports || !hf) log("CreateFileA(\"%s\" -> %s) = %s\n", gp.c_str(), hp.c_str(), hf ? "ok" : "FAIL");
+    else if (io_stats_on()) {
+        log("io: open %s at %llu ms\n", gp.c_str(), static_cast<unsigned long long>(now_ns() / 1000000));
+        std::string tag = gp.substr(gp.find_last_of("\\/") + 1);
+        rt::icount_dump(tag.c_str());
+    }
     if (!hf) {
         set_last_error(err == plat::FileError::Exists ? ERROR_FILE_EXISTS
                        : err == plat::FileError::AccessDenied ? ERROR_ACCESS_DENIED : ERROR_FILE_NOT_FOUND);
@@ -568,6 +577,18 @@ STDCALL(KERNEL32, ReadFile, 5) {
     if (n > 0) io.bytes += static_cast<uint64_t>(n);
     if (arg(3)) WR32(arg(3), n < 0 ? 0 : static_cast<uint32_t>(n));
     return n >= 0;
+}
+
+bool rt::read_file(uint32_t handle, uint32_t dst, uint32_t n, uint32_t *got) {
+    IoTimer timer;
+    File *f = handle_as<File>(handle);
+    if (!f) return false;
+    int64_t r = f->host->read(M + dst, n);
+    io.reads++;
+    if (r > 0) io.bytes += static_cast<uint64_t>(r);
+    if (r < 0) return false;
+    *got = static_cast<uint32_t>(r);
+    return true;
 }
 
 STDCALL(KERNEL32, WriteFile, 5) {
