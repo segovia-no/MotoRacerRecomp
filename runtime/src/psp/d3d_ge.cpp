@@ -43,6 +43,7 @@ struct GeVertex {
 struct FrameVertex {
     GeVertex g;
     float rhw;
+    float sz;
 };
 
 struct Texture {
@@ -351,6 +352,32 @@ void apply_states(const uint32_t *rs, Texture *tex) {
 // buffer is unchanged. MOTORACER_GE_PERSPECTIVE=0 turns it off.
 std::vector<FrameVertex> tri_out;
 
+// MOTORACER_GE_3D (default on): textured triangles with varying depth are drawn in the GE's 3D mode,
+// which interpolates texture coordinates perspective-correctly in hardware (no subdivision). The
+// vertex goes in as (x*w, y*w, w) with w = 1/rhw; the projection set in psp_ge::init maps it back to
+// pixel (x, y) and depth 65535 * W0 / w. Every draw then uses that depth (through mode included, as
+// 65535 * min(1, W0 * rhw)), W0 = the game's near plane [0x625774], so 2D and 3D draws compare
+// consistently. Depth is no longer linear in distance: coarser far away, where the game's own
+// back-to-front bucket order decides anyway (depth test <=).
+bool ge3d() {
+    static const bool on = !getenv("MOTORACER_GE_3D") || strcmp(getenv("MOTORACER_GE_3D"), "0");
+    return on;
+}
+// Depth for this frame, from sz (the game writes rhw only for textured vertices, sz for all):
+// depth = 65535 * min(1, S0 / sz), S0 = half the previous frame's smallest sz (0 < sz < 1: not the 2D
+// pieces), so the depth range is spent where the geometry is. The game's sz is k * w (camera distance
+// times a scale), k = sz * rhw measured on the previous frame's textured vertices; 3D-mode draws use
+// W0 = S0 / k, which gives them the same depth 65535 * W0 / w.
+float frame_s0 = 1.f / 1024, frame_min_sz = 1e30f;
+float frame_k = 1.f / 65536, frame_k_sample = 0.f;
+float near_w() { return frame_s0 / frame_k; }
+void frame_depth_tick() {
+    if (frame_min_sz < 1e29f) frame_s0 = std::max(1e-7f, 0.5f * frame_min_sz);
+    if (frame_k_sample > 0.f) frame_k = frame_k_sample;
+    frame_min_sz = 1e30f;
+    frame_k_sample = 0.f;
+}
+
 bool perspective() {
     static const bool on = !getenv("MOTORACER_GE_PERSPECTIVE") || strcmp(getenv("MOTORACER_GE_PERSPECTIVE"), "0");
     return on;
@@ -396,6 +423,7 @@ void subdivide(const FrameVertex &a, const FrameVertex &b, const FrameVertex &c,
 }
 
 void end_frame() {
+    frame_depth_tick();
     frame_used = false;
     frame_vertices.clear();
 }
@@ -426,16 +454,23 @@ void set_target(Surface *s) {
 
 uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
     uint32_t base = static_cast<uint32_t>(frame_vertices.size());
+    if (ge3d()) psp_ge::set_near_w(near_w());
     for (uint32_t i = 0; i < n; i++) {
         const TLVertex &v = verts[i];
-        float z = 65535.f * (1.f - v.sz);
-        z = z < 0.f ? 0.f : z > 65535.f ? 65535.f : z;
         float rhw = v.rhw > 1e-12f ? v.rhw : 1e-12f;
+        float z;
+        if (ge3d()) {
+            if (v.sz > 1e-7f && v.sz < 1.f) frame_min_sz = std::min(frame_min_sz, v.sz);
+            z = v.sz > 1e-12f ? 65535.f * frame_s0 / v.sz : 65535.f;
+        } else {
+            z = 65535.f * (1.f - v.sz);
+        }
+        z = z < 0.f ? 0.f : z > 65535.f ? 65535.f : z;
         // Direct3D 5 has pixel centres at integer coordinates, the GE at half-integers: shift by half
         // a game pixel (as the desktop backend does) so coverage and texel sampling match — otherwise
         // point-sampled HUD pieces pick the neighbouring texel (black seams in the red bars).
         frame_vertices.push_back({{v.tu, v.tv, argb_to_abgr(v.color), (v.sx + 0.5f) * scale + off_x,
-                                   (v.sy + 0.5f) * scale + off_y, z}, rhw});
+                                   (v.sy + 0.5f) * scale + off_y, z}, rhw, v.sz});
     }
     return base;
 }
@@ -459,6 +494,52 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     const uint32_t force_alpha = (tex && tex->alpha && blend != 3 && blend != 4) ? 0xFF000000u : 0;
     const uint32_t cull = rs[RS_CULLMODE];
     static const int dump_frame = getenv("MOTORACER_GE_DUMP") ? atoi(getenv("MOTORACER_GE_DUMP")) : -1;
+    if (tex && ge3d() && dump_frame < 0) {
+        // perspective needed? (rhw varies within the draw: not for HUD / 2D pieces, whose w = 1 the
+        // 3D mode would clip at the near plane)
+        float rmin = 1e30f, rmax = 0.f, szmin = 1e30f;
+        for (uint32_t t = 0; t < 3 * ntri; t++) {
+            const FrameVertex &fv = frame_vertices[base + (indices[t] < nverts ? indices[t] : 0)];
+            rmin = std::min(rmin, fv.rhw);
+            rmax = std::max(rmax, fv.rhw);
+            szmin = std::min(szmin, fv.sz);
+        }
+        if (rmax > rmin * 1.0001f && frame_k_sample == 0.f) {
+            const FrameVertex &fv = frame_vertices[base + (indices[0] < nverts ? indices[0] : 0)];
+            if (fv.sz > 0.f && fv.sz < 1.f) frame_k_sample = fv.sz * fv.rhw;
+        }
+        if (rmax > rmin * 1.0001f && szmin >= frame_s0 && szmin < 1.f) {
+            const float iu = 1.f / static_cast<float>(tex->tw), iv = 1.f / static_cast<float>(tex->th);
+            auto *out = static_cast<GeVertex *>(psp_ge::list_memory(3u * ntri * sizeof(GeVertex)));
+            uint32_t k = 0;
+            for (uint32_t t = 0; t < ntri; t++) {
+                const FrameVertex *v[3];
+                for (int j = 0; j < 3; j++) {
+                    uint32_t idx = indices[3 * t + j];
+                    v[j] = &frame_vertices[base + (idx < nverts ? idx : 0)];
+                }
+                if (cull == 2 || cull == 3) {
+                    float c = (v[1]->g.x - v[0]->g.x) * (v[2]->g.y - v[0]->g.y) - (v[1]->g.y - v[0]->g.y) * (v[2]->g.x - v[0]->g.x);
+                    if ((cull == 3 && c < 0.f) || (cull == 2 && c > 0.f)) continue;
+                }
+                for (int j = 0; j < 3; j++) {
+                    const float w = 1.f / v[j]->rhw;
+                    GeVertex g;
+                    g.u = (v[j]->g.u * su + 0.0625f) * iu;
+                    g.v = (v[j]->g.v * sv + 0.0625f) * iv;
+                    g.color = v[j]->g.color | force_alpha;
+                    g.x = v[j]->g.x * w;
+                    g.y = v[j]->g.y * w;
+                    g.z = w;
+                    out[k++] = g;
+                }
+            }
+            if (k)
+                sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D,
+                               static_cast<int>(k), nullptr, out);
+            return;
+        }
+    }
     if (!(tex && perspective()) && dump_frame < 0) {
         // no subdivision: straight into the display list (at most 3 vertices per triangle)
         auto *out = static_cast<GeVertex *>(psp_ge::list_memory(3u * ntri * sizeof(GeVertex)));

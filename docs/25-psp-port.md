@@ -163,6 +163,23 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   race frame 33.0 s after boot in the scripted run (36.5 s all translated). A temporary per-call `getenv` in the getc hook made it ~2x slower
   for a while: newlib's getenv scans the whole environment.
 
+## Perspective in the GE (2026-10-17)
+- Textured triangles whose 1/w varies are drawn in the GE's 3D mode, which interpolates texture
+  coordinates perspective-correctly in hardware: no CPU subdivision (`MOTORACER_GE_3D=0` restores
+  the subdivision path). Vertex = (x·w, y·w, w), w = 1/rhw; the projection set in `psp_ge`
+  (column-major, P.x = (2/480,0,0,0), P.y = (0,−2/272,0,0), P.z = (−1,1,1,1), P.w = (0,0,−2·W0,0))
+  maps it back to pixel (x, y) with depth 65535·W0/w for the viewport (centre 2048, 480x272) and
+  depth range 65535..0.
+- The 3D mode cannot produce the game's depth (linear in distance: sz = camera z / 65536), so every
+  draw now uses 65535·min(1, S0/sz), S0 = half the previous frame's smallest sz (precision where
+  the geometry is), and the 3D draws W0 = S0/k with k = sz·rhw measured on the previous frame's
+  textured vertices — the same depth. Depth comes from sz, not rhw: the game's untextured vertex loop
+  never writes rhw (the first version used rhw and the bike in the bike selection had parts at
+  wrong depths). Draws with a vertex nearer than S0 (one frame after a sudden approach) and 2D pieces
+  (constant rhw, w = 1 would be clipped at the near plane) stay in through mode.
+- PPSSPP race: no subdivided triangles (was ~230 k per 5 s), GE backend draw time per draw
+  ~12-14 → ~8 µs, race frames +2.8%. Owner-tested: bike selection and races look right.
+
 ## Memory budget, PSP-1000 (2026-10-17, in progress)
 - `MOTORACER_MEM_STATS=1` on the PSP also logs newlib's `mallinfo`, the guest-stack and host-stack
   high-water marks, and `MOTORACER_GE_STATS` the converted-texture count / size.

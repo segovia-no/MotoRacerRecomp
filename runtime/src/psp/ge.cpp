@@ -161,6 +161,34 @@ void downscale_565(const uint8_t *src, uint32_t pitch, uint32_t w, uint32_t h, u
     }
 }
 
+// Projection for 3D-mode draws (column-major: clip = P.x*X + P.y*Y + P.z*Z + P.w). With the viewport
+// (centre 2048, FB_W x FB_H) and depth range 65535..0 set in init, a vertex (x*w, y*w, w) lands on
+// pixel (x, y) with depth 65535 * w0 / w: clip = (2X/FB_W - Z, Z - 2Y/FB_H, Z - 2*w0, Z).
+static float cur_w0 = -1.f;
+static void send_projection(float w0) {
+    ScePspFMatrix4 p{};
+    p.x.x = 2.f / FB_W;
+    p.y.y = -2.f / FB_H;
+    p.z.x = -1.f;
+    p.z.y = 1.f;
+    p.z.z = 1.f;
+    p.z.w = 1.f;
+    p.w.z = -2.f * w0;
+    sceGuSetMatrix(GU_PROJECTION, &p);
+    ScePspFMatrix4 id{};
+    id.x.x = id.y.y = id.z.z = id.w.w = 1.f;
+    sceGuSetMatrix(GU_VIEW, &id);
+    sceGuSetMatrix(GU_MODEL, &id);
+    sceGuTexScale(1.f, 1.f);
+    sceGuTexOffset(0.f, 0.f);
+    cur_w0 = w0;
+}
+void set_near_w(float w0) {
+    if (w0 == cur_w0 && open) return;
+    begin();
+    send_projection(w0);
+}
+
 static uint32_t epoch = 0;
 uint32_t state_epoch() { return epoch; }
 void touch_state() { epoch++; }

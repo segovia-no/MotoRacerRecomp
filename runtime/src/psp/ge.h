@@ -26,6 +26,8 @@ uint64_t take_wait_ns();       // time spent waiting for the GE since the last c
 // source pixels (keeps the game's 1-pixel checker "stippled" transparency as a blend).
 void downscale_565(const uint8_t *src, uint32_t pitch, uint32_t w, uint32_t h, uint16_t *dst, uint32_t dstride,
                    uint32_t dw, uint32_t dh);
+// 3D-mode drawing (d3d_ge.cpp): the projection maps (x*w, y*w, w) to pixel (x, y), depth 65535*w0/w
+void set_near_w(float w0);
 uint32_t state_epoch();        // changes whenever GE render state is changed outside the D3D backend
 void touch_state();            // call after changing GE render state (CPU-frame presenter)
 
