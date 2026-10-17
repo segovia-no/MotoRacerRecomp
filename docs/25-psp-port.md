@@ -117,6 +117,15 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   Found with `MOTORACER_GE_DUMP=<frame>` (logs every draw of that frame and saves each texture as
   the guest surface and the converted GE copy into the snapshot dir).
 
+## Menu speed (2026-10-17)
+- Owner report: main menu ~17 fps. The menus are 640x480 CPU frames; the 2x2-averaged downscale to
+  363x272 (added for the stippled arrows) did a float division, four loads and a per-channel loop
+  per output pixel (~99 k pixels per frame). Now `psp_ge::downscale_565` (shared by CPU frames and
+  Direct3D back-buffer uploads): source columns from a table built once, rows by integer math, the
+  three RGB565 channels averaged in one 32-bit word ((p | p << 16) & 0x07E0F81F, sum of four, >> 2)
+  with the red / blue swap folded in. Main menu 104 → 243 frames per 5 s (~21 → ~49 fps); intro /
+  title / name entry windows 2–2.5x faster. Same picture.
+
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).
 - Time per 5 s in the race: Direct3D Execute (parsing + GE backend) 400–660 ms (8–13%), of which the

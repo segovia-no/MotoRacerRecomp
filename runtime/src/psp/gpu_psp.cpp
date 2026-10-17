@@ -4,6 +4,7 @@
 #include <pspgu.h>
 
 #include <algorithm>
+#include <vector>
 #include <cstdlib>
 #include <cstring>
 
@@ -96,18 +97,7 @@ void present_rgb16(const uint8_t *px, uint32_t w, uint32_t h, uint32_t pitch, bo
             frame16 = static_cast<uint16_t *>(memalign(64, dstride * dh * 2));
             frame16_px = dstride * dh;
         }
-        for (uint32_t y = 0; y < dh; y++) {
-            uint32_t sy = static_cast<uint32_t>(y / scale), sy1 = sy + 1 < h ? sy + 1 : sy;
-            const uint16_t *r0 = reinterpret_cast<const uint16_t *>(px + static_cast<size_t>(sy) * pitch);
-            const uint16_t *r1 = reinterpret_cast<const uint16_t *>(px + static_cast<size_t>(sy1) * pitch);
-            uint16_t *out = frame16 + y * dstride;
-            for (uint32_t x = 0; x < dw; x++) {
-                uint32_t sx = static_cast<uint32_t>(x / scale), sx1 = sx + 1 < w ? sx + 1 : sx;
-                uint32_t p[4] = {r0[sx], r0[sx1], r1[sx], r1[sx1]}, r = 0, g = 0, b = 0;
-                for (uint32_t q : p) { r += q >> 11; g += (q >> 5) & 63; b += q & 31; }
-                out[x] = psp_ge::swap_rb565(static_cast<uint16_t>((r / 4) << 11 | (g / 4) << 5 | (b / 4)));
-            }
-        }
+        psp_ge::downscale_565(px, pitch, w, h, frame16, dstride, dw, dh);
         draw_frame(frame16, dw, dh, dstride);
         return;
     }

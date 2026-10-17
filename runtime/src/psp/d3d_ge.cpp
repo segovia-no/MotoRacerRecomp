@@ -130,18 +130,7 @@ void upload_target() {
         // Downscaled (640x480 -> 363x272): average 2x2 source pixels. The game draws some menu
         // elements with a 1-pixel checker ("stippled" transparency); picking single pixels turned it
         // into coarse yellow / black blocks, averaging gives the intended blend.
-        for (uint32_t y = 0; y < s_h; y++) {
-            uint32_t sy = static_cast<uint32_t>(y / scale), sy1 = sy + 1 < g_h ? sy + 1 : sy;
-            uint32_t r0 = target->mem + sy * target->pitch, r1 = target->mem + sy1 * target->pitch;
-            uint16_t *dst = buf + y * psp_ge::FB_STRIDE;
-            for (uint32_t x = 0; x < s_w; x++) {
-                uint32_t sx = static_cast<uint32_t>(x / scale), sx1 = sx + 1 < g_w ? sx + 1 : sx;
-                uint32_t p[4] = {RD16(r0 + 2 * sx), RD16(r0 + 2 * sx1), RD16(r1 + 2 * sx), RD16(r1 + 2 * sx1)};
-                uint32_t r = 0, g = 0, b = 0;
-                for (uint32_t q : p) { r += q >> 11; g += (q >> 5) & 63; b += q & 31; }
-                dst[x] = psp_ge::swap_rb565(static_cast<uint16_t>((r / 4) << 11 | (g / 4) << 5 | (b / 4)));
-            }
-        }
+        psp_ge::downscale_565(M + target->mem, target->pitch, g_w, g_h, buf, psp_ge::FB_STRIDE, s_w, s_h);
     }
     psp_ge::write_rect(buf, psp_ge::FB_STRIDE, off_x, off_y, static_cast<int>(s_w), static_cast<int>(s_h));
     cpu_dirty = false;

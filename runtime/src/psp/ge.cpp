@@ -1,6 +1,9 @@
 // PSP GE context (see ge.h).
 #include "ge.h"
 
+#include <algorithm>
+#include <vector>
+
 #include <pspdisplay.h>
 #include <pspge.h>
 #include <pspgu.h>
@@ -11,6 +14,7 @@
 #include <malloc.h>
 
 #include <algorithm>
+#include <vector>
 #include <cstdio>
 #include <cstdlib>
 
@@ -127,6 +131,34 @@ void show() {
     sceDisplaySetFrameBuf(vram_cpu() + fb_offset(cur) + VIEW_Y0 * FB_STRIDE * 2, FB_STRIDE,
                           PSP_DISPLAY_PIXEL_FORMAT_565, PSP_DISPLAY_SETBUF_NEXTFRAME);
     cur ^= 1;
+}
+
+void downscale_565(const uint8_t *src, uint32_t pitch, uint32_t w, uint32_t h, uint16_t *dst, uint32_t dstride,
+                   uint32_t dw, uint32_t dh) {
+    // source column per output column, integer, computed once per size
+    static std::vector<uint16_t> cols;
+    static uint32_t cols_w = 0, cols_dw = 0;
+    if (cols_w != w || cols_dw != dw) {
+        cols.resize(dw);
+        for (uint32_t x = 0; x < dw; x++) cols[x] = static_cast<uint16_t>(std::min<uint32_t>(x * w / dw, w - 2));
+        cols_w = w;
+        cols_dw = dw;
+    }
+    // all three channels in one 32-bit word: green moved to bits 21-26, red / blue stay at 11-15 /
+    // 0-4; a sum of four fits below the next field
+    auto spread = [](uint32_t q) { return (q | q << 16) & 0x07E0F81Fu; };
+    for (uint32_t y = 0; y < dh; y++) {
+        const uint32_t sy = std::min<uint32_t>(y * h / dh, h - 2);
+        const uint16_t *r0 = reinterpret_cast<const uint16_t *>(src + static_cast<size_t>(sy) * pitch);
+        const uint16_t *r1 = reinterpret_cast<const uint16_t *>(src + static_cast<size_t>(sy + 1) * pitch);
+        uint16_t *out = dst + y * dstride;
+        for (uint32_t x = 0; x < dw; x++) {
+            const uint32_t sx = cols[x];
+            const uint32_t sum = spread(r0[sx]) + spread(r0[sx + 1]) + spread(r1[sx]) + spread(r1[sx + 1]);
+            const uint32_t a = (sum >> 2) & 0x07E0F81Fu;
+            out[x] = static_cast<uint16_t>((a >> 11 & 31) | (a >> 16 & 0x7E0) | (a & 31) << 11);   // red <-> blue
+        }
+    }
 }
 
 static uint32_t epoch = 0;

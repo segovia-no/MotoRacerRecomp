@@ -22,6 +22,10 @@ void show();                   // finish, display the drawn buffer, swap
 uint16_t *draw_buffer();       // CPU (uncached) pointer to the buffer being drawn (RGB565, R low)
 void *list_memory(size_t n);   // memory inside the open display list (vertices)
 uint64_t take_wait_ns();       // time spent waiting for the GE since the last call (stats)
+// Guest RGB565 (red high) -> GE 5650 (red low), scaled down from w x h to dw x dh by averaging 2x2
+// source pixels (keeps the game's 1-pixel checker "stippled" transparency as a blend).
+void downscale_565(const uint8_t *src, uint32_t pitch, uint32_t w, uint32_t h, uint16_t *dst, uint32_t dstride,
+                   uint32_t dw, uint32_t dh);
 uint32_t state_epoch();        // changes whenever GE render state is changed outside the D3D backend
 void touch_state();            // call after changing GE render state (CPU-frame presenter)
 
