@@ -212,4 +212,4 @@ longer need to drain a stream. The game's buffers: 16-bit mono, 8,000–22,050 H
   15.8 ms per frame, the next 16.5 → 15.5.
 - Same mixer on every platform (one code path); linear interpolation instead of SDL's windowed-sinc
   resampler, as 1990s software mixers did.
-- Owner-tested on the desktop (2026-10-17): "works great".
+- Owner-tested (2026-10-17): desktop "works great"; PSP (PPSSPP, with the CD music) "works flawlessly".
