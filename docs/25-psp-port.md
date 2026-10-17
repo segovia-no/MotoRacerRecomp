@@ -178,7 +178,7 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   wrong depths). Draws with a vertex nearer than S0 (one frame after a sudden approach) and 2D pieces
   (constant rhw, w = 1 would be clipped at the near plane) stay in through mode.
 - PPSSPP race: no subdivided triangles (was ~230 k per 5 s), GE backend draw time per draw
-  ~12-14 → ~8 µs, race frames +2.8%. Owner-tested: bike selection and races look right.
+  ~12-14 → ~8 µs, race frames +2.8%. Owner-tested: the bike selection (races: my snapshots only).
 
 ## Memory budget, PSP-1000 (2026-10-17, in progress)
 - `MOTORACER_MEM_STATS=1` on the PSP also logs newlib's `mallinfo`, the guest-stack and host-stack
