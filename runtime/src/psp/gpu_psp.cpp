@@ -3,6 +3,7 @@
 #include <malloc.h>
 #include <pspgu.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 
@@ -81,6 +82,34 @@ void present_rgba(const uint32_t *px, uint32_t w, uint32_t h, const Crop &) {
 
 void present_rgb16(const uint8_t *px, uint32_t w, uint32_t h, uint32_t pitch, bool rgb555) {
     if (w > 1024 || h > 512) return;
+    if (!rgb555 && (w > psp_ge::SCREEN_W || h > psp_ge::SCREEN_H)) {
+        // Larger than the screen (640x480 menus): scale on the CPU with 2x2 averaging, as the
+        // Direct3D path does (d3d_ge.cpp upload_target), and draw 1:1. The GE's bilinear filter
+        // blends only neighbouring pixels at this scale and turns the game's 1-pixel checker
+        // ("stippled" transparency, e.g. the track-select arrows) into blocks.
+        float scale = std::min(static_cast<float>(psp_ge::SCREEN_W) / w, static_cast<float>(psp_ge::SCREEN_H) / h);
+        uint32_t dw = static_cast<uint32_t>(w * scale), dh = static_cast<uint32_t>(h * scale);
+        const uint32_t dstride = (dw + 7) & ~7u;
+        if (frame16_px < dstride * dh) {
+            free(frame16);
+            frame16 = static_cast<uint16_t *>(memalign(64, dstride * dh * 2));
+            frame16_px = dstride * dh;
+        }
+        for (uint32_t y = 0; y < dh; y++) {
+            uint32_t sy = static_cast<uint32_t>(y / scale), sy1 = sy + 1 < h ? sy + 1 : sy;
+            const uint16_t *r0 = reinterpret_cast<const uint16_t *>(px + static_cast<size_t>(sy) * pitch);
+            const uint16_t *r1 = reinterpret_cast<const uint16_t *>(px + static_cast<size_t>(sy1) * pitch);
+            uint16_t *out = frame16 + y * dstride;
+            for (uint32_t x = 0; x < dw; x++) {
+                uint32_t sx = static_cast<uint32_t>(x / scale), sx1 = sx + 1 < w ? sx + 1 : sx;
+                uint32_t p[4] = {r0[sx], r0[sx1], r1[sx], r1[sx1]}, r = 0, g = 0, b = 0;
+                for (uint32_t q : p) { r += q >> 11; g += (q >> 5) & 63; b += q & 31; }
+                out[x] = psp_ge::swap_rb565(static_cast<uint16_t>((r / 4) << 11 | (g / 4) << 5 | (b / 4)));
+            }
+        }
+        draw_frame(frame16, dw, dh, dstride);
+        return;
+    }
     const uint32_t stride = (w + 7) & ~7u;
     if (frame16_px < stride * h) {
         free(frame16);

@@ -104,6 +104,16 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   over the same rectangle, one of them mirrored (back-facing); the game relies on Direct3D culling
   (CULLMODE CCW) to drop it, and the GE backend did not cull. Now culled on the CPU while building the
   triangle list, with the desktop backend's convention (CCW: screen-space cross product < 0).
+  Black seams in HUD bars / mosaic text: Direct3D 5 has pixel centres at integer coordinates, the
+  GE at half-integers, so point-sampled HUD pieces picked neighbouring texels. Vertices are shifted
+  by half a game pixel (as on the desktop) and uv by +1/16 texel (exact-boundary samples go to the
+  texel Direct3D takes). Correct at PPSSPP's 1x (= hardware); at PPSSPP's 2x rendering 2D art still
+  shows seams (emulator upscaling, as with many PSP games).
+- Menus' 1-pixel checker ("stippled" transparency, e.g. the yellow arrows) became coarse blocks when
+  640x480 frames were scaled to 363x272 by picking pixels (Direct3D back buffer uploads) or by the
+  GE's bilinear filter (CPU frames): both now scale on the CPU with 2x2 averaging and draw 1:1.
+- PPSSPP keyboard (default `controls.ini`): arrows D-pad, Z Cross, X Circle, A Square, S Triangle,
+  Space Start, Enter Select, Q/W L/R, I/J/K/L nub, Esc PPSSPP menu.
   Found with `MOTORACER_GE_DUMP=<frame>` (logs every draw of that frame and saves each texture as
   the guest surface and the converted GE copy into the snapshot dir).
 

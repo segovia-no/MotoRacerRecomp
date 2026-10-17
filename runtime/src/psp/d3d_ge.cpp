@@ -94,7 +94,7 @@ uint32_t argb_to_abgr(uint32_t c) { return (c & 0xFF00FF00u) | ((c >> 16) & 0xFF
 
 bool usable() { return target != nullptr; }
 
-// Guest back buffer (RGB565) <-> GE draw buffer (nearest-neighbour when scaled), through a RAM
+// Guest back buffer (RGB565) <-> GE draw buffer (scaled when the target is larger), through a RAM
 // staging buffer and GE block transfers (psp_ge::read_rect / write_rect).
 uint16_t *staging() {
     static uint16_t *buf = static_cast<uint16_t *>(memalign(64, psp_ge::FB_STRIDE * psp_ge::FB_H * 2));
@@ -105,10 +105,28 @@ void upload_target() {
     st.uploads++;
     psp_ge::finish();
     uint16_t *buf = staging();
-    for (uint32_t y = 0; y < s_h; y++) {
-        uint16_t *dst = buf + y * psp_ge::FB_STRIDE;
-        uint32_t src = target->mem + static_cast<uint32_t>(y / scale) * target->pitch;
-        for (uint32_t x = 0; x < s_w; x++) dst[x] = psp_ge::swap_rb565(RD16(src + 2 * static_cast<uint32_t>(x / scale)));
+    if (scale >= 1.f) {
+        for (uint32_t y = 0; y < s_h; y++) {
+            uint16_t *dst = buf + y * psp_ge::FB_STRIDE;
+            uint32_t src = target->mem + y * target->pitch;
+            for (uint32_t x = 0; x < s_w; x++) dst[x] = psp_ge::swap_rb565(RD16(src + 2 * x));
+        }
+    } else {
+        // Downscaled (640x480 -> 363x272): average 2x2 source pixels. The game draws some menu
+        // elements with a 1-pixel checker ("stippled" transparency); picking single pixels turned it
+        // into coarse yellow / black blocks, averaging gives the intended blend.
+        for (uint32_t y = 0; y < s_h; y++) {
+            uint32_t sy = static_cast<uint32_t>(y / scale), sy1 = sy + 1 < g_h ? sy + 1 : sy;
+            uint32_t r0 = target->mem + sy * target->pitch, r1 = target->mem + sy1 * target->pitch;
+            uint16_t *dst = buf + y * psp_ge::FB_STRIDE;
+            for (uint32_t x = 0; x < s_w; x++) {
+                uint32_t sx = static_cast<uint32_t>(x / scale), sx1 = sx + 1 < g_w ? sx + 1 : sx;
+                uint32_t p[4] = {RD16(r0 + 2 * sx), RD16(r0 + 2 * sx1), RD16(r1 + 2 * sx), RD16(r1 + 2 * sx1)};
+                uint32_t r = 0, g = 0, b = 0;
+                for (uint32_t q : p) { r += q >> 11; g += (q >> 5) & 63; b += q & 31; }
+                dst[x] = psp_ge::swap_rb565(static_cast<uint16_t>((r / 4) << 11 | (g / 4) << 5 | (b / 4)));
+            }
+        }
     }
     psp_ge::write_rect(buf, psp_ge::FB_STRIDE, off_x, off_y, static_cast<int>(s_w), static_cast<int>(s_h));
     cpu_dirty = false;
@@ -386,7 +404,11 @@ uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
         float z = 65535.f * (1.f - v.sz);
         z = z < 0.f ? 0.f : z > 65535.f ? 65535.f : z;
         float rhw = v.rhw > 1e-12f ? v.rhw : 1e-12f;
-        frame_vertices.push_back({{v.tu, v.tv, argb_to_abgr(v.color), v.sx * scale + off_x, v.sy * scale + off_y, z}, rhw});
+        // Direct3D 5 has pixel centres at integer coordinates, the GE at half-integers: shift by half
+        // a game pixel (as the desktop backend does) so coverage and texel sampling match — otherwise
+        // point-sampled HUD pieces pick the neighbouring texel (black seams in the red bars).
+        frame_vertices.push_back({{v.tu, v.tv, argb_to_abgr(v.color), (v.sx + 0.5f) * scale + off_x,
+                                   (v.sy + 0.5f) * scale + off_y, z}, rhw});
     }
     return base;
 }
@@ -475,8 +497,10 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     auto *out = static_cast<GeVertex *>(psp_ge::list_memory(tri_out.size() * sizeof(GeVertex)));
     for (size_t i = 0; i < tri_out.size(); i++) {
         GeVertex g = tri_out[i].g;
-        g.u *= su;
-        g.v *= sv;
+        // + 1/16 texel: with the half-pixel shift (add_vertices) 1:1 sprites sample exactly on texel
+        // boundaries, where Direct3D takes the texel to the right / below; nudge them there.
+        g.u = g.u * su + (tex ? 0.0625f : 0.f);
+        g.v = g.v * sv + (tex ? 0.0625f : 0.f);
         g.color |= force_alpha;
         out[i] = g;
     }
