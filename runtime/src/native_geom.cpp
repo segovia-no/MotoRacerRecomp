@@ -26,6 +26,7 @@ extern "C" void f_0049c110_t(void);
 extern "C" void f_0049ca70(void);
 extern "C" void f_00497080_t(void);
 extern "C" void f_0049ca70_t(void);
+extern "C" void f_00422b90_t(void);
 
 namespace {
 
@@ -764,5 +765,36 @@ extern "C" int native_clip(void) {
     }
     check("clip 0x497080", clip_triangle, f_00497080_t,
           {{CLIP_BUF_B, 0xe8}, {CLIP_BUF_A, 0xe8}, {CLIP_SRC, 4}, {CLIP_DST, 4}, {CLIP_WRITE, 4}});
+    return 1;
+}
+
+// ---- 0x422b90: polygon record init (thiscall, no arguments, returns this) ----
+// Four (u, v) pairs at +4 are constructed by 0x403170, which only returns this; then the vertex
+// indexes +0x2c..+0x34 = 0xea60 (unused), +0x36 / +0x38 = 0, +0x3c = -1.
+namespace {
+void poly_record_init() {
+    MEM_LOCAL();
+    const uint32_t self = R.ecx;
+    WR16(self + 0x2c, 0xea60);
+    WR16(self + 0x2e, 0xea60);
+    WR32(self + 0x3c, 0xffffffffu);
+    WR16(self + 0x30, 0xea60);
+    WR16(self + 0x32, 0xea60);
+    WR16(self + 0x34, 0xea60);
+    WR16(self + 0x36, 0);
+    WR16(self + 0x38, 0);
+    R.eax = self;
+    R.ecx = self + 0x24;   // the last constructor's this
+    // the constructors' return addresses below the stack pointer are not reproduced (dead)
+    R.esp += 4;
+}
+}  // namespace
+
+extern "C" int native_poly_record_init(void) {
+    MEM_LOCAL();
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { poly_record_init(); return 1; }
+    check("poly record init 0x422b90", poly_record_init, f_00422b90_t, {{R.ecx, 0x40}});
     return 1;
 }
