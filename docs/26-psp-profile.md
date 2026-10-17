@@ -49,3 +49,18 @@ backend) 8–13% of the frame.
 3. **Translator quick wins** (each a few % at most, all functions): inline parity, float literals for
    double constants, inline `rep movs`, 32-bit division fast path, inline `_ftol`.
 4. **CRT printf** (1.9%): route the guest's sprintf to a host implementation.
+
+## Done: translator quick wins (2026-10-17)
+- Parity inline on MIPS (bit trick instead of the libgcc call).
+- x87 loads of constants in `.rdata` (read-only: characteristics 0x40000040) become literals: 1,455
+  sites (no memory access; on the PSP no software double→float conversion each time).
+- `rep movs` / `stos` (and single movs / stos) inline on the cached registers: memcpy / memset for
+  forward non-overlapping cases, the x86 element order otherwise; 1,033 sites, no runtime call and no
+  register spills. (`scas` / `cmps` still call the runtime: they set flags.)
+- `div` / `idiv` 32-bit fast path when edx is the zero / sign extension (no 64-bit software division).
+- MSVC `_ftol` (0x4b3048) inlined at all 525 call sites (`FTOL`: one trunc.w.s for the int32 range).
+- `F_TO_I32` (fistp) on the PSP: the FPU's cvt / floor / ceil / trunc.w.s with the x87 rounding
+  mode, no double arithmetic; F_TO_I16 / I64 in fpu_t.
+- difftest 0 failures; desktop and PPSSPP races normal. MIPS game code 3.93 → 4.06 MB (inlined copy
+  loops). PPSSPP race: 168–266 frames per 5 s (34–53 fps), was 111–186 (22–36 fps).
+

@@ -48,21 +48,41 @@ fpu_t F_ROUND(fpu_t v) {
     }
 }
 
+#if defined(__mips__) && defined(RECOMP_FPU_FLOAT)
+/* PSP: the FPU's own conversions (cvt.w.s rounds like the x87 default, round-to-nearest-even), no
+ * double arithmetic (software on the Allegrex). */
+static int32_t mips_round_w(float f, int mode) {
+    float t;
+    switch (mode) {
+    case 0: __asm__("cvt.w.s %0, %1" : "=f"(t) : "f"(f)); break;
+    case 1: __asm__("floor.w.s %0, %1" : "=f"(t) : "f"(f)); break;
+    case 2: __asm__("ceil.w.s %0, %1" : "=f"(t) : "f"(f)); break;
+    default: __asm__("trunc.w.s %0, %1" : "=f"(t) : "f"(f)); break;
+    }
+    int32_t r;
+    memcpy(&r, &t, 4);
+    return r;
+}
+#endif
+
 int32_t F_TO_I32(fpu_t v) {
-    double r = F_ROUND(v);
-    if (!(r >= -2147483648.0 && r <= 2147483647.0)) { F.sw |= 1; return INT32_MIN; }
+#if defined(__mips__) && defined(RECOMP_FPU_FLOAT)
+    if (v > -2147483520.0f && v < 2147483520.0f) return mips_round_w(v, (F.cw >> 10) & 3);
+#endif
+    fpu_t r = F_ROUND(v);
+    if (!(r >= (fpu_t)-2147483648.0 && r < (fpu_t)2147483648.0)) { F.sw |= 1; return INT32_MIN; }
     return (int32_t)r;
 }
 
 int16_t F_TO_I16(fpu_t v) {
-    double r = F_ROUND(v);
-    if (!(r >= -32768.0 && r <= 32767.0)) { F.sw |= 1; return INT16_MIN; }
+    fpu_t r = F_ROUND(v);
+    if (!(r >= (fpu_t)-32768.0 && r <= (fpu_t)32767.0)) { F.sw |= 1; return INT16_MIN; }
     return (int16_t)r;
 }
 
 int64_t F_TO_I64(fpu_t v) {
-    double r = F_ROUND(v);
-    if (!(r >= -9223372036854775808.0 && r < 9223372036854775808.0)) { F.sw |= 1; return INT64_MIN; }
+    fpu_t r = F_ROUND(v);
+    if (!(r >= (fpu_t)-9223372036854775808.0 && r < (fpu_t)9223372036854775808.0)) { F.sw |= 1; return INT64_MIN; }
     return (int64_t)r;
 }
 

@@ -125,7 +125,12 @@ void recomp_check_saved(uint32_t va, int what, uint32_t mask);
          else if (a_ == b_) sw |= 0x4000u; } while (0)
 
 /* ---------- flags ---------- */
+#if defined(__mips__)
+/* no popcount on MIPS: __builtin_parity is a libgcc call there */
+static inline uint32_t PARITY(uint32_t v) { v &= 0xff; v ^= v >> 4; return (0x9669u >> (v & 15)) & 1; }
+#else
 static inline uint32_t PARITY(uint32_t v) { return !__builtin_parity(v & 0xff); }
+#endif
 static inline uint32_t EFLAGS_PACK(uint32_t cf, uint32_t pf, uint32_t af, uint32_t zf,
                                    uint32_t sf, uint32_t of) {
     return 0x202u | cf | (pf << 2) | (af << 4) | (zf << 6) | (sf << 7) | (R.df << 10) | (of << 11);
@@ -145,6 +150,13 @@ static inline void FCOM(fpu_t a, fpu_t b) {
     if (a != a || b != b) F.sw |= 0x4500;
     else if (a < b) F.sw |= 0x0100;
     else if (a == b) F.sw |= 0x4000;
+}
+/* MSVC _ftol, inlined by the translator: truncate to edx:eax (indefinite on overflow / NaN). The
+ * int32 range takes a single conversion instruction (trunc.w.s on MIPS, no 64-bit libgcc call). */
+static inline int64_t FTOL(fpu_t v) {
+    if (v > (fpu_t)-2147483648.0 && v < (fpu_t)2147483648.0) return (int64_t)(int32_t)v;
+    if (!(v >= (fpu_t)-9223372036854775808.0 && v < (fpu_t)9223372036854775808.0)) return INT64_MIN;
+    return (int64_t)v;
 }
 void FXAM(void);
 void FPREM(void);
@@ -222,6 +234,7 @@ void x86_unimpl(uint32_t va, const char *what);
  * MEM_LOCAL at the top of every translated function), so stores through it don't make the compiler
  * reload the global M. Defined last: the inline helpers above keep using M. */
 #ifdef RECOMP_GENERATED
+#define MEMBASE mb
 #define MEM_LOCAL() uint8_t *const mb = M
 #define RD8(a) (mb[(uint32_t)(a)])
 #define RD16(a) ({ uint16_t r_; memcpy(&r_, mb + (uint32_t)(a), 2); r_; })
@@ -248,6 +261,7 @@ void x86_unimpl(uint32_t va, const char *what);
 #define WRF32A(a, v) do { float w_ = (v); memcpy(AL_(a, 4), &w_, 4); } while (0)
 #define WRF64A(a, v) do { double w_ = (v); memcpy(AL_(a, 4), &w_, 8); } while (0)
 #else
+#define MEMBASE M
 #define MEM_LOCAL() ((void)0)
 #define RD16A RD16
 #define RD32A RD32

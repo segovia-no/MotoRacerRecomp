@@ -4,7 +4,9 @@ One C function per discovered guest function. Guest registers live in the global
 arithmetic flags are C locals (they never cross call boundaries in compiled MSVC code), and
 x87 state is the global `F`. See docs/07-translator.md for the model.
 """
+import math
 import re
+import struct
 
 from capstone import x86
 
@@ -116,6 +118,9 @@ GAME_HOOKS = {
     0x4AF9FE: "native_vertices_check",
 }
 
+# MSVC CRT _ftol (fnstcw / fldcw truncate / fistp qword / restore): calls are inlined (FTOL in recomp.h).
+FTOL_VA = 0x4B3048
+
 # Guest functions with a native version (runtime/src/native_render.cpp, docs/24-native-render.md):
 # f_<va> calls the native function, which returns 0 to run the translated body (kept as f_<va>_t).
 # (0x419d60, the triangle emitter, was tried: no gain over the translated code, docs/24.)
@@ -168,6 +173,7 @@ PURE_CALLS = {
     "EFLAGS_UNPACK", "ST", "FPUSH", "FPOP", "FSTSW", "FCOM", "FXAM", "FPREM", "F_ROUND", "F_TO_I16",
     "F_TO_I32", "F_TO_I64", "FNSTENV", "FLDENV", "FM", "trunc", "if", "switch", "while", "sizeof",
     "RD16A", "RD32A", "RD64A", "RDF32A", "RDF64A", "WR16A", "WR32A", "WR64A", "WRF32A", "WRF64A",
+    "memcpy", "memset", "FTOL",
 }
 REG_RE = re.compile(r"\bR\.(eax|ecx|edx|ebx|esp|ebp|esi|edi)\b")
 CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\(")
@@ -1147,9 +1153,12 @@ class FunctionTranslator:
         v = self.rd(insn, 0)
         va = insn.va
         if size == 4:
-            self.emit(f"{{ uint32_t d = {v}; uint64_t n = ((uint64_t)R.edx << 32) | R.eax;"
+            # 32-bit fast path when edx is 0 (the usual `xor edx, edx; div`): no 64-bit software
+            # division on 32-bit hosts
+            self.emit(f"{{ uint32_t d = {v}; if (!R.edx && d) {{ uint32_t n32 = R.eax; R.eax = n32 / d; R.edx = n32 % d; }}"
+                      f" else {{ uint64_t n = ((uint64_t)R.edx << 32) | R.eax;"
                       f" if (!d || n / d > 0xffffffffu) {{ x86_div_fault(0x{va:x}u); return; }}"
-                      " R.eax = (uint32_t)(n / d); R.edx = (uint32_t)(n % d); }")
+                      " R.eax = (uint32_t)(n / d); R.edx = (uint32_t)(n % d); } }")
         elif size == 2:
             self.emit(f"{{ uint32_t d = {v}; uint32_t n = ((R.edx & 0xffff) << 16) | (R.eax & 0xffff);"
                       f" if (!d || n / d > 0xffffu) {{ x86_div_fault(0x{va:x}u); return; }}"
@@ -1165,10 +1174,14 @@ class FunctionTranslator:
         v = self.rd(insn, 0)
         va = insn.va
         if size == 4:
-            self.emit(f"{{ int64_t d = (int32_t){v}; int64_t n = (int64_t)(((uint64_t)R.edx << 32) | R.eax);"
+            # 32-bit fast path when edx is eax's sign extension (the usual `cdq; idiv`)
+            self.emit(f"{{ int32_t d32 = (int32_t){v}; if (R.edx == (uint32_t)((int32_t)R.eax >> 31) && d32 &&"
+                      f" !((int32_t)R.eax == INT32_MIN && d32 == -1)) {{ int32_t n32 = (int32_t)R.eax;"
+                      f" R.eax = (uint32_t)(n32 / d32); R.edx = (uint32_t)(n32 % d32); }}"
+                      f" else {{ int64_t d = d32; int64_t n = (int64_t)(((uint64_t)R.edx << 32) | R.eax);"
                       f" if (!d || (n == INT64_MIN && d == -1)) {{ x86_div_fault(0x{va:x}u); return; }}"
                       f" int64_t q = n / d; if (q != (int32_t)q) {{ x86_div_fault(0x{va:x}u); return; }}"
-                      " R.eax = (uint32_t)q; R.edx = (uint32_t)(n % d); }")
+                      " R.eax = (uint32_t)q; R.edx = (uint32_t)(n % d); } }")
         elif size == 2:
             self.emit(f"{{ int32_t d = (int16_t){v}; int32_t n = (int32_t)(((R.edx & 0xffff) << 16) | (R.eax & 0xffff));"
                       f" if (!d) {{ x86_div_fault(0x{va:x}u); return; }} int32_t q = n / d;"
@@ -1259,6 +1272,10 @@ class FunctionTranslator:
     def i_call(self, insn):
         kind, val, _ = insn.ops[0]
         ret = f"PUSH32(0x{insn.end:x}u);"
+        if kind == "imm" and val == FTOL_VA:
+            # MSVC's _ftol: ST(0) -> edx:eax, truncating, pops; inline (no guest call, no spills)
+            self.emit("{ int64_t r_ = FTOL(ST(0)); FPOP(); R.eax = (uint32_t)r_; R.edx = (uint32_t)((uint64_t)r_ >> 32); }")
+            return True
         if kind == "imm":
             if val in self.d.entries:
                 self.emit(f"{ret} {fn_name(val)}();")
@@ -1292,10 +1309,22 @@ class FunctionTranslator:
         size = {"b": 1, "w": 2, "d": 4}[m[-1]]
         op = m[:-1]
         flags = "&cf, &zf, &sf, &of, &pf, &af"
+        # movs / stos inline on the registers (no runtime call, no register spills): a forward copy
+        # without overlap is a memcpy, anything else the x86 element-by-element order.
+        bits = BITS[size]
+        n = "R.ecx" if rep else "1u"
+        done = " R.ecx = 0;" if rep else ""
         if op == "movs":
-            self.emit(f"REP_MOVS({size}, {rep});")
+            self.emit(f"{{ uint32_t n_ = {n}, b_ = n_ * {size}u; if (!R.df && (R.edi + b_ <= R.esi || R.esi + b_ <= R.edi))"
+                      f" {{ memcpy(MEMBASE + R.edi, MEMBASE + R.esi, b_); R.esi += b_; R.edi += b_; }}"
+                      f" else {{ int32_t s_ = R.df ? -{size} : {size}; for (; n_; n_--) {{"
+                      f" WR{bits}(R.edi, RD{bits}(R.esi)); R.esi += s_; R.edi += s_; }} }}{done} }}")
         elif op == "stos":
-            self.emit(f"REP_STOS({size}, {rep});")
+            val = {1: "(uint8_t)R.eax", 2: "(uint16_t)R.eax", 4: "R.eax"}[size]
+            fill = (f"if (!R.df) {{ memset(MEMBASE + R.edi, (uint8_t)R.eax, n_); R.edi += n_; }} else "
+                    if size == 1 else "")
+            self.emit(f"{{ uint32_t n_ = {n}; {fill}{{ int32_t s_ = R.df ? -{size} : {size}; for (; n_; n_--)"
+                      f" {{ WR{bits}(R.edi, {val}); R.edi += s_; }} }}{done} }}")
         elif op == "scas":
             self.emit(f"REP_SCAS({size}, {rep}, {flags});")
         elif op == "cmps":
@@ -1453,10 +1482,32 @@ class FunctionTranslator:
             return f"{dst} = {b} / {a};"
         return f"{dst} = {a} {o} {b};"
 
+    def const_operand(self, insn, fmt):
+        """Value of a memory operand that is a constant in read-only data (.rdata), as a C literal
+        (for x87 loads: no memory access, and no software double->float conversion on the PSP)."""
+        mem = next((o[1] for o in insn.ops if o[0] == "mem"), None)
+        if mem is None:
+            return None
+        base, index, _, disp, seg = mem
+        if base or index or seg not in (None, "ds") or self.smc_field(insn, "disp"):
+            return None
+        sec = self.img.section_of(disp) if hasattr(self.img, "section_of") else None
+        if sec is None or sec.name != ".rdata":
+            return None
+        size = struct.calcsize("<" + fmt)
+        v = struct.unpack("<" + fmt, self.img.bytes(disp, size))[0]
+        if isinstance(v, float):
+            if not math.isfinite(v):
+                return None
+            return f"((fpu_t){v.hex()})"
+        return f"((fpu_t){v})"
+
     def x87_mem(self, op, reg, a, insn):
         e = self.emit
-        loads = {0xD8: f"(fpu_t)RDF32({a})", 0xDC: f"(fpu_t)RDF64({a})",
-                 0xDA: f"(fpu_t)(int32_t)RD32({a})", 0xDE: f"(fpu_t)(int16_t)RD16({a})"}
+        c32, c64 = self.const_operand(insn, "f"), self.const_operand(insn, "d")
+        loads = {0xD8: c32 or f"(fpu_t)RDF32({a})", 0xDC: c64 or f"(fpu_t)RDF64({a})",
+                 0xDA: self.const_operand(insn, "i") or f"(fpu_t)(int32_t)RD32({a})",
+                 0xDE: self.const_operand(insn, "h") or f"(fpu_t)(int16_t)RD16({a})"}
         if op in loads:
             v = loads[op]
             if reg in (2, 3):
@@ -1465,7 +1516,7 @@ class FunctionTranslator:
                 e(self.farith("ST(0)", "ST(0)", v, ["+", "*", None, None, "-", "-r", "/", "/r"][reg]))
             return True
         if op == 0xD9:
-            table = {0: f"FPUSH((fpu_t)RDF32({a}));", 2: f"WRF32({a}, (float)ST(0));",
+            table = {0: f"FPUSH({c32 or f'(fpu_t)RDF32({a})'});", 2: f"WRF32({a}, (float)ST(0));",
                      3: f"WRF32({a}, (float)ST(0)); FPOP();", 4: f"FLDENV({a});",
                      5: f"F.cw = RD16({a});", 6: f"FNSTENV({a});", 7: f"WR16({a}, F.cw);"}
         elif op == 0xDB:
@@ -1474,7 +1525,7 @@ class FunctionTranslator:
                      3: f"WR32({a}, (uint32_t)F_TO_I32(ST(0))); FPOP();",
                      5: f"FPUSH(RDF80({a}));", 7: f"WRF80({a}, ST(0)); FPOP();"}
         elif op == 0xDD:
-            table = {0: f"FPUSH((fpu_t)RDF64({a}));", 2: f"WRF64({a}, ST(0));",
+            table = {0: f"FPUSH({c64 or f'(fpu_t)RDF64({a})'});", 2: f"WRF64({a}, ST(0));",
                      3: f"WRF64({a}, ST(0)); FPOP();", 7: f"WR16({a}, FSTSW());"}
         elif op == 0xDF:
             table = {0: f"FPUSH((fpu_t)(int16_t)RD16({a}));",
