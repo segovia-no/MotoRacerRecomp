@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "platform.h"
+#include "buffered_file.h"
 
 namespace plat {
 
@@ -234,7 +235,7 @@ public:
             return nullptr;
         }
         if (err) *err = FileError::None;
-        return std::make_unique<WinFile>(h);
+        return buffered_if_read_only(std::make_unique<WinFile>(h), wr);
     }
     FileInfo stat(const std::string &path) override {
         WIN32_FILE_ATTRIBUTE_DATA d;

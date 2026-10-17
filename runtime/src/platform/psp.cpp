@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "platform.h"
+#include "buffered_file.h"
 
 extern "C" void call_on_stack(void *stack_top, void (*fn)(void));   // stack_mips.S
 
@@ -81,62 +82,6 @@ private:
     int fd_;
 };
 
-// Read-only files: the game loads tracks with thousands of reads of a few bytes, and every PSP
-// sceIoRead costs ~0.1 ms (24 s of a race load in PPSSPP, docs/25). Reads come from a 32 KB buffer;
-// seeks only move the position (the file is not changed while it is open read-only).
-class PspReadFile final : public File {
-public:
-    PspReadFile(int fd, int64_t size) : fd_(fd), size_(size) {}
-    ~PspReadFile() override { close(fd_); }
-    int64_t read(void *dst, uint32_t n) override {
-        uint8_t *out = static_cast<uint8_t *>(dst);
-        uint32_t done = 0;
-        while (done < n) {
-            if (pos_ >= buf_pos_ && pos_ < buf_pos_ + buf_len_) {
-                const uint32_t off = static_cast<uint32_t>(pos_ - buf_pos_);
-                const uint32_t k = std::min(n - done, buf_len_ - off);
-                memcpy(out + done, buf_ + off, k);
-                done += k;
-                pos_ += k;
-                continue;
-            }
-            if (pos_ >= size_) break;
-            if (lseek(fd_, static_cast<off_t>(pos_), SEEK_SET) < 0) return done ? done : -1;
-            if (n - done >= kBuf) {   // large read: straight into the destination
-                const int r = ::read(fd_, out + done, n - done);
-                if (r < 0) return done ? done : -1;
-                done += static_cast<uint32_t>(r);
-                pos_ += r;
-                break;
-            }
-            const int r = ::read(fd_, buf_, kBuf);
-            if (r <= 0) break;
-            buf_pos_ = pos_;
-            buf_len_ = static_cast<uint32_t>(r);
-        }
-        return done;
-    }
-    int64_t write(const void *, uint32_t) override { return -1; }
-    int64_t seek(int64_t offset, Seek from) override {
-        const int64_t p = from == Seek::Begin ? offset : from == Seek::Current ? pos_ + offset : size_ + offset;
-        if (p < 0) return -1;
-        pos_ = p;
-        return p;
-    }
-    bool truncate_at_position() override { return false; }
-    FileInfo info() override {
-        struct stat st;
-        return fstat(fd_, &st) == 0 ? info_from(st) : FileInfo{};
-    }
-
-private:
-    static constexpr uint32_t kBuf = 32 * 1024;
-    int fd_;
-    int64_t size_, pos_ = 0, buf_pos_ = 0;
-    uint32_t buf_len_ = 0;
-    uint8_t buf_[kBuf];
-};
-
 class PspFileSystem final : public FileSystem {
 public:
     std::unique_ptr<File> open(const std::string &path, bool rd, bool wr, Disposition disp, FileError *err) override {
@@ -154,11 +99,7 @@ public:
             return nullptr;
         }
         if (err) *err = FileError::None;
-        if (!wr) {
-            struct stat st;
-            if (fstat(fd, &st) == 0) return std::make_unique<PspReadFile>(fd, static_cast<int64_t>(st.st_size));
-        }
-        return std::make_unique<PspFile>(fd);
+        return buffered_if_read_only(std::make_unique<PspFile>(fd), wr);
     }
     FileInfo stat(const std::string &path) override {
         struct stat st;

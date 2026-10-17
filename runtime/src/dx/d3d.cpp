@@ -125,14 +125,10 @@ void report_stats() {
 }
 
 // The per-opcode / per-state histograms (std::map updates for every render state, 3-6 per polygon)
-// cost measurable time on the PSP: there they are collected only with MOTORACER_D3D_STATS=1.
+// cost time every frame: collected only with MOTORACER_D3D_STATS=1 (logged every 10 s).
 bool collect_stats() {
-#ifdef __PSP__
     static const bool on = getenv("MOTORACER_D3D_STATS") && strcmp(getenv("MOTORACER_D3D_STATS"), "0");
     return on;
-#else
-    return true;
-#endif
 }
 
 Surface *texture_from_handle(uint32_t h) {

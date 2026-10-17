@@ -131,9 +131,9 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   seeks / time, once a second) showed the race load reading the track with ~8,000 `ReadFile` calls
   per second of a few bytes each, ~890 ms of every second inside the file calls (~0.11 ms per PSP
   `sceIoRead`), for ~24 s.
-- Read-only files on the PSP now go through a 32 KB buffer (`PspReadFile` in
-  `runtime/src/platform/psp.cpp`; seeks only move the position, large reads go straight to the
-  destination). The same phase: ~48,000 reads per second, ~4 s. Start → race ~29 s → ~12 s in
+- Read-only files now go through a 32 KB buffer (`plat::BufferedReadFile`,
+  `runtime/src/platform/buffered_file.h`, used by the POSIX, Win32 and PSP adapters since
+  2026-10-17; seeks only move the position, large reads go straight to the destination). The same phase: ~48,000 reads per second, ~4 s. Start → race ~29 s → ~12 s in
   PPSSPP; the rest is the game's own processing while it loads.
 - `MOTORACER_IO_STATS=1` logs each file open with a timestamp (phase markers), `=2` also counts and
   times every call (two clock reads per call: on the PSP that inflates small-read phases several

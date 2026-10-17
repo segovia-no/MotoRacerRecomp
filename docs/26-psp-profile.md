@@ -80,7 +80,7 @@ frames per 5 s in the last six windows:
   cache when other code changes GE state (the CPU-frame presenter). GE draw time in the race
   ~800 → ~600 ms per 5 s.
 - The execute-buffer parser updated `std::map` histograms (opcodes, every render state's value) for
-  the 10-s "D3D stats" log: on the PSP only with `MOTORACER_D3D_STATS=1` now. The per-draw timer (two
+  the 10-s "D3D stats" log: only with `MOTORACER_D3D_STATS=1` now (all platforms). The per-draw timer (two
   clock reads) only with `MOTORACER_GE_STATS=1`. Parsing time ~540 → ~450 ms per 5 s.
 - Batching consecutive draws with identical state into one GE draw was tried: no gain (the state
   cache already removes the redundant commands; draws are ~4.5 triangles), not kept.

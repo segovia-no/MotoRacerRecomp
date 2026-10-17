@@ -12,6 +12,7 @@
 #include <cstring>
 
 #include "platform.h"
+#include "buffered_file.h"
 
 extern "C" void call_on_stack(void *stack_top, void (*fn)(void));   // stack_*.S
 
@@ -125,7 +126,7 @@ public:
             return nullptr;
         }
         if (err) *err = FileError::None;
-        return std::make_unique<PosixFile>(fd);
+        return buffered_if_read_only(std::make_unique<PosixFile>(fd), wr);
     }
     FileInfo stat(const std::string &path) override {
         struct stat st;
