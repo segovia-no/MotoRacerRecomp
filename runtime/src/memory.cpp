@@ -129,15 +129,32 @@ void memory_init() {
     varena.init(VALLOC_LO, VALLOC_HI);
 }
 
+// MOTORACER_MEM_STATS: who owns the live heap blocks — the first return address on the guest stack
+// inside the game's own code (below the CRT, which starts around 0x4b0000), i.e. past malloc.
+std::unordered_map<uint32_t, uint32_t> block_owner;
+bool track_owners() {
+    static const bool on = getenv("MOTORACER_MEM_STATS") != nullptr;
+    return on;
+}
+uint32_t guest_caller() {
+    for (uint32_t sp = R.esp, n = 0; n < 64 && sp + 4 <= STACK_HI; sp += 4, n++) {
+        const uint32_t v = RD32(sp);
+        if (v >= 0x401000 && v < 0x4b0000) return v;
+    }
+    return 0;
+}
+
 uint32_t heap_alloc(uint32_t size, bool zero) {
     uint32_t a = heap.alloc(size, ALIGN);
     if (!a) fatal("guest heap exhausted (request %u)", size);
     if (zero) memset(M + a, 0, heap.live[a]);
+    if (track_owners()) block_owner[a] = guest_caller();
     return a;
 }
 
 void heap_free(uint32_t va) {
     if (va && !heap.release(va)) log("heap_free: 0x%08x is not a live block\n", va);
+    else if (va && track_owners()) block_owner.erase(va);
 }
 
 uint32_t heap_size(uint32_t va) {
@@ -243,6 +260,25 @@ void memory_stats_log() {
     for (uint32_t a = STACK_LO; a < STACK_HI; a += 64)
         if (RD32(a) | RD32(a + 16) | RD32(a + 32) | RD32(a + 48)) { low = a; break; }
     log("memstats: guest stack used %u KB of %u KB\n", (STACK_HI - low) / 1024, (STACK_HI - STACK_LO) / 1024);
+    // live heap bytes by owner (the 12 largest)
+    std::unordered_map<uint32_t, std::pair<uint64_t, uint32_t>> by_owner;
+    for (auto &[a, sz] : heap.live) {
+        auto it = block_owner.find(a);
+        auto &e = by_owner[it == block_owner.end() ? 0 : it->second];
+        e.first += sz;
+        e.second++;
+    }
+    std::vector<std::pair<uint64_t, std::pair<uint32_t, uint32_t>>> owners;
+    for (auto &[o, e] : by_owner) owners.push_back({e.first, {o, e.second}});
+    std::sort(owners.rbegin(), owners.rend());
+    std::string list;
+    for (size_t i = 0; i < owners.size() && i < 12; i++) {
+        char b[64];
+        snprintf(b, sizeof b, " %x:%lluK/%u", owners[i].second.first, (unsigned long long)(owners[i].first / 1024),
+                 owners[i].second.second);
+        list += b;
+    }
+    log("memstats: heap by caller (KB/blocks):%s\n", list.c_str());
 #ifdef __PSP__
     log("memstats: host stack used %zu KB of %llu KB\n", psp_host_stack_used() / 1024,
         static_cast<unsigned long long>(HOST_STACK_BYTES / 1024));

@@ -177,6 +177,18 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   ~10 MB over. Remaining levers: the guest heap (18 MB; a race peaks at 10.5 MB — needs measuring
   over other tracks / modes), the game's 640x480 surfaces (4 x 600 KB in the heap during a race),
   8-bit textures stored as 32-bit GE copies, the unused 1 MB SDL renderer array.
+- Heap peaks (PSP profile, 23 opponents): Speed Bay race 10.5 MB, Dirt Arena 12.8 MB (owner test):
+  the heap cannot go below ~14 MB. `MOTORACER_MEM_STATS` now also lists live heap bytes by owner
+  (first game-code return address on the guest stack, past the CRT's malloc). A race: the model
+  loader `0x401160` 2.4 MB (track / bike geometry), two 10,000-entry arrays of `0x419020`
+  (2 x 507 KB), ~1 MB of texture surfaces (`CreateSurface` from `0x41b0f0`; each also has a
+  converted copy on the host), many small object blocks. The 640x480 menu surfaces are freed during
+  races.
+- Estimate for the PSP-1000 with a 14 MB heap: ELF 9.3 + guest block ~19 + host (textures, SDL,
+  stacks) ~2-4 → ~31 MB of ~24 MB. Closing ~7 MB needs deeper changes: textures shared between the
+  guest surface and the GE (no second copy), the unused SDL renderer array (1 MB), the x86 `.text`
+  / `.reloc` of the image (~0.9 MB, but jump tables and self-modified code live in it), possibly
+  fewer opponents (less model / object data).
 - Two dead ends: (1) choosing the heap size by probing `malloc`: the PSP's newlib does not check its
   partition's end, huge requests "succeed" with memory the program does not own, and PPSSPP crashed
   later; (2) moving the VirtualAlloc arena into the unused gap below the engine tables: the CRT's
