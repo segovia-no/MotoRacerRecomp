@@ -224,6 +224,7 @@ int native_faces(void);
 int native_poly_setup(void);
 int native_faces2(void);
 int native_poly_special(void);
+int native_clip(void);
 int native_getc(void);   /* runtime/src/native_load.cpp */
 int native_cfile_read(void);
 int native_rgb_row(void);

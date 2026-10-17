@@ -24,6 +24,7 @@ extern "C" void f_0049c590(void);
 extern "C" void f_0049c590_t(void);
 extern "C" void f_0049c110_t(void);
 extern "C" void f_0049ca70(void);
+extern "C" void f_00497080_t(void);
 
 namespace {
 
@@ -50,7 +51,7 @@ void check_aligned(const char *what, uint32_t a, uint32_t align = 4) {
 // ---- MOTORACER_GEOM_TIME=1: time spent per function (native or translated), logged every 5 s ----
 // (inclusive: 0x49b7f0's time includes its 0x49c590 calls)
 struct Timing { const char *name; uint64_t ns, calls; };
-Timing timings[] = {{"transform 0x49b2c0", 0, 0}, {"faces 0x49b7f0", 0, 0}, {"poly setup 0x49c590", 0, 0}, {"faces 0x49c110", 0, 0}};
+Timing timings[] = {{"transform 0x49b2c0", 0, 0}, {"faces 0x49b7f0", 0, 0}, {"poly setup 0x49c590", 0, 0}, {"faces 0x49c110", 0, 0}, {"clip 0x497080", 0, 0}};
 bool timing_on() {
     static const bool on = getenv("MOTORACER_GEOM_TIME") && strcmp(getenv("MOTORACER_GEOM_TIME"), "0");
     return on;
@@ -453,6 +454,121 @@ uint32_t poly_bucket() {
     return lo < 0 ? 0 : lo >= 0x1f3f ? 0x1f3e : static_cast<uint32_t>(lo);
 }
 
+
+// ---- 0x497080: clip a triangle against the screen rectangle (Sutherland-Hodgman) ----
+// stdcall (poly, verts): poly = a triangle record (+0x2c three vertex indexes, +4 three (u, v)
+// pairs), verts = transformed vertices (28 bytes). Clip vertices (28 bytes): screen x, y (int), the
+// light value (int, flags << 13), u/z, v/z, 1/z (floats), z (float, final pass). Lists of up to 8
+// (closed: the first vertex repeated at the end) in two buffers that swap after each pass, count at
+// +0xe0. Passes: x <= xmax + 1, y <= ymax + 1, x > xmin, y > ymin. A new vertex on an edge gets the
+// limit as its clipped coordinate, the other ints as _ftol(v + (n - v) * d / e) and the floats as
+// (n - v) * t + v, with d = limit - v, e = n - v, t = d / e (its +0x18 is left as it was). Returns
+// the final list (eax); its u, v are divided back by 1/z.
+constexpr uint32_t CLIP_SRC = 0x60d3bc, CLIP_DST = 0x60d3b8, CLIP_WRITE = 0x60d1e0;
+constexpr uint32_t CLIP_BUF_A = 0x60d2d0, CLIP_BUF_B = 0x60d1e8;
+
+void copy7(uint32_t to, uint32_t from) {
+    MEM_LOCAL();
+    for (uint32_t k = 0; k < 28; k += 4) WR32A(to + k, RD32A(from + k));
+}
+
+void clip_intersect(uint32_t w, uint32_t v, uint32_t n, uint32_t coord, int32_t lim, fpu_t d, fpu_t e) {
+    MEM_LOCAL();
+    const fpu_t t = d / e;
+    const uint32_t other = coord ? 0 : 4;
+    const int32_t vo = static_cast<int32_t>(RD32A(v + other)), v8 = static_cast<int32_t>(RD32A(v + 8));
+    const fpu_t ido = static_cast<fpu_t>(static_cast<int32_t>(RD32A(n + other) - RD32A(v + other)));
+    const fpu_t id8 = static_cast<fpu_t>(static_cast<int32_t>(RD32A(n + 8) - RD32A(v + 8)));
+    WR32A(w + other, static_cast<uint32_t>(FTOL(static_cast<fpu_t>(vo) + ido * d / e)));
+    WR32A(w + coord, static_cast<uint32_t>(lim));
+    WR32A(w + 8, static_cast<uint32_t>(FTOL(static_cast<fpu_t>(v8) + id8 * d / e)));
+    for (uint32_t k = 0xc; k <= 0x14; k += 4) {
+        const float fv = RDF32A(v + k);
+        WRF32A(w + k, static_cast<float>((static_cast<fpu_t>(RDF32A(n + k)) - fv) * t + fv));
+    }
+}
+
+void clip_pass(uint32_t coord, int32_t lim, bool is_max) {
+    MEM_LOCAL();
+    const uint32_t src = RD32A(CLIP_SRC), dst = RD32A(CLIP_DST);
+    uint32_t w = RD32A(CLIP_WRITE), cnt = RD32A(dst + 0xe0);
+    const int32_t count = static_cast<int32_t>(RD32A(src + 0xe0));
+    for (int32_t i = 0; i < count; i++) {
+        const uint32_t v = src + 0x1c * static_cast<uint32_t>(i), n = v + 0x1c;
+        const int32_t vc = static_cast<int32_t>(RD32A(v + coord)), nc = static_cast<int32_t>(RD32A(n + coord));
+        const fpu_t e = static_cast<fpu_t>(static_cast<int32_t>(static_cast<uint32_t>(nc) - static_cast<uint32_t>(vc)));
+        const fpu_t d = static_cast<fpu_t>(static_cast<int32_t>(static_cast<uint32_t>(lim) - static_cast<uint32_t>(vc)));
+        const bool v_out = is_max ? vc > lim : lim >= vc, n_out = is_max ? nc > lim : lim >= nc;
+        if (!v_out) {
+            copy7(w, v);
+            w += 0x1c;
+            cnt++;
+            if (n_out) {
+                clip_intersect(w, v, n, coord, lim, d, e);
+                w += 0x1c;
+                cnt++;
+            }
+        } else if (!n_out) {
+            clip_intersect(w, v, n, coord, lim, d, e);
+            w += 0x1c;
+            cnt++;
+        }
+    }
+    WR32A(dst + 0xe0, cnt);
+    WR32A(CLIP_WRITE, w);
+}
+
+void clip_close_and_swap() {
+    MEM_LOCAL();
+    const uint32_t src = RD32A(CLIP_SRC), dst = RD32A(CLIP_DST);
+    copy7(RD32A(CLIP_WRITE), dst);
+    WR32A(CLIP_SRC, dst);
+    WR32A(CLIP_DST, src);
+    WR32A(CLIP_WRITE, src);
+    WR32A(src + 0xe0, 0);
+}
+
+void clip_triangle() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, poly = RD32A(sp + 4), verts = RD32A(sp + 8);
+    WR32A(CLIP_SRC, CLIP_BUF_A);
+    WR32A(CLIP_DST, CLIP_BUF_B);
+    for (uint32_t k = 0; k < 3; k++) {
+        const uint32_t vp = verts + RD16(poly + 0x2c + 2 * k) * 28u, o = CLIP_BUF_A + 0x1c * k;
+        WR32A(o, RD32A(vp + 0x10));
+        WR32A(o + 4, RD32A(vp + 0x14));
+        WR32A(o + 0x14, RD32A(vp + 0x18));
+        const fpu_t rhw = RDF32A(o + 0x14);
+        WRF32A(o + 0xc, static_cast<float>(rhw * RDF32(poly + 4 + 8 * k)));
+        WRF32A(o + 0x10, static_cast<float>(rhw * RDF32(poly + 8 + 8 * k)));
+        WR32A(o + 8, RD32A(vp + 0xc));
+    }
+    copy7(CLIP_BUF_A + 0x54, CLIP_BUF_A);
+    WR32A(CLIP_BUF_A + 0xe0, 3);
+    WR32A(CLIP_WRITE, CLIP_BUF_B);
+    WR32A(CLIP_BUF_B + 0xe0, 0);
+    clip_pass(0, static_cast<int32_t>(RD32A(SCR_XMAX) + 1), true);
+    clip_close_and_swap();
+    clip_pass(4, static_cast<int32_t>(RD32A(SCR_YMAX) + 1), true);
+    clip_close_and_swap();
+    clip_pass(0, static_cast<int32_t>(RD32A(SCR_XMIN)), false);
+    clip_close_and_swap();
+    clip_pass(4, static_cast<int32_t>(RD32A(SCR_YMIN)), false);
+    const uint32_t out = RD32A(CLIP_DST);
+    const int32_t n = static_cast<int32_t>(RD32A(out + 0xe0));
+    uint32_t i = 0;
+    for (; static_cast<int32_t>(i) < n; i++) {
+        const uint32_t v = out + 0x1c * i;
+        WRF32A(v + 0x18, static_cast<float>(static_cast<fpu_t>(1.0) / static_cast<fpu_t>(RDF32A(v + 0x14))));
+        WRF32A(v + 0xc, static_cast<float>(static_cast<fpu_t>(RDF32A(v + 0x18)) * RDF32A(v + 0xc)));
+        WRF32A(v + 0x10, static_cast<float>(static_cast<fpu_t>(RDF32A(v + 0x18)) * RDF32A(v + 0x10)));
+    }
+    R.eax = out;
+    R.ecx = n > 0 ? i : 0;
+    R.edx = n > 0 ? i * 0x1c : 0;
+    R.esp = sp + 12;   // ret 8
+}
+
 }  // namespace
 
 extern "C" int native_poly_setup(void) {   // 0x49c590
@@ -552,5 +668,22 @@ extern "C" int native_transform(void) {
     const uint32_t used = RD32A(POOL_USED), n = RD32A(R.esp + 12);
     check_aligned("matrix", RD32A(R.esp + 4));
     check("transform 0x49b2c0", transform, f_0049b2c0_t, {{POOL_USED, 4}, {POOL + used * 28u, n * 28u}});
+    return 1;
+}
+
+extern "C" int native_clip(void) {
+    MEM_LOCAL();
+    const Mode md = mode();
+    Timed timed(4);
+    if (md == OFF) {
+        if (timed.t) { f_00497080_t(); return 1; }
+        return 0;
+    }
+    if (md == ON) {
+        clip_triangle();
+        return 1;
+    }
+    check("clip 0x497080", clip_triangle, f_00497080_t,
+          {{CLIP_BUF_B, 0xe8}, {CLIP_BUF_A, 0xe8}, {CLIP_SRC, 4}, {CLIP_DST, 4}, {CLIP_WRITE, 4}});
     return 1;
 }

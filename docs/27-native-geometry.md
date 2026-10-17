@@ -14,8 +14,15 @@ words and guest memory, floating point in `fpu_t` with the x87 code's operation 
 | `0x49c110` | the same with a farthest-vertex test; faces with a "special" entry (`[0x4f9300 + 824 * face+0x36]`) → `0x49ca70` | whole function (shares the code) |
 | `0x49c590` | polygon setup: depth bucket (`_ftol(z * [0x4d1f9c])`, 0..0x1f3e), min / max bucket, material remap (jump table `0x49ca54` by `[0x4dc098]`), 24-byte render node pushed on the bucket list `[0x655d38 + bucket*4]` | fast path; faces to clip (flags with clipping on) stay translated |
 
-Not done: the clipper `0x497080` (Sutherland–Hodgman against the screen, ~880 instructions, reached
-only from the clip path of `0x49c590`) and `0x49ca70`.
+| `0x497080` | triangle clipping (Sutherland–Hodgman) against x ≤ xmax+1, y ≤ ymax+1, x > xmin, y > ymin; clip vertices of 28 bytes (screen x/y, light as ints; u/z, v/z, 1/z floats) in two swapping 8-entry buffers `0x60d2d0` / `0x60d1e8`; new vertices: limit, ints `_ftol(v + (n−v)·d/e)`, floats `(n−v)·t + v`; final u, v divided back by 1/z | whole function (2026-10-17) |
+
+Not done: `0x49ca70` (special polygons).
+
+## Floating-point contraction
+The first native clipper differed from the translated code in the last bit of some floats (23 of
+10.7 M checks): clang fuses a single expression `(n - v) * t + v` into one fused multiply-add (one
+rounding), while the translated code computes it in separate statements (two roundings). The native
+files are now compiled with `-ffp-contract=off` (CMake `set_source_files_properties`): 0 mismatches.
 
 ## Details found on the way
 - `0x49b2c0` sets the x87 control word with `and 0xfcff; or 0xc`: precision → single, and two
@@ -49,6 +56,7 @@ only from the clip path of `0x49c590`) and `0x49ca70`.
 | transform `0x49b2c0` | 16.9 µs | 10.8 µs (−36%) |
 | faces `0x49b7f0` (+ polygon setup) | 67 µs | 54 µs (−19%) |
 | faces `0x49c110` (+ polygon setup) | 66 µs | 50 µs (−24%) |
+| clip `0x497080` | 10.8 µs | 7.8 µs (−28%) |
 Translated, these took ~1.2 s per 5 s (~25% of the race). Race frames in the last six 5-s windows:
 1,299 → 1,379 (+6%); with the GE state cache (26-psp-profile.md) 1,238 → ~1,380 since the quick
 wins. What remains inside the face loops is mostly the clip path (`0x497080` and its callers).

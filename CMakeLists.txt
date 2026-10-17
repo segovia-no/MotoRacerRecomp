@@ -133,6 +133,10 @@ add_executable(motoracer ${RUNTIME_SOURCES} $<TARGET_OBJECTS:gamecode>)
 target_include_directories(motoracer PRIVATE runtime/include runtime/src runtime/src/win32 runtime/src/dx "${GEN_DIR}")
 target_compile_options(motoracer PRIVATE
   $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-unused-parameter>)
+# Native replacements of guest functions must round like the translated code (one rounding per x87
+# operation): no fused multiply-add contraction of their expressions.
+set_source_files_properties(runtime/src/native_geom.cpp runtime/src/native_render.cpp runtime/src/native_load.cpp
+  PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 target_link_libraries(motoracer PRIVATE ${SDL3_TARGET})
 if(PSP)
   target_link_libraries(motoracer PRIVATE pspgu pspge pspdisplay psppower)

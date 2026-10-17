@@ -131,6 +131,7 @@ NATIVE_FUNCS = {
     0x49B7F0: "native_faces",       # face visibility -> polygon setup
     0x49C110: "native_faces2",      # face visibility (variant) -> polygon setup / special
     0x49C590: "native_poly_setup",  # polygon setup
+    0x497080: "native_clip",        # triangle clipping against the screen
     0x49CA70: "native_poly_special",  # special polygon setup (check mode records the calls)
     0x42F650: "native_getc",        # per-byte file reader used by the loaders (native_load.cpp)
     0x4C5E9D: "native_cfile_read",  # CFile::Read (track loader)
