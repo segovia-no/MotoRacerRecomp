@@ -6,6 +6,9 @@
 // PSP those three translated calls per byte were ~70% of a race load. The native version does the
 // common case — the byte is in the buffer, no seek — with the same memory and registers as the
 // translated chain; refills, seeks and errors run the translated code (decided before any change).
+#include <map>
+#include <string>
+
 #include "runtime.h"
 #include "recomp_mem_local.h"
 #include "native_check.h"
@@ -303,4 +306,34 @@ extern "C" void native_rgb_row_check(void) {
     compare("rgb row 0x41cdb6", row_pending.native, translated);
     static uint64_t rows = 0;
     if (++rows % 1000 == 0) rt::log("native: %llu rgb rows compared\n", static_cast<unsigned long long>(rows));
+}
+
+// ---- CRT sprintf 0x4b2bb0 / vsprintf 0x4b6350 (the HUD formats strings every frame) ----
+// MOTORACER_PRINTF_STATS=1: count the format strings (logged every 10 s).
+namespace {
+std::map<std::string, uint64_t> printf_formats;
+void printf_stats(uint32_t fmt) {
+    static const bool on = getenv("MOTORACER_PRINTF_STATS") != nullptr;
+    if (!on) return;
+    MEM_LOCAL();
+    std::string f;
+    for (uint32_t a = fmt; RD8(a) && f.size() < 60; a++) f += static_cast<char>(RD8(a));
+    printf_formats[f]++;
+    static uint64_t n = 0;
+    if (++n % 2000 == 0) {
+        for (auto &[k, c] : printf_formats) rt::log("printf format x%llu: \"%s\"\n", static_cast<unsigned long long>(c), k.c_str());
+        printf_formats.clear();
+    }
+}
+}  // namespace
+
+extern "C" int native_sprintf(void) {    // sprintf(buffer, format, ...)
+    MEM_LOCAL();
+    printf_stats(RD32A(R.esp + 8));
+    return 0;
+}
+extern "C" int native_vsprintf(void) {   // vsprintf(buffer, format, args)
+    MEM_LOCAL();
+    printf_stats(RD32A(R.esp + 8));
+    return 0;
 }

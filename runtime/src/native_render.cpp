@@ -248,3 +248,20 @@ extern "C" void native_vertices_check(void) {
                             static_cast<double>(cost_native[k].cycles) / cost_native[k].calls);
     }
 }
+
+// GAME_HOOK at 0x4afd00 (bucket advance of the flush): the flush visits all ~8,000 depth buckets every
+// frame (`head[b] = 0; b += step; until b == end`) to draw ~600 polygons — more than half of its
+// instructions. Clear the current bucket, then move b to the last empty bucket before the next
+// non-empty one (or the end): the translated block then takes its one final step as before. Not
+// with the abort flag [esp+0x30] or a pending resume ([esp+0x44] with [esp+0x48] = 1).
+extern "C" void native_bucket_skip(void) {
+    MEM_LOCAL();
+    if (mode() == OFF) return;
+    constexpr uint32_t HEADS = 0x655d38;
+    const uint32_t sp = R.esp, step = RD32(sp + 0x50), end = RD32(sp + 0x40);
+    if (RD32(sp + 0x30) || (RD32(sp + 0x44) && RD32(sp + 0x48) == 1)) return;
+    uint32_t b = RD32(sp + 0x28);
+    WR32(HEADS + 4 * b, 0);
+    for (uint32_t nb = b + step; nb != end && RD32(HEADS + 4 * nb) == 0; nb += step) b = nb;
+    WR32(sp + 0x28, b);
+}

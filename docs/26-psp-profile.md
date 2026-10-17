@@ -85,3 +85,12 @@ frames per 5 s in the last six windows:
 - Batching consecutive draws with identical state into one GE draw was tried: no gain (the state
   cache already removes the redundant commands; draws are ~4.5 triangles), not kept.
 - Snapshots: menus, race HUD, transparency and tunnels unchanged.
+
+## Profile after the native geometry (2026-10-17)
+Translated game code in a race: ~0.99 M x86 instructions per frame (natives not counted). Top:
+render-list flush `0x4af570` 28% (more than half of it the empty-bucket walk, since skipped:
+24-native-render.md), CRT `_output` `0x4b8800` 5% (+ helpers `0x4b91b0` / `0x4b9240` ~2.7%),
+triangle emitter `0x419d60` 4%, polygon setup `0x49c590` 2.7% (clip path), `0x49a160` 2%.
+`MOTORACER_PRINTF_STATS=1` (sprintf / vsprintf entry hooks) lists the formats: per race frame ~11
+`"SURFACE %s BLIT DATA(%3d,...) --> SCREEN(...)"` (an MFC `CString::Format` debug trace in the blit
+function `0x478990`, used only when a blit fails) and the HUD's `%02d:%02d;%02d`, `%d<%d`, `%3d`.

@@ -218,6 +218,7 @@ void game_hook_opponents(void);
 int native_flat_vertices(void);
 int native_tex_vertices(void);
 void native_vertices_check(void);
+void native_bucket_skip(void);
 /* whole functions (NATIVE_FUNCS in translate.py, runtime/src/native_geom.cpp): nonzero = done */
 int native_transform(void);
 int native_faces(void);
@@ -228,6 +229,8 @@ int native_clip(void);
 int native_getc(void);   /* runtime/src/native_load.cpp */
 int native_cfile_read(void);
 int native_rgb_row(void);
+int native_sprintf(void);
+int native_vsprintf(void);
 void native_rgb_row_check(void);
 int game_hook_options_rows(void);     /* jump hooks: nonzero = take the jump */
 int game_hook_options_action(void);

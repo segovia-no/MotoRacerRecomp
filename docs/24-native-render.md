@@ -76,3 +76,12 @@ check, `0x41a310` end / Execute, `0x41dde0` / `0x41e000` / `0x41e1b0` / `0x41e2b
 The local memory base described above (`MEM_LOCAL`) was not in effect in this file until
 2026-10-17: `runtime.h` includes `recomp.h` before the file's own `#define RECOMP_GENERATED`. Fixed
 with `runtime/include/recomp_mem_local.h` (27-native-geometry.md).
+
+## Empty depth buckets (2026-10-17)
+Per-address instruction counts of a race (counting build, natives on) showed that more than half of
+the flush's own instructions (~150 k of 277 k x86 per frame) went into walking all ~8,000 depth
+buckets (`head[b] = 0; b += step; until b == end`) to draw ~600 polygons. `native_bucket_skip`
+(GAME_HOOK at `0x4afd00`, the advance block) clears the current bucket and moves `b` to the last empty
+bucket before the next non-empty one; the translated block takes the final step as before (same
+memory and registers). Not with the abort flag `[esp+0x30]` or a pending resume (`[esp+0x44]`,
+`[esp+0x48]` = 1). PPSSPP race: +10% frames.

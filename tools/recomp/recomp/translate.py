@@ -116,6 +116,8 @@ GAME_HOOKS = {
     0x47B5AF: "game_hook_opponents",
     # Render-list flush 0x4af570: where both per-vertex loops end (check mode of the native loops).
     0x4AF9FE: "native_vertices_check",
+    # render-list flush: skip runs of empty depth buckets (native_render.cpp)
+    0x4AFD00: "native_bucket_skip",
     # texture loader 0x41c050: after the 24-bit row loop (check mode compares, native_load.cpp)
     0x41D08D: "native_rgb_row_check",
 }
@@ -135,6 +137,8 @@ NATIVE_FUNCS = {
     0x49CA70: "native_poly_special",  # special polygon setup (check mode records the calls)
     0x42F650: "native_getc",        # per-byte file reader used by the loaders (native_load.cpp)
     0x4C5E9D: "native_cfile_read",  # CFile::Read (track loader)
+    0x4B2BB0: "native_sprintf",     # CRT sprintf
+    0x4B6350: "native_vsprintf",    # CRT vsprintf
 }
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function).

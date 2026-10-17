@@ -80,6 +80,8 @@ std::vector<FrameVertex> frame_vertices;
 uint32_t st_frames = 0;   // presented GPU frames (MOTORACER_GE_DUMP)
 
 std::map<Surface *, Texture> textures;
+Surface *last_tex_surface = nullptr;   // texture_for's last lookup (std::map nodes do not move)
+Texture *last_tex = nullptr;
 
 // Debug counters, logged every 5 s with MOTORACER_GE_STATS=1.
 struct Stats {
@@ -193,8 +195,13 @@ Texture *texture_for(Surface *s) {
         if (warned++ < 5) log("d3d ge: texture %ux%u is larger than the GE's 512x512, drawn untextured\n", s->w, s->h);
         return nullptr;
     }
-    Texture &t = textures[s];
     uint32_t pal_version = s->palette ? s->palette->version : 0;
+    // most draws use the same texture as the one before: skip the map lookup
+    if (last_tex_surface == s && last_tex->data && last_tex->version == s->version && last_tex->pal_version == pal_version)
+        return last_tex;
+    Texture &t = textures[s];
+    last_tex_surface = s;
+    last_tex = &t;
     if (t.data && t.version == s->version && t.pal_version == pal_version) return &t;
     st.tex_converts++;
     struct TexTimer { uint64_t t0 = SDL_GetTicksNS(); ~TexTimer() { st.ns_tex += SDL_GetTicksNS() - t0; } } timer;
@@ -446,10 +453,42 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     Texture *tex = texture_for(texture);
     apply_states(rs, tex);
     const float su = tex ? static_cast<float>(texture->w) : 1.f, sv = tex ? static_cast<float>(texture->h) : 1.f;
+    // Direct3D MODULATE takes alpha from the texture alone when it has an alpha channel; the GE's
+    // modulate multiplies it with the vertex alpha, and the game's HUD vertices carry alpha 0.
+    const uint32_t blend = rs[RS_TEXTUREMAPBLEND];
+    const uint32_t force_alpha = (tex && tex->alpha && blend != 3 && blend != 4) ? 0xFF000000u : 0;
+    const uint32_t cull = rs[RS_CULLMODE];
+    static const int dump_frame = getenv("MOTORACER_GE_DUMP") ? atoi(getenv("MOTORACER_GE_DUMP")) : -1;
+    if (!(tex && perspective()) && dump_frame < 0) {
+        // no subdivision: straight into the display list (at most 3 vertices per triangle)
+        auto *out = static_cast<GeVertex *>(psp_ge::list_memory(3u * ntri * sizeof(GeVertex)));
+        uint32_t k = 0;
+        for (uint32_t t = 0; t < ntri; t++) {
+            const FrameVertex *v[3];
+            for (int j = 0; j < 3; j++) {
+                uint32_t idx = indices[3 * t + j];
+                v[j] = &frame_vertices[base + (idx < nverts ? idx : 0)];
+            }
+            if (cull == 2 || cull == 3) {
+                float c = (v[1]->g.x - v[0]->g.x) * (v[2]->g.y - v[0]->g.y) - (v[1]->g.y - v[0]->g.y) * (v[2]->g.x - v[0]->g.x);
+                if ((cull == 3 && c < 0.f) || (cull == 2 && c > 0.f)) continue;
+            }
+            for (int j = 0; j < 3; j++) {
+                GeVertex g = v[j]->g;
+                g.u = g.u * su + (tex ? 0.0625f : 0.f);
+                g.v = g.v * sv + (tex ? 0.0625f : 0.f);
+                g.color |= force_alpha;
+                out[k++] = g;
+            }
+        }
+        if (k)
+            sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_2D,
+                           static_cast<int>(k), nullptr, out);
+        return;
+    }
     tri_out.clear();
     // Direct3D culling (D3DCULL_CW 2 / CCW 3), done here as in the desktop backend: the game relies
     // on it, e.g. the gauge cluster is drawn twice, once mirrored (back-facing).
-    const uint32_t cull = rs[RS_CULLMODE];
     for (uint32_t t = 0; t < ntri; t++) {
         const FrameVertex *v[3];
         for (int k = 0; k < 3; k++) {
@@ -467,7 +506,6 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
         }
     }
     // Debug: MOTORACER_GE_DUMP=<frame> logs every draw of that presented frame (HUD investigations).
-    static const int dump_frame = getenv("MOTORACER_GE_DUMP") ? atoi(getenv("MOTORACER_GE_DUMP")) : -1;
     if (dump_frame >= 0 && static_cast<int>(st_frames) == dump_frame) {
         float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f, u0 = 1e9f, u1 = -1e9f, v0 = 1e9f, v1 = -1e9f;
         float r0 = 1e9f, r1 = -1e9f, z0 = 1e9f, z1 = -1e9f;
@@ -512,10 +550,6 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             rs[RS_ZWRITEENABLE], rs[RS_ZFUNC], rs[RS_ALPHABLENDENABLE], rs[RS_SRCBLEND], rs[RS_DESTBLEND],
             rs[RS_ALPHATESTENABLE], rs[RS_COLORKEYENABLE], rs[RS_TEXTUREMAPBLEND]);
     }
-    // Direct3D MODULATE takes alpha from the texture alone when it has an alpha channel; the GE's
-    // modulate multiplies it with the vertex alpha, and the game's HUD vertices carry alpha 0.
-    const uint32_t blend = rs[RS_TEXTUREMAPBLEND];
-    const uint32_t force_alpha = (tex && tex->alpha && blend != 3 && blend != 4) ? 0xFF000000u : 0;
     if (tri_out.empty()) return;
     auto *out = static_cast<GeVertex *>(psp_ge::list_memory(tri_out.size() * sizeof(GeVertex)));
     for (size_t i = 0; i < tri_out.size(); i++) {
@@ -566,6 +600,7 @@ void surface_destroyed(Surface *s) {
         free(it->second.data);
         textures.erase(it);
     }
+    if (last_tex_surface == s) last_tex_surface = nullptr, last_tex = nullptr;
     if (s == target) target = nullptr;
 }
 
