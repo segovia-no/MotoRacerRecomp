@@ -27,6 +27,7 @@ extern "C" void f_0049ca70(void);
 extern "C" void f_00497080_t(void);
 extern "C" void f_0049ca70_t(void);
 extern "C" void f_00422b90_t(void);
+extern "C" void f_0040c7e0_t(void);
 
 namespace {
 
@@ -796,5 +797,92 @@ extern "C" int native_poly_record_init(void) {
     if (md == OFF) return 0;
     if (md == ON) { poly_record_init(); return 1; }
     check("poly record init 0x422b90", poly_record_init, f_00422b90_t, {{R.ecx, 0x40}});
+    return 1;
+}
+
+// ---- 0x40c7e0: track sector search (thiscall; this = {sectors, count}; start index, point, float *out) ----
+// From a start index (>= count: 0), walks the sectors (252 bytes, a plane at +0x40) until the point
+// changes side of a sector's plane (0x4b10c0: dot(normal, point) + d, call counter [0x709378]):
+// on the negative side it steps back (wrapping to count - 1) to the first sector whose distance is
+// not negative and returns it; else it steps forward ((i + 1) % count) to the last one before a
+// negative distance. *out (if not NULL) = the last distance computed in the loop. ~340 calls per
+// race frame, ~1,000 plane tests. Registers / x87 status as the translated code leaves them.
+namespace {
+constexpr uint32_t PLANE_CALLS = 0x709378, PLANE_ZERO = 0x4d02d0;
+
+fpu_t plane_dist(uint32_t plane, uint32_t p) {   // 0x4b10c0, in its x87 order
+    MEM_LOCAL();
+    const fpu_t a = static_cast<fpu_t>(RDF32(plane + 4)) * static_cast<fpu_t>(RDF32(p + 4));
+    const fpu_t b = static_cast<fpu_t>(RDF32(plane + 8)) * static_cast<fpu_t>(RDF32(p + 8));
+    const fpu_t c = static_cast<fpu_t>(RDF32(plane)) * static_cast<fpu_t>(RDF32(p));
+    return ((a + b) + c) + static_cast<fpu_t>(RDF32(plane + 0xc));
+}
+
+void sector_search() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, self = R.ecx;
+    const int32_t n = static_cast<int32_t>(RD32(self + 4));
+    if (n <= 0) {
+        R.eax = 0;
+        R.esp = sp + 16;
+        return;
+    }
+    const uint32_t base = RD32(self), point = RD32A(sp + 8), out = RD32A(sp + 12);
+    const fpu_t zero = static_cast<fpu_t>(RDF32(PLANE_ZERO));
+    uint32_t i = RD32A(sp + 4);
+    if (!(static_cast<int32_t>(i) < n)) i = 0;
+    uint32_t sw = F.sw, plane = 0, calls = 0, edx = R.edx;
+    fpu_t d;
+    float local = 0;
+    auto test = [&](uint32_t k) {   // C0 in sw: below zero (or unordered)
+        plane = base + k * 252u + 0x40u;
+        calls++;
+        d = plane_dist(plane, point);
+        FCOM_L(sw, d, zero);
+    };
+    test(i);
+    if (sw & 0x100u) {
+        do {
+            i--;
+            if (static_cast<int32_t>(i) < 0) i = static_cast<uint32_t>(n - 1);
+            test(i);
+            local = static_cast<float>(d);
+        } while (sw & 0x100u);
+    } else {
+        uint32_t keep;
+        do {
+            keep = i;
+            i = static_cast<uint32_t>(static_cast<int32_t>(i + 1) % n);
+            edx = i;
+            test(i);
+            local = static_cast<float>(d);
+        } while (!(sw & 0x100u));
+        i = keep;
+    }
+    uint32_t bits;
+    memcpy(&bits, &local, 4);
+    WR32A(sp - 4, bits);   // the frame's float slot
+    uint32_t ecx = plane;
+    if (out) {
+        ecx = bits;
+        WR32(out, bits);
+    }
+    WR32A(PLANE_CALLS, RD32A(PLANE_CALLS) + calls);
+    F.st[(F.top - 1u) & 7u] = d;   // where the last call left its result
+    F.sw = static_cast<uint16_t>(sw);
+    R.eax = i;
+    R.ecx = ecx;
+    R.edx = edx;
+    R.esp = sp + 16;
+}
+}  // namespace
+
+extern "C" int native_sector_search(void) {
+    MEM_LOCAL();
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { sector_search(); return 1; }
+    check("sector search 0x40c7e0", sector_search, f_0040c7e0_t,
+          {{PLANE_CALLS, 4}, {RD32A(R.esp + 12), 4}, {R.esp - 4, 4}});
     return 1;
 }

@@ -144,3 +144,16 @@ is already tight), `0x46cd20`, `0x4b10c0` (13 instructions, ~1,060 calls per fra
   selection screen (~1.5 M checks; the 60-s runs ended before it showed), so the checks reported
   since then covered menus and the bike selection; earlier counts (docs 24 / 27) included races.
   Lesson: a check-mode run needs a contact sheet showing the race (`MOTORACER_SNAPSHOT_EVERY=300`).
+- Track sector search `0x40c7e0` (thiscall: this = {sectors, count}; start index, point, float
+  *out; ~340 calls per race frame): from the start index it walks the 252-byte sectors, testing the
+  point against each sector's plane (+0x40) with `0x4b10c0` (dot(normal, point) + d, which also
+  counts its calls in `[0x709378]`): negative → steps back (wrapping) to the first sector with a
+  distance >= 0; else steps forward (`(i + 1) % count`) and returns the last sector before a
+  negative distance; *out = the last distance. Native with the plane test inline (`native_geom.cpp`):
+  ~32 K x86 instructions per frame (0x40c7e0 + most of 0x4b10c0's ~1,060 calls), ~6% of the
+  translated code. Check mode: +2.6 M checks in a race, 0 mismatches. PPSSPP race windows 1,686 vs
+  1,665 frames (+1%, within the scene differences between runs).
+- Not worth a native on the PSP: `0x49a160` (3D frame start) is mostly a loop over the viewport's
+  rows (span-list heads `0x623bd8`, pool `0x60d3d0`): its share in the desktop profile comes from
+  the desktop resolution; at 272 rows it is ~0.5%. The desktop counting profiles overstate
+  per-row / per-pixel loops for the PSP (`MOTORACER_PSP_PROFILE=1` gives the PSP's 480x360 mode).

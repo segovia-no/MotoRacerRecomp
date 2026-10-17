@@ -140,6 +140,7 @@ NATIVE_FUNCS = {
     0x49C590: "native_poly_setup",  # polygon setup
     0x497080: "native_clip",        # triangle clipping against the screen
     0x422B90: "native_poly_record_init",  # polygon record constructor
+    0x40C7E0: "native_sector_search",     # track sector search (plane tests 0x4b10c0 inline)
     0x49CA70: "native_poly_special",  # special polygon setup (check mode records the calls)
     0x419D60: "native_emit_triangle",   # execute-buffer object methods (native_render.cpp)
     0x419EE0: "native_emit_line",
