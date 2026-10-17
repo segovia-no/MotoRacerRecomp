@@ -97,3 +97,17 @@ function `0x478990`, used only when a blit fails) and the HUD's `%02d:%02d;%02d`
 - Native `_output` (`native_load.cpp`, 2026-10-17): c s d i u o x X %% with flags / width / precision
   / h / l through the host snprintf (NULL %s → "(null)" as MSVC), written into string streams that
   have room; everything else translated. Check mode: 0 mismatches. PPSSPP race +~2%.
+
+## Direct drawing from the flush: tried, no gain (2026-10-17)
+- Experiment: in the native flush (PSP), render states went straight to the device's state array,
+  vertices and triangles to the GE backend (batched while the state did not change), instructions
+  written by translated methods (begin's initial states, `0x41e000` / `0x41e1b0`) were applied and
+  taken out of the buffer; the execute buffer then only carried an empty PROCESSVERTICES. The
+  "execute" time of `MOTORACER_GE_STATS` fell from ~1,100 to ~5 ms per 5 s and draw calls by ~25%.
+- Same-build A/B (`MOTORACER_GE_DIRECT=0`): race windows 2,027 (off) vs 1,994 (on), continue screen
+  379 vs 382 frames per 5 s — no gain in PPSSPP (a first version was slower: it rescanned the pending
+  batch for its lowest index on every polygon). Reverted; it could still save GE command overhead
+  on a real PSP (not measurable here).
+- Lesson: the "execute" share in `MOTORACER_GE_STATS` was mostly its own timers (two clock reads
+  per draw call, ~65,000 draw calls per 5 s); parsing the execute buffers is cheap. Judge PSP
+  changes by frame counts with the stats timers on in both runs, not by those timings.
