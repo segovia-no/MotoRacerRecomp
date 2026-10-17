@@ -139,7 +139,8 @@ is already tight), `0x46cd20`, `0x4b10c0` (13 instructions, ~1,060 calls per fra
 - Check-mode crash found on the way: the check regions `{[0x53bcf0], 4}` / `{[PRIM_HEADER], 4}`
   (the open TRIANGLE instruction's count) are read through a pointer that is NULL while no header
   is open (state methods called while textures load at the race selection) → guest memory fault
-  at address 0 inside the snapshot. `native::take` now gives such a region no bytes. Until then
-  every check-mode run stopped at the race selection screen (~1.5 M checks, the 60-s runs ended
-  before it showed): the checks reported for races before this were menus and the bike selection.
+  at address 0 inside the snapshot. `native::take` now gives such a region no bytes. Since those
+  regions were added (native flush, 24-native-render.md) check-mode runs stopped at the race
+  selection screen (~1.5 M checks; the 60-s runs ended before it showed), so the checks reported
+  since then covered menus and the bike selection; earlier counts (docs 24 / 27) included races.
   Lesson: a check-mode run needs a contact sheet showing the race (`MOTORACER_SNAPSHOT_EVERY=300`).
