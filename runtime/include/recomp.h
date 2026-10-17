@@ -222,6 +222,15 @@ void native_bucket_skip(void);
 int native_flush_polygon(void);
 int native_emit_triangle(void);
 int native_emit_line(void);
+/* sampling profiler (runtime/src/prof.cpp, MOTORACER_PROF=1): the region the running code is in,
+   sampled by a timer. Generated code marks each native hook with a region of its own. */
+extern volatile uint8_t prof_region;
+uint8_t prof_register(const char *name);
+#define PROF_IN(NAME)                                                                            \
+    static uint8_t prof_id_;                                                                     \
+    const uint8_t prof_prev_ = prof_region;                                                      \
+    prof_region = prof_id_ ? prof_id_ : (prof_id_ = prof_register(NAME))
+#define PROF_OUT() (prof_region = prof_prev_)
 int native_blend_states(void);
 int native_wrap_states(void);
 int native_state_1a(void);

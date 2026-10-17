@@ -720,6 +720,7 @@ STDCALL(USER32, GetMessageA, 4) {
     for (;;) {
         pump_host_events();
         if (next_message(m, hwnd, mn, mx, true)) break;
+        prof::Scope prof_wait(prof::WAIT);
         SDL_Delay(1);
     }
     write_msg(p, m);

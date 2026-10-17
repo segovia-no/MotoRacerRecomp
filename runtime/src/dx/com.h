@@ -55,6 +55,7 @@ uint32_t release(uint32_t guest_this);   // deletes the host object at zero
 #define COM_METHOD(NAME, NARGS)                                                          \
     static uint32_t NAME##_impl(uint32_t self);                                          \
     static void NAME() {                                                                \
+        prof::Scope prof_(prof::WIN32_API);                                             \
         rt::note_call("COM", #NAME);                                                    \
         if (rt::trace_imports) rt::trace_call("COM", #NAME, (NARGS) + 1);               \
         uint32_t r_ = NAME##_impl(rt::arg(0));                                           \

@@ -8,6 +8,8 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <chrono>
+#include <thread>
 #include <cstdlib>
 #include <cstring>
 
@@ -39,6 +41,15 @@ public:
         void *stack = mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
         if (stack == MAP_FAILED) return false;
         call_on_stack(static_cast<char *>(stack) + bytes, fn);
+        return true;
+    }
+    bool start_sampler(uint32_t interval_us, void (*tick)()) override {
+        std::thread([interval_us, tick] {
+            for (;;) {
+                std::this_thread::sleep_for(std::chrono::microseconds(interval_us));
+                tick();
+            }
+        }).detach();
         return true;
     }
 };

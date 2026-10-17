@@ -361,6 +361,7 @@ COM_METHOD(Dev_GetStats, 1) {
 COM_METHOD(Dev_Execute, 3) {
     auto *eb = dynamic_cast<ExecuteBuffer *>(lookup(arg(1)));
     if (!eb) return D3DERR_INVALIDPARAMS;
+    prof::Scope prof_exec(prof::EXECUTE);
 #ifdef __PSP__
     uint64_t t0 = SDL_GetTicksNS();
     parse_execute(eb, obj<Device>(self));

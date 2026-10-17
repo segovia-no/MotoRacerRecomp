@@ -127,11 +127,29 @@ uint32_t get_last_error();
 
 }  // namespace rt
 
+// ---------- sampling profiler (prof.cpp, MOTORACER_PROF=1) ----------
+namespace prof {
+// Main thread only: another thread changing the region (e.g. an audio callback that blocks on a
+// lock) would restore a stale value; the audio thread flags its mixing instead (audio_mixing).
+enum Region : uint8_t { GAME = 0, WIN32_API, EXECUTE, PRESENT, WAIT, AUDIO, FIRST_NATIVE };
+struct Scope {   // marks a region for the sampler (one store each way)
+    uint8_t prev;
+    explicit Scope(uint8_t r) : prev(prof_region) { prof_region = r; }
+    ~Scope() { prof_region = prev; }
+    Scope(const Scope &) = delete;
+    Scope &operator=(const Scope &) = delete;
+};
+void start();   // at startup: starts the sampler when MOTORACER_PROF is set
+void frame();   // per presented frame: logs the shares every 5 s
+void audio_mixing(bool busy);   // audio thread: mixing a device buffer / done
+}  // namespace prof
+
 // Defines the exported import shim `imp_<DLL>_<NAME>` with `NARGS` stdcall arguments.
 // The body returns the value for EAX; the macro pops the return address and arguments.
 #define STDCALL(DLL, NAME, NARGS)                                                        \
     static uint32_t impl_##DLL##_##NAME();                                               \
     extern "C" void imp_##DLL##_##NAME(void) {                                          \
+        prof::Scope prof_(prof::WIN32_API);                                             \
         rt::note_call(#DLL, #NAME);                                                     \
         if (rt::trace_imports) rt::trace_call(#DLL, #NAME, NARGS);                      \
         uint32_t r_ = impl_##DLL##_##NAME();                                             \
@@ -144,6 +162,7 @@ uint32_t get_last_error();
 #define CDECL(DLL, NAME)                                                                 \
     static uint32_t impl_##DLL##_##NAME();                                               \
     extern "C" void imp_##DLL##_##NAME(void) {                                          \
+        prof::Scope prof_(prof::WIN32_API);                                             \
         rt::note_call(#DLL, #NAME);                                                     \
         if (rt::trace_imports) rt::trace_call(#DLL, #NAME, 4);                          \
         uint32_t r_ = impl_##DLL##_##NAME();                                             \

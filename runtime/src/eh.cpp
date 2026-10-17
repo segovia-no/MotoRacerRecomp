@@ -58,6 +58,8 @@ void nonlocal_jump(uint32_t target) {
     eh_resume_va = target;
     jmp_buf *jb = it->second;
     frames.erase(frames.begin(), it);   // inner frames are unwound
+    // the profiler's regions entered since are left without their restores: the handler is game code
+    prof_region = 0;
     RECOMP_LONGJMP(*jb, 1);
 }
 

@@ -9,6 +9,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <pspthreadman.h>
+
 #include "platform.h"
 #include "buffered_file.h"
 
@@ -43,6 +45,15 @@ public:
         host_stack_bytes = static_cast<size_t>(bytes);
         call_on_stack(static_cast<char *>(stack) + (bytes & ~15ull), fn);
         return true;
+    }
+    // a kernel alarm: its handler runs in interrupt context, on top of whatever thread was running
+    bool start_sampler(uint32_t interval_us, void (*tick)()) override {
+        static uint32_t us;
+        us = interval_us;
+        return sceKernelSetAlarm(us, [](void *fn) -> SceUInt {
+            reinterpret_cast<void (*)()>(fn)();
+            return us;
+        }, reinterpret_cast<void *>(tick)) >= 0;
     }
 };
 

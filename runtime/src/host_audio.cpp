@@ -27,6 +27,7 @@ std::map<SDL_AudioStream *, std::unique_ptr<Source>> sources;
 
 void SDLCALL feed(void *userdata, SDL_AudioStream *stream, int additional, int) {
     auto *src = static_cast<Source *>(userdata);
+    prof::audio_mixing(true);   // until the post-mix callback (the profiler)
     if (additional <= 0) return;
     src->scratch.resize(static_cast<size_t>(additional));
     int n = src->pull(src->scratch.data(), additional);
@@ -52,6 +53,8 @@ bool audio_init() {
         return false;
     }
     log("audio: device opened (%s)\n", SDL_GetAudioDeviceName(device));
+    SDL_SetAudioPostmixCallback(device, [](void *, const SDL_AudioSpec *, float *, int) { prof::audio_mixing(false); },
+                                nullptr);
     SDL_SetAudioDeviceGain(device, g_master);
     return true;
 }

@@ -206,6 +206,7 @@ void pace_frame() {
     const uint64_t period = 1000000000ull / 60;
     uint64_t now = SDL_GetTicksNS();
     if (next > now) {
+        prof::Scope prof_wait(prof::WAIT);
         SDL_DelayPrecise(next - now);
         next += period;
     } else {
@@ -526,9 +527,13 @@ COM_METHOD(S_Blt, 5) {
     if (s && d->primary() && !(flags & ~0x01000000u)) {   // plain copy (DDBLT_WAIT allowed)
         BltRect a = read_rect(arg(1), *d), b = read_rect(arg(3), *s);
         if (b.l == 0 && b.t == 0 && static_cast<uint32_t>(b.r) == s->w && static_cast<uint32_t>(b.b) == s->h &&
-            a.r - a.l == b.r && a.b - a.t == b.b &&
-            gpu::present_blt(s, d, a.l, a.t, static_cast<uint32_t>(b.r), static_cast<uint32_t>(b.b)))
-            return S_OK;
+            a.r - a.l == b.r && a.b - a.t == b.b) {
+            prof::Scope prof_present(prof::PRESENT);
+            if (gpu::present_blt(s, d, a.l, a.t, static_cast<uint32_t>(b.r), static_cast<uint32_t>(b.b))) {
+                prof::frame();
+                return S_OK;
+            }
+        }
     }
     gpu::sync_to_cpu(d);
     if (s) gpu::sync_to_cpu(s);
@@ -595,6 +600,8 @@ COM_METHOD(S_Flip, 2) {
     std::vector<Surface *> chain;
     for (Surface *a : s->attached) if (a->caps & (DDSCAPS_BACKBUFFER | DDSCAPS_FLIP)) chain.push_back(a);
     // A 3D frame is presented straight from the high-resolution GPU target.
+    prof::frame();
+    prof::Scope prof_present(prof::PRESENT);
     bool gpu_presented = !chain.empty() && gpu::present_flip(chain[0]);
     if (!gpu_presented)
         for (Surface *a : chain) gpu::sync_to_cpu(a);

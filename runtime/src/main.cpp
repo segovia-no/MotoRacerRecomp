@@ -119,6 +119,7 @@ int main(int argc, char **argv) {
     install_crash_handlers();
     // Recompiled code nests one host frame per guest call; give it a deep stack, but stay
     // on the main thread because Cocoa (and so SDL video/events) requires it.
+    prof::start();
     if (!plat::host().execution.run_on_large_stack(HOST_STACK_BYTES, run_game)) fatal("cannot allocate host stack");
     return 0;
 }

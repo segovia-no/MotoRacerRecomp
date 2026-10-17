@@ -95,7 +95,9 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   counts as a first run (no recomp_state.txt), so the controller is set to joystick.
 - Audio: SDL3's PSP audio device opens; DirectSound buffers and the CD music (the WAV tracks, 12 on
   the virtual disc) are SDL streams as on the desktop. Race frame rate with / without audio
-  (`MOTORACER_NO_AUDIO=1`): 120–186 / 114–132 frames per 5 s — no measurable cost in PPSSPP.
+  (`MOTORACER_NO_AUDIO=1`): 120–186 / 114–132 frames per 5 s — no measurable cost in PPSSPP at the
+  time (~25 fps). At ~55 fps the sampling profiler puts SDL's mixing at 12–18% of a race frame
+  (26-psp-profile.md).
   `tools/psp/e2e_psp.sh` copies the WAVs with `WITH_MUSIC=1` (~340 MB).
 - HUD (lap times, position, time, gauge backgrounds) was missing / wrong: Direct3D MODULATE takes the
   alpha from a texture that has an alpha channel, the GE multiplies it with the vertex alpha, and the

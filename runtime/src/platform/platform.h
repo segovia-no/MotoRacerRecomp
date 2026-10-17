@@ -35,6 +35,9 @@ public:
     // host frame per guest call, and the window system needs the main thread. False if the stack
     // could not be allocated (fn did not run).
     virtual bool run_on_large_stack(uint64_t bytes, void (*fn)()) = 0;
+    // Calls tick() about every interval_us from a timer (thread or interrupt), concurrently with
+    // the game (the sampling profiler, prof.cpp). False if not available.
+    virtual bool start_sampler(uint32_t interval_us, void (*tick)()) = 0;
 };
 
 // ---------- crash reporting ----------

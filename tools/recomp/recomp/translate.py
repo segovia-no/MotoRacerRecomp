@@ -209,7 +209,7 @@ PURE_CALLS = {
     "EFLAGS_UNPACK", "ST", "FPUSH", "FPOP", "FSTSW", "FCOM", "FXAM", "FPREM", "F_ROUND", "F_TO_I16",
     "F_TO_I32", "F_TO_I64", "FNSTENV", "FLDENV", "FM", "trunc", "if", "switch", "while", "sizeof",
     "RD16A", "RD32A", "RD64A", "RDF32A", "RDF64A", "WR16A", "WR32A", "WR64A", "WRF32A", "WRF64A",
-    "memcpy", "memset", "FTOL",
+    "memcpy", "memset", "FTOL", "PROF_IN", "PROF_OUT",
 }
 REG_RE = re.compile(r"\bR\.(eax|ecx|edx|ebx|esp|ebp|esi|edi)\b")
 CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\(")
@@ -763,9 +763,9 @@ class FunctionTranslator:
                 name, target = GAME_JUMP_HOOKS[va]
                 if isinstance(target, tuple):   # several exits: the hook returns 1, 2, ... for each
                     jumps = " ".join(f"if (h == {i + 1}) {self.goto(t)}" for i, t in enumerate(target))
-                    self.emit(f"{{ int h; h = {name}(); {jumps} }}")
+                    self.emit(f"{{ int h; PROF_IN(\"{name}\"); h = {name}(); PROF_OUT(); {jumps} }}")
                 else:
-                    self.emit(f"{{ int h; h = {name}(); if (h) {self.goto(target)} }}")
+                    self.emit(f"{{ int h; PROF_IN(\"{name}\"); h = {name}(); PROF_OUT(); if (h) {self.goto(target)} }}")
             try:
                 falls = self.insn(insn)
             except Unsupported as e:
@@ -872,7 +872,10 @@ class FunctionTranslator:
             lines.append(ln)
         lines.append("}")
         if native:
-            lines.append(f"void {fn_name(self.entry)}(void) {{ if (!{native}()) {name}(); }}")
+            # the profiler's region (runtime/src/prof.cpp): the native function's own, the
+            # translated fallback runs in the caller's
+            lines.append(f"void {fn_name(self.entry)}(void) {{ int h; PROF_IN(\"{native}\"); h = {native}(); PROF_OUT();"
+                         f" if (!h) {name}(); }}")
         return "\n".join(lines)
 
     # Returns True if control may fall through to insn.end.

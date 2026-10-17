@@ -137,13 +137,17 @@ void limit_frame_rate() {
     if (rate > 0) {
         uint64_t period = 1000000000ull / static_cast<uint64_t>(rate), now = SDL_GetTicksNS();
         if (next > now && next - now <= period) {
+            prof::Scope prof_wait(prof::WAIT);
             SDL_DelayPrecise(next - now);
             next += period;
         } else {
             next = now + period;   // first frame, or slower than the limit
         }
     }
-    while (SDL_GetTicks() == last_ms) SDL_DelayPrecise(100000);
+    while (SDL_GetTicks() == last_ms) {
+        prof::Scope prof_wait(prof::WAIT);
+        SDL_DelayPrecise(100000);
+    }
     last_ms = SDL_GetTicks();
     if (fps_log) {
         uint64_t now = SDL_GetTicks();

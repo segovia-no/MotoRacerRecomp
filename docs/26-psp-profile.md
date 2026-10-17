@@ -157,3 +157,45 @@ is already tight), `0x46cd20`, `0x4b10c0` (13 instructions, ~1,060 calls per fra
   rows (span-list heads `0x623bd8`, pool `0x60d3d0`): its share in the desktop profile comes from
   the desktop resolution; at 272 rows it is ~0.5%. The desktop counting profiles overstate
   per-row / per-pixel loops for the PSP (`MOTORACER_PSP_PROFILE=1` gives the PSP's 480x360 mode).
+
+## Where a PSP race frame goes: sampling profiler (2026-10-17)
+`MOTORACER_PROF=1` (`runtime/src/prof.cpp`): the main thread keeps its current region in one byte
+(`prof_region`, a store at each boundary, no clock reads): Win32 / COM shims (`STDCALL`, `CDECL`,
+`COM_METHOD`), Direct3D Execute, present, waits (frame pacing, `GetMessage`, GE sync), and every
+native hook — the translator wraps each native call in `PROF_IN("<name>")` / `PROF_OUT()`, a region
+per name registered at the first call; everything else is translated game code. Translated code that
+a native calls back (guest calls) counts as that native. A timer counts the current region ~5,000
+times per second (`plat::Execution::start_sampler`: a kernel alarm on the PSP, a thread elsewhere);
+every 5 s the log lists shares and ms per frame. SDL's audio thread flags its mixing from the first
+stream callback of a device buffer to the post-mix callback; on the PSP's single core those samples
+count as "audio mixing".
+- Pitfalls met: a guest exception (`RaiseException` → `nonlocal_jump` longjmp) skipped the shims'
+  restores, so all later game code counted as "Win32 shims" (`nonlocal_jump` now resets the region);
+  an audio callback that set the shared region and blocked on a lock restored a stale one onto the
+  main thread (only the main thread writes the region now); `sceKernelGetThreadId` in the alarm
+  handler does not name the interrupted thread.
+
+PPSSPP, Speed Bay, 23 opponents, first race window (17.7 ms per frame, 56 fps):
+| Region | ms / frame | share |
+|---|---|---|
+| translated game code | 5.2 | 29% |
+| audio mixing (SDL audio thread) | 3.1 | 18% |
+| D3D Execute (execute-buffer parsing + GE backend) | 2.6 | 15% |
+| native render-list flush polygon (incl. its guest calls) | 2.3 | 13% |
+| native geometry: faces 1.5, faces2 0.7, clip 0.5, transform 0.5, polygon setup 0.2, special 0.1 | 3.5 | 20% |
+| sector search 0.3, Win32 / COM shims 0.3, `_output` 0.1, present 0.1 | 0.8 | 5% |
+Later race windows: audio 12–14%, game code 29–32%. The time-out screen (race frozen behind
+CONTINUE, 12.7 ms): Execute 23%, flush 21%, faces 15%, game code 13%, audio 5%.
+- Audio is the largest single item that is not game logic: every DirectSound buffer is an SDL stream
+  of its own (float stereo at the buffer's rate, the engines' pitch through the frequency ratio), so
+  SDL resamples and converts each of them (~24 engine sounds) on the audio thread. `docs/25`'s "no
+  measurable cost" dates from ~25 fps, when it was a smaller share.
+- Main menu (software-drawn, ~50 fps): present 58% (the 640x480 frame converted for the GE), game code 40%.
+
+## Translated code in the PSP's screen mode (2026-10-17)
+Counting build with `MOTORACER_PSP_PROFILE=1` (480x360 mode, 480x270 band), race: 0.442 M x86
+instructions per frame (0.534 M at the desktop resolution). Top: polygon setup `0x49c590` 5.4% (clip
+path), matrix multiply `0x403a80` 3.6%, `0x4232e0` 3.2%, `0x46cd20` 3.1%, `0x46b120` 2.7%,
+`0x485e50` 2.6%, `0x4b0f60` 2.6%, `0x40c960` 2.5%, `0x47ecd0` 2.4%, `0x469c60` 2.3%; 21 functions
+make half of it, 48 three quarters. By 16 KB of code: `0x40c000` 15% (track / collision helpers),
+`0x46c000` 9%, `0x468000` 9%, `0x4b0000` 8% (plane / vector helpers), `0x420000` 7%.

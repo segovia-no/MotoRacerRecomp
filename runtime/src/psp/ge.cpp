@@ -18,6 +18,8 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "runtime.h"
+
 namespace psp_ge {
 
 namespace {
@@ -81,6 +83,7 @@ void finish() {
     sceKernelDcacheWritebackAll();   // vertices, textures and converted frames are in cached RAM
     sceGuFinish();
     uint64_t t0 = SDL_GetTicksNS();
+    prof::Scope prof_wait(prof::WAIT);
     sceGuSync(0, 0);
     wait_ns += SDL_GetTicksNS() - t0;
     open = false;
