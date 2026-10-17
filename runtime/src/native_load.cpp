@@ -6,6 +6,8 @@
 // PSP those three translated calls per byte were ~70% of a race load. The native version does the
 // common case — the byte is in the buffer, no seek — with the same memory and registers as the
 // translated chain; refills, seeks and errors run the translated code (decided before any change).
+#include <cstdio>
+#include <cstring>
 #include <map>
 #include <string>
 
@@ -16,6 +18,7 @@
 extern "C" void f_0042f650_t(void);
 extern "C" void f_0042f650(void);
 extern "C" void f_004c5e9d_t(void);
+extern "C" void f_004b8800_t(void);
 
 namespace {
 
@@ -336,4 +339,126 @@ extern "C" int native_vsprintf(void) {   // vsprintf(buffer, format, args)
     MEM_LOCAL();
     printf_stats(RD32A(R.esp + 8));
     return 0;
+}
+
+// ---- 0x4b8800: the CRT's _output(FILE *stream, const char *format, va_list args) ----
+// The engine behind sprintf / vsprintf (and MFC's CString::Format): ~8% of the translated game code
+// in a race (HUD strings, a per-blit debug trace). Native for the conversions whose output is the
+// C standard's: c s d i u o x X and %%, with flags, width / precision (incl. *), h / l (32-bit);
+// a NULL %s prints "(null)" as MSVC does. Each conversion goes through the host snprintf. Floats,
+// %p, %n, wide characters, I64 / L / F / N and streams that would need _flsbuf run the translated
+// code (decided before anything is written). Like the CRT, the format and argument pointers (its
+// parameters, on the stack) end up past what was used; eax = characters written.
+namespace {
+
+bool output_native() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, stream = RD32(sp + 4);
+    uint32_t fmt = RD32(sp + 8), ap = RD32(sp + 12);
+    std::string out;
+    char spec[32], piece[512];
+    while (const char c = static_cast<char>(RD8(fmt))) {
+        fmt++;
+        if (c != '%') { out += c; continue; }
+        size_t n = 0;
+        spec[n++] = '%';
+        while (strchr("-+ #0", static_cast<char>(RD8(fmt))) && n < 8) spec[n++] = static_cast<char>(RD8(fmt++));
+        int width = -1, prec = -1;
+        bool star_w = false, star_p = false;
+        if (RD8(fmt) == '*') { star_w = true; fmt++; }
+        else while (RD8(fmt) >= '0' && RD8(fmt) <= '9' && n < 16) spec[n++] = static_cast<char>(RD8(fmt++));
+        if (RD8(fmt) == '.') {
+            spec[n++] = '.';
+            fmt++;
+            if (RD8(fmt) == '*') { star_p = true; fmt++; }
+            else while (RD8(fmt) >= '0' && RD8(fmt) <= '9' && n < 24) spec[n++] = static_cast<char>(RD8(fmt++));
+        }
+        if (n >= 24) return false;
+        bool half = false;
+        if (RD8(fmt) == 'h') { half = true; fmt++; }
+        else if (RD8(fmt) == 'l') fmt++;
+        const char conv = static_cast<char>(RD8(fmt));
+        if (!conv || !strchr("diouxXcs%", conv)) return false;
+        fmt++;
+        if (conv == '%' && n == 1 && !star_w && !star_p) { out += '%'; continue; }
+        if (conv == '%') return false;
+        if (star_w) { width = static_cast<int32_t>(RD32(ap)); ap += 4; }
+        if (star_p) { prec = static_cast<int32_t>(RD32(ap)); ap += 4; }
+        // the host spec: '*' kept, so widths / precisions go through snprintf's own rules
+        std::string sp_str(spec, n);
+        if (star_w) {
+            const size_t at = sp_str.find_first_not_of("%-+ #0", 1);
+            if (at == std::string::npos) sp_str += '*'; else sp_str.insert(at, "*");
+        }
+        if (star_p) sp_str += "*";
+        int len;
+        if (conv == 's') {
+            const uint32_t str = RD32(ap);
+            ap += 4;
+            std::string arg;
+            if (!str) arg = "(null)";
+            else for (uint32_t a = str; RD8(a) && arg.size() < 4096; a++) arg += static_cast<char>(RD8(a));
+            sp_str += 's';
+            if (star_w && star_p) len = snprintf(piece, sizeof piece, sp_str.c_str(), width, prec, arg.c_str());
+            else if (star_w) len = snprintf(piece, sizeof piece, sp_str.c_str(), width, arg.c_str());
+            else if (star_p) len = snprintf(piece, sizeof piece, sp_str.c_str(), prec, arg.c_str());
+            else len = snprintf(piece, sizeof piece, sp_str.c_str(), arg.c_str());
+        } else {
+            const uint32_t v = RD32(ap);
+            ap += 4;
+            if (half) sp_str += 'h';
+            sp_str += conv;
+            const bool is_signed = conv == 'd' || conv == 'i' || conv == 'c';
+            if (is_signed) {
+                const int iv = static_cast<int32_t>(v);
+                if (star_w && star_p) len = snprintf(piece, sizeof piece, sp_str.c_str(), width, prec, iv);
+                else if (star_w) len = snprintf(piece, sizeof piece, sp_str.c_str(), width, iv);
+                else if (star_p) len = snprintf(piece, sizeof piece, sp_str.c_str(), prec, iv);
+                else len = snprintf(piece, sizeof piece, sp_str.c_str(), iv);
+            } else {
+                const unsigned uv = v;
+                if (star_w && star_p) len = snprintf(piece, sizeof piece, sp_str.c_str(), width, prec, uv);
+                else if (star_w) len = snprintf(piece, sizeof piece, sp_str.c_str(), width, uv);
+                else if (star_p) len = snprintf(piece, sizeof piece, sp_str.c_str(), prec, uv);
+                else len = snprintf(piece, sizeof piece, sp_str.c_str(), uv);
+            }
+        }
+        if (len < 0 || len >= static_cast<int>(sizeof piece)) return false;
+        out.append(piece, static_cast<size_t>(len));
+    }
+    // write it if the stream has room for all of it (a string stream: no _flsbuf)
+    const int32_t cnt = static_cast<int32_t>(RD32(stream + 4));
+    if (cnt < static_cast<int32_t>(out.size())) return false;
+    const uint32_t ptr = RD32(stream);
+    memcpy(M + ptr, out.data(), out.size());
+    WR32(stream, ptr + static_cast<uint32_t>(out.size()));
+    WR32(stream + 4, static_cast<uint32_t>(cnt - static_cast<int32_t>(out.size())));
+    WR32(sp + 8, fmt + 1);   // past the terminating NUL, as the CRT leaves its format pointer
+    WR32(sp + 12, ap);
+    R.eax = static_cast<uint32_t>(out.size());
+    R.esp = sp + 4;
+    return true;
+}
+
+}  // namespace
+
+extern "C" int native_output(void) {
+    MEM_LOCAL();
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) return output_native() ? 1 : 0;
+    // check: the stream, the arguments' slots and the bytes written are compared
+    const uint32_t sp = R.esp, stream = RD32A(sp + 4), ptr = RD32(stream);
+    const std::vector<Region> regions = {{stream, 16}, {sp + 8, 8}, {ptr, 256}};
+    Snapshot before = take(regions);
+    if (!output_native()) return 0;
+    Snapshot nat = take(regions);
+    restore(before);
+    f_004b8800_t();
+    Snapshot tr = take(regions);
+    nat.r.ecx = tr.r.ecx;   // scratch registers of a cdecl function: not compared
+    nat.r.edx = tr.r.edx;
+    nat.r.ebx = tr.r.ebx;
+    compare("_output 0x4b8800", nat, tr);
+    return 1;
 }

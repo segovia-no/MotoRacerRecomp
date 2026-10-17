@@ -94,3 +94,6 @@ triangle emitter `0x419d60` 4%, polygon setup `0x49c590` 2.7% (clip path), `0x49
 `MOTORACER_PRINTF_STATS=1` (sprintf / vsprintf entry hooks) lists the formats: per race frame ~11
 `"SURFACE %s BLIT DATA(%3d,...) --> SCREEN(...)"` (an MFC `CString::Format` debug trace in the blit
 function `0x478990`, used only when a blit fails) and the HUD's `%02d:%02d;%02d`, `%d<%d`, `%3d`.
+- Native `_output` (`native_load.cpp`, 2026-10-17): c s d i u o x X %% with flags / width / precision
+  / h / l through the host snprintf (NULL %s → "(null)" as MSVC), written into string streams that
+  have room; everything else translated. Check mode: 0 mismatches. PPSSPP race +~2%.

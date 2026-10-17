@@ -231,6 +231,7 @@ int native_cfile_read(void);
 int native_rgb_row(void);
 int native_sprintf(void);
 int native_vsprintf(void);
+int native_output(void);
 void native_rgb_row_check(void);
 int game_hook_options_rows(void);     /* jump hooks: nonzero = take the jump */
 int game_hook_options_action(void);

@@ -139,6 +139,7 @@ NATIVE_FUNCS = {
     0x4C5E9D: "native_cfile_read",  # CFile::Read (track loader)
     0x4B2BB0: "native_sprintf",     # CRT sprintf
     0x4B6350: "native_vsprintf",    # CRT vsprintf
+    0x4B8800: "native_output",      # CRT _output (printf engine)
 }
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function).
