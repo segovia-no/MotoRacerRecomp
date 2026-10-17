@@ -111,3 +111,35 @@ function `0x478990`, used only when a blit fails) and the HUD's `%02d:%02d;%02d`
 - Lesson: the "execute" share in `MOTORACER_GE_STATS` was mostly its own timers (two clock reads
   per draw call, ~65,000 draw calls per 5 s); parsing the execute buffers is cheap. Judge PSP
   changes by frame counts with the stats timers on in both runs, not by those timings.
+
+## Translated long tail (2026-10-17)
+Profile (counting build, desktop race, natives not counted): ~0.534 M x86 instructions per frame.
+Top: polygon setup `0x49c590` 5.2% (clip path), `0x49a160` 3.8%, `0x40c7e0` 3.4% (337 calls per
+frame), MFC `CString::FormatV` `0x4c3b8b` 3.1%, matrix multiply `0x403a80` 3.0% (its translation
+is already tight), `0x46cd20`, `0x4b10c0` (13 instructions, ~1,060 calls per frame), `0x485e50`.
+- `0x422b90` (polygon record constructor: five 0xea60 words, -1, two zero words; returns this,
+  ecx = this + 0x24): native, `native_geom.cpp`.
+- `CString::FormatV` `0x4c3b8b` sizes its buffer before vsprintf by walking the format: per
+  conversion max(width, estimate) — strings their length (min 1; `lstrlenA`, wide `%S` / `%ls` a
+  word count), integers and `%p` max(32, width + precision), floats max(128, ...), `%c` 2, `#` +2,
+  clipped to the precision for c / s — and 1 or 2 (lead byte) per other character. Its callers in a
+  race: the blit function `0x478990` formats `"SURFACE %s BLIT DATA(...) --> SCREEN(...)"` for
+  every blit (~11 per frame) although it only logs it (to `data\delphine.err`, through `0x4767f0` →
+  `0x472800`, which opens, appends and closes the file per message, up to 1 MB) when the blit
+  fails. Skipping the format would change that error text, so the estimate loop is native instead:
+  jump hook at the loop head `0x4c3bb2` → `0x4c3e79` (`native_load.cpp`), with the loop's exit
+  registers and locals (edi = the NUL, esi = past the arguments used, ebx = last precision, eax /
+  ecx / edx as the last `_tcsinc` leaves them, `[ebp-0xc]` = the estimate). It reads the CRT's own
+  ctype (`[0x4f36f8]`) and mbctype (`0x4f2f01`) tables; a multibyte locale (`[0x4f3904]` > 1) or a
+  non-ASCII byte in a digit test (`_ismbcdigit`'s MBCS path) runs the translated loop. The hook
+  also sits on the loop's back edge, so a loop entered translated continues natively from there.
+- Check mode: 45,000 FormatV estimates compared in a desktop race, 0 mismatches (32.6 M checks in
+  all). PPSSPP: race windows 1,717 vs 1,665 frames (same build, hook off by a temporary switch),
+  +3%, about the size of the scene differences between runs.
+- Check-mode crash found on the way: the check regions `{[0x53bcf0], 4}` / `{[PRIM_HEADER], 4}`
+  (the open TRIANGLE instruction's count) are read through a pointer that is NULL while no header
+  is open (state methods called while textures load at the race selection) → guest memory fault
+  at address 0 inside the snapshot. `native::take` now gives such a region no bytes. Until then
+  every check-mode run stopped at the race selection screen (~1.5 M checks, the 60-s runs ended
+  before it showed): the checks reported for races before this were menus and the bike selection.
+  Lesson: a check-mode run needs a contact sheet showing the race (`MOTORACER_SNAPSHOT_EVERY=300`).

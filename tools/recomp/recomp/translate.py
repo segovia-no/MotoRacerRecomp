@@ -124,6 +124,7 @@ GAME_HOOKS = {
     0x4AFD3E: "native_flush_check",
     # texture loader 0x41c050: after the 24-bit row loop (check mode compares, native_load.cpp)
     0x41D08D: "native_rgb_row_check",
+    0x4C3E79: "native_formatv_len_check",   # after CString::FormatV's length estimate (check mode)
 }
 
 # MSVC CRT _ftol (fnstcw / fldcw truncate / fistp qword / restore): calls are inlined (FTOL in recomp.h).
@@ -171,6 +172,8 @@ GAME_JUMP_HOOKS = {
     0x4AF6CB: ("native_flush_polygon", (0x4AFCD3, 0x4AFCD8, 0x4AFD3E)),
     # Texture loader 0x41c050: native 24-bit row loop, continuing after it
     0x41CDB6: ("native_rgb_row", 0x41D08D),
+    # CString::FormatV 0x4c3b8b: the buffer-length estimate loop natively (native_load.cpp)
+    0x4C3BB2: ("native_formatv_len", 0x4C3E79),
 }
 
 

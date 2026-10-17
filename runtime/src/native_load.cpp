@@ -462,3 +462,198 @@ extern "C" int native_output(void) {
     compare("_output 0x4b8800", nat, tr);
     return 1;
 }
+
+// ---- MFC CString::FormatV 0x4c3b8b: the buffer-length estimate ----
+// Before vsprintf, FormatV walks the format once to size the buffer: per conversion max(width, its
+// own estimate) (strings: their length, min 1; integers / %p: max(32, width + precision); floats:
+// max(128, ...)), clipped to the precision for c / s; other characters count 1 or 2 (lead bytes).
+// ~3% of the translated game code in a race (a per-blit debug string formatted 11 times a frame).
+// Jump hook at the loop head 0x4c3bb2, continuing at 0x4c3e79 with the loop's registers and locals:
+// edi = the format's terminating NUL, esi = past the arguments used, ebx = the last precision,
+// eax / ecx / edx as the last _tcsinc 0x4b6940 leaves them, [ebp-0xc] = the estimate. It reads the
+// CRT's own ctype / mbctype tables; a multibyte locale or a non-ASCII digit test (the MBCS path of
+// _ismbcdigit 0x4b6980) runs the translated loop (decided before anything is written).
+namespace {
+
+constexpr uint32_t MBCTYPE = 0x4f2f01, PCTYPE_PTR = 0x4f36f8, CUR_MAX = 0x4f3904;
+
+struct FormatLen {
+    uint32_t edi, esi, ebx, ecx, edx, total, item, width, mod;
+    bool item_seen;
+};
+
+bool format_len(uint32_t ebp, FormatLen &s) {
+    MEM_LOCAL();
+    if (static_cast<int32_t>(RD32A(CUR_MAX)) > 1) return false;
+    const uint32_t pctype = RD32A(PCTYPE_PTR);
+    s = {R.edi, R.esi, R.ebx, R.ecx, R.edx, RD32A(ebp - 0xc), RD32A(ebp - 4), RD32A(ebp - 8), RD32A(ebp - 0x14), false};
+    auto lead = [&](uint32_t c) { return (RD8(MBCTYPE + c) & 4) != 0; };
+    auto inc = [&](uint32_t p) {   // _tcsinc 0x4b6940
+        s.ecx = p;
+        s.edx = RD8(p);
+        return p + (lead(s.edx) ? 2 : 1);
+    };
+    auto ctype = [&](uint32_t c) { return RD16(pctype + c * 2); };
+    auto atoi = [&](uint32_t p) {  // atoi 0x4b45c0 (single-byte locale)
+        while (ctype(RD8(p)) & 8) p++;
+        uint32_t c = RD8(p++);
+        const uint32_t sign = c;
+        if (c == '-' || c == '+') c = RD8(p++);
+        uint32_t v = 0;
+        while (ctype(c) & 4) {
+            v = c + v * 10 - 0x30;
+            c = RD8(p++);
+        }
+        return sign == '-' ? 0u - v : v;
+    };
+    // the digits after a width / precision; false: _ismbcdigit's multibyte path
+    auto skip_digits = [&](uint32_t &p) {
+        while (RD8(p)) {
+            if (RD8(p) >= 0x80) return false;
+            if (!(ctype(RD8(p)) & 4)) break;
+            p = inc(p);
+        }
+        return true;
+    };
+    auto wcslen = [&](uint32_t p) {   // 0x4b6750
+        uint32_t n = 0;
+        while (RD16(p + n * 2)) n++;
+        return n;
+    };
+    auto strlen_a = [&](uint32_t p) {   // lstrlenA (NULL: 0)
+        uint32_t n = 0;
+        if (p) while (RD8(p + n)) n++;
+        return n;
+    };
+    uint32_t p = s.edi;
+    do {
+        uint32_t len;
+        if (RD8(p) != '%') {
+            len = lead(RD8(p)) ? 2 : 1;   // _tclen 0x4b6960
+        } else if (p = inc(p), RD8(p) == '%') {
+            len = lead(RD8(p)) ? 2 : 1;
+        } else {
+            s.item_seen = true;
+            s.item = 0;
+            s.width = 0;
+            while (RD8(p)) {   // flags
+                const uint8_t c = RD8(p);
+                if (c == '#') s.total += 2;
+                else if (c == '*') { s.width = RD32(s.esi); s.esi += 4; }
+                else if (c != '-' && c != '+' && c != '0' && c != ' ') break;
+                p = inc(p);
+            }
+            if (s.width == 0) {
+                s.width = atoi(p);
+                if (!skip_digits(p)) return false;
+            }
+            s.ebx = 0;
+            if (RD8(p) == '.') {
+                p = inc(p);
+                if (RD8(p) == '*') {
+                    s.ebx = RD32(s.esi);
+                    s.esi += 4;
+                    p = inc(p);
+                } else {
+                    s.ebx = atoi(p);
+                    if (!skip_digits(p)) return false;
+                }
+            }
+            s.mod = 0;
+            const uint8_t m = RD8(p);
+            if (m == 'F' || m == 'L' || m == 'N') p = inc(p);
+            else if (m == 'h') { s.mod = 0x10000; p = inc(p); }
+            else if (m == 'l') { s.mod = 0x20000; p = inc(p); }
+            const int32_t conv = static_cast<int8_t>(RD8(p));
+            const uint32_t key = static_cast<uint32_t>(conv) | s.mod;
+            auto str_len = [&](uint32_t n) { s.esi += 4; s.item = static_cast<int32_t>(n) > 1 ? n : 1; };
+            switch (key) {
+            case 'C': case 'c': case 0x10043: case 0x10063: case 0x20043: case 0x20063:
+                s.item = 2;
+                s.esi += 4;
+                break;
+            case 's': case 0x10053: case 0x10073: str_len(strlen_a(RD32(s.esi))); break;
+            case 'S': case 0x20053: case 0x20073: str_len(wcslen(RD32(s.esi))); break;
+            default: break;
+            }
+            const int32_t prec = static_cast<int32_t>(s.ebx), width = static_cast<int32_t>(s.width);
+            const int32_t sum = static_cast<int32_t>(s.width + s.ebx);
+            if (s.item) {
+                int32_t l = width > static_cast<int32_t>(s.item) ? width : static_cast<int32_t>(s.item);
+                if (prec && l >= prec) l = prec;
+                s.item = static_cast<uint32_t>(l);
+            } else if (conv == 'X' || conv == 'd' || conv == 'i' || conv == 'o' || conv == 'u' || conv == 'x' ||
+                       conv == 'p') {
+                s.esi += 4;
+                s.item = sum > 0x20 ? static_cast<uint32_t>(sum) : 0x20;
+            } else if (conv == 'G' || conv == 'e' || conv == 'f' || conv == 'g') {
+                s.esi += 8;
+                s.item = sum > 0x80 ? static_cast<uint32_t>(sum) : 0x80;
+            } else if (conv == 'n') {
+                s.esi += 4;
+            }
+            len = s.item;
+        }
+        s.total += len;
+        p = inc(p);
+    } while (RD8(p));
+    s.edi = p;
+    return true;
+}
+
+void apply_format_len(uint32_t ebp, const FormatLen &s) {
+    MEM_LOCAL();
+    R.eax = R.edi = s.edi;
+    R.esi = s.esi;
+    R.ebx = s.ebx;
+    R.ecx = s.ecx;
+    R.edx = s.edx;
+    WR32A(ebp - 0xc, s.total);
+    if (s.item_seen) {
+        WR32A(ebp - 4, s.item);
+        WR32A(ebp - 8, s.width);
+        WR32A(ebp - 0x14, s.mod);
+    }
+}
+
+struct {
+    bool active;
+    Snapshot native;
+    std::vector<Region> regions;
+} format_pending;
+
+}  // namespace
+
+// jump hook at 0x4c3bb2 (FormatV's estimate loop head, also its back edge): nonzero = continue at
+// 0x4c3e79. Entered mid-loop (after a bail-out) it continues from there, as the state is all in
+// registers and locals.
+extern "C" int native_formatv_len(void) {
+    const Mode md = mode();
+    if (md == OFF || format_pending.active) return 0;
+    const uint32_t ebp = R.ebp;
+    FormatLen s;
+    if (!format_len(ebp, s)) return 0;
+    if (md == ON) {
+        apply_format_len(ebp, s);
+        return 1;
+    }
+    // check: the translated loop runs on the same input; compared at 0x4c3e79
+    format_pending.regions = {{ebp - 0x18, 0x18}};
+    Snapshot before = take(format_pending.regions);
+    apply_format_len(ebp, s);
+    format_pending.native = take(format_pending.regions);
+    format_pending.active = true;
+    restore(before);
+    return 0;
+}
+
+// GAME_HOOK at 0x4c3e79 (after the estimate loop)
+extern "C" void native_formatv_len_check(void) {
+    if (!format_pending.active) return;
+    format_pending.active = false;
+    Snapshot translated = take(format_pending.regions);
+    format_pending.native.f = translated.f;
+    compare("FormatV estimate 0x4c3bb2", format_pending.native, translated);
+    static uint64_t n = 0;
+    if (n++ % 1000 == 0) rt::log("native: %llu FormatV estimates compared\n", static_cast<unsigned long long>(n));
+}

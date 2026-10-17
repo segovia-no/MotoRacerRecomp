@@ -33,14 +33,17 @@ struct Region { uint32_t addr, size; };
 
 inline Snapshot take(const std::vector<Region> &regions) {
     Snapshot s{R, F, {}};
-    for (const Region &g : regions) s.mem.push_back({g.addr, std::vector<uint8_t>(M + g.addr, M + g.addr + g.size)});
+    // a region read through a pointer that is NULL at the time (e.g. no open TRIANGLE header) is empty
+    for (const Region &g : regions)
+        s.mem.push_back({g.addr, g.addr ? std::vector<uint8_t>(M + g.addr, M + g.addr + g.size) : std::vector<uint8_t>()});
     return s;
 }
 
 inline void restore(const Snapshot &s) {
     R = s.r;
     F = s.f;
-    for (auto &[a, bytes] : s.mem) memcpy(M + a, bytes.data(), bytes.size());
+    for (auto &[a, bytes] : s.mem)
+        if (!bytes.empty()) memcpy(M + a, bytes.data(), bytes.size());
 }
 
 inline uint64_t checks = 0, mismatches = 0;

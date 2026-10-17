@@ -241,6 +241,8 @@ int native_sprintf(void);
 int native_vsprintf(void);
 int native_output(void);
 void native_rgb_row_check(void);
+int native_formatv_len(void);
+void native_formatv_len_check(void);
 int game_hook_options_rows(void);     /* jump hooks: nonzero = take the jump */
 int game_hook_options_action(void);
 int game_hook_options_info(void);
