@@ -11,12 +11,6 @@
 #include "platform/platform.h"
 #include "runtime.h"
 
-extern "C" {
-typedef struct { uint32_t va; RecompFn fn; } RecompEntry;
-extern const RecompEntry recomp_table[];
-extern const uint32_t recomp_table_len;
-}
-
 namespace rt {
 
 bool trace_imports = false;
@@ -144,7 +138,8 @@ const char *thunk_name(uint32_t va) {
 }
 
 RecompFn find_function(uint32_t va) {
-    const RecompEntry *lo = recomp_table, *hi = recomp_table + recomp_table_len;
+    const RecompModule &g = guest_code();
+    const RecompEntry *lo = g.functions, *hi = g.functions + g.function_count;
     const RecompEntry *it = std::lower_bound(lo, hi, va, [](const RecompEntry &e, uint32_t v) { return e.va < v; });
     return (it != hi && it->va == va) ? it->fn : nullptr;
 }

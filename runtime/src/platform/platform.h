@@ -99,6 +99,16 @@ public:
 };
 
 // ---------- device ----------
+// ---------- loadable code ----------
+// The game-code module (MOTORACER_GAME_MODULE, docs/28-easy-install.md).
+class Modules {
+public:
+    virtual ~Modules() = default;
+    virtual void *open(const std::string &path, std::string *error) = 0;   // nullptr on failure
+    virtual void *symbol(void *module, const char *name) = 0;             // nullptr if missing
+    virtual const char *suffix() = 0;                                      // ".so", ".dll"
+};
+
 class HostInfo {
 public:
     virtual ~HostInfo() = default;
@@ -113,6 +123,7 @@ struct Host {
     FileSystem &fs;
     HostPaths &paths;
     HostInfo &info;
+    Modules &modules;
 };
 
 // The adapters for the OS this binary was built for.

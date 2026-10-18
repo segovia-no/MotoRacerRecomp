@@ -58,6 +58,33 @@ extern uint8_t *M;
 
 typedef void (*RecompFn)(void);
 
+/* ---------- tables of the generated code (tools/recomp/recomp_main.py) ---------- */
+typedef struct { uint32_t va; RecompFn fn; } RecompEntry;   /* guest function at va */
+typedef struct { uint32_t iat_va; const char *dll; const char *name; RecompFn fn; } ImportEntry;
+
+/* A game-code module (MOTORACER_GAME_MODULE, docs/28-easy-install.md) exports one of these as
+   `recomp_module`; the host checks the version, then fills the import slots with its shims. */
+#define RECOMP_MODULE_VERSION 1u
+typedef struct {
+    uint32_t version;
+    const RecompEntry *functions;   /* sorted by va: the dispatch table */
+    uint32_t function_count;
+    const RecompEntry *fallbacks;   /* translated bodies (f_<va>_t) of the functions with a native version */
+    uint32_t fallback_count;
+    const ImportEntry *imports;     /* every IAT slot */
+    uint32_t import_count;
+    const char *const *slot_names;  /* imp_<DLL>_<NAME> of each import shim the code calls */
+    RecompFn *slots;                /* filled by the host (NULL: not implemented) */
+    uint32_t slot_count;
+} RecompModule;
+#if defined(RECOMP_MODULE) && defined(_WIN32)
+#define RECOMP_EXPORT __declspec(dllexport)
+#elif defined(RECOMP_MODULE)
+#define RECOMP_EXPORT __attribute__((visibility("default")))
+#else
+#define RECOMP_EXPORT
+#endif
+
 /* ---------- guest memory ---------- */
 static inline uint8_t RD8(uint32_t a) { return M[a]; }
 static inline uint16_t RD16(uint32_t a) { uint16_t v; memcpy(&v, M + a, 2); return v; }

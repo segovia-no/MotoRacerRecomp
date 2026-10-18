@@ -38,6 +38,12 @@ set(RECOMP_TRANSLATOR_FLAGS ${MOTORACER_TRANSLATOR_FLAGS})
 if(NOT MOTORACER_GUEST_OPT)
   list(APPEND RECOMP_TRANSLATOR_FLAGS --no-regcache)
 endif()
+# Game code as a module (docs/28-easy-install.md): the program (runtime, SDL) contains no translated
+# code and loads gamecode.so / gamecode.dll from its own folder at start.
+option(MOTORACER_GAME_MODULE "Build the game code as a module the program loads at start" OFF)
+if(MOTORACER_GAME_MODULE)
+  list(APPEND RECOMP_TRANSLATOR_FLAGS --module)
+endif()
 file(GLOB RECOMP_TOOL_SOURCES "${CMAKE_SOURCE_DIR}/tools/recomp/*.py" "${CMAKE_SOURCE_DIR}/tools/recomp/recomp/*.py")
 add_custom_command(
   OUTPUT ${GEN_SOURCES} "${GEN_DIR}/recomp_funcs.h" "${GEN_DIR}/imports.h"
@@ -54,6 +60,11 @@ set(MOTORACER_GUEST_OPT_LEVEL "-O2" CACHE STRING "Optimisation level for the gen
 target_compile_options(gamecode PRIVATE -w ${MOTORACER_GUEST_OPT_LEVEL} -fno-strict-aliasing)
 if(MOTORACER_GUEST_OPT)
   target_compile_definitions(gamecode PRIVATE RECOMP_GENERATED)
+endif()
+if(MOTORACER_GAME_MODULE)
+  # only recomp_module is exported; calls between guest functions stay direct
+  set_target_properties(gamecode PROPERTIES POSITION_INDEPENDENT_CODE ON C_VISIBILITY_PRESET hidden)
+  target_compile_definitions(gamecode PRIVATE RECOMP_MODULE)
 endif()
 
 # SDL3: the system package by default. MOTORACER_BUNDLED_SDL builds a pinned release and links it
@@ -129,7 +140,18 @@ else()
   message(FATAL_ERROR "no call_on_stack trampoline for ${CMAKE_SYSTEM_PROCESSOR}")
 endif()
 
-add_executable(motoracer ${RUNTIME_SOURCES} $<TARGET_OBJECTS:gamecode>)
+if(MOTORACER_GAME_MODULE)
+  add_executable(motoracer ${RUNTIME_SOURCES})
+  target_compile_definitions(motoracer PRIVATE RECOMP_GAME_MODULE)
+  # the module links against the program's runtime symbols (R, M, the hooks, the import shims)
+  set_target_properties(motoracer PROPERTIES ENABLE_EXPORTS ON)
+  add_library(gamemodule MODULE $<TARGET_OBJECTS:gamecode>)
+  set_target_properties(gamemodule PROPERTIES PREFIX "" OUTPUT_NAME gamecode
+                        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+  target_link_libraries(gamemodule PRIVATE motoracer)
+else()
+  add_executable(motoracer ${RUNTIME_SOURCES} $<TARGET_OBJECTS:gamecode>)
+endif()
 target_include_directories(motoracer PRIVATE runtime/include runtime/src runtime/src/win32 runtime/src/dx "${GEN_DIR}")
 target_compile_options(motoracer PRIVATE
   $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-unused-parameter>)

@@ -91,6 +91,17 @@ uint32_t alloc_cstr(const std::string &s);   // heap-allocated guest copy
 uint32_t register_thunk(RecompFn fn, const char *name);  // host fn reachable from guest code
 const char *thunk_name(uint32_t va);
 RecompFn find_function(uint32_t va);                      // nullptr if not a recompiled entry
+
+// The generated game code's tables (guest_code.cpp): linked in, or from the game-code module
+// loaded at the first use (MOTORACER_GAME_MODULE, docs/28-easy-install.md).
+const RecompModule &guest_code();
+RecompFn guest_fallback(uint32_t va);   // f_<va>_t of a function with a native version (fatal if none)
+// Import shims by name (imp_<DLL>_<NAME>), registered by STDCALL / CDECL: a module's import
+// slots are filled from here.
+struct ImportShim {
+    ImportShim(const char *name, RecompFn fn);
+};
+RecompFn import_shim(const char *name);   // nullptr if not implemented
 // Call guest code: pushes args right-to-left and a magic return address.
 uint32_t guest_call_stdcall(uint32_t fn, std::initializer_list<uint32_t> args);
 uint32_t guest_call_cdecl(uint32_t fn, std::initializer_list<uint32_t> args);
@@ -156,6 +167,7 @@ void audio_mixing(bool busy);   // audio thread: mixing a device buffer / done
         R.eax = r_;                                                                     \
         R.esp += 4 + 4 * (NARGS);                                                       \
     }                                                                                   \
+    static const rt::ImportShim reg_##DLL##_##NAME("imp_" #DLL "_" #NAME, imp_##DLL##_##NAME); \
     static uint32_t impl_##DLL##_##NAME()
 
 // cdecl variadic shims (wsprintfA): caller pops arguments.
@@ -169,6 +181,7 @@ void audio_mixing(bool busy);   // audio thread: mixing a device buffer / done
         R.eax = r_;                                                                     \
         R.esp += 4;                                                                     \
     }                                                                                   \
+    static const rt::ImportShim reg_##DLL##_##NAME("imp_" #DLL "_" #NAME, imp_##DLL##_##NAME); \
     static uint32_t impl_##DLL##_##NAME()
 
 namespace rt {

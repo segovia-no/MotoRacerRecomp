@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate C sources from the GOG game.EXE.
 
-usage: recomp_main.py <game.EXE> <out_dir> [--files N] [--only VA,VA,...]
+usage: recomp_main.py <game.EXE> <out_dir> [--files N] [--only VA,VA,...] [--module]
 
 Always writes exactly N code files (code_000.c ..) so build systems know the outputs.
 """
@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from recomp.discover import Discovery  # noqa: E402
 from recomp.pe_image import Image  # noqa: E402
-from recomp.translate import Translator, fn_name, imp_name as imp  # noqa: E402
+from recomp.translate import NATIVE_FUNCS, Translator, fn_name, imp_name as imp  # noqa: E402
 
 HEADER = "/* Generated from game.EXE by tools/recomp. Do not edit, do not commit. */\n"
 
@@ -38,6 +38,9 @@ def main():
                     help="keep the x87 stack in F everywhere (for benchmarks)")
     ap.add_argument("--no-spill-opt", action="store_true",
                     help="write back / reload all registers at every call (for benchmarks)")
+    ap.add_argument("--module", action="store_true",
+                    help="code for a game-code module (docs/28-easy-install.md): import shims are "
+                         "slots the host fills, instead of weak fallbacks overridden at link time")
     args = ap.parse_args()
 
     t0 = time.time()
@@ -73,21 +76,43 @@ def main():
     imps += [f"void {n}(void); /* {dll}!{name} */" for n, (dll, name) in sorted(tr.imports_used.items())]
     write_if_changed(os.path.join(args.out, "imports.h"), "\n".join(imps) + "\n")
 
+    used = sorted(tr.imports_used.items())
     stubs = [HEADER, '#include "recomp.h"', '#include "imports.h"', "",
-             "void import_unimplemented(const char *dll, const char *name);", ""]
-    for n, (dll, name) in sorted(tr.imports_used.items()):
-        stubs.append(f'__attribute__((weak)) void {n}(void) {{ import_unimplemented("{dll}", "{name}"); }}')
-    stubs += ["", "typedef struct { uint32_t iat_va; const char *dll; const char *name; RecompFn fn; } ImportEntry;",
-              "const ImportEntry import_table[] = {"]
+             "void import_unimplemented(const char *dll, const char *name);", "",
+             "/* the host's shim per name (a module's host fills these when it loads it) */",
+             "const char *const recomp_slot_names[] = {"]
+    stubs += [f'    "{n}",' for n, _ in used]
+    stubs += ["};", f"RecompFn recomp_slots[{len(used)}];", f"const uint32_t recomp_slot_count = {len(used)};", ""]
+    for i, (n, (dll, name)) in enumerate(used):
+        if args.module:   # the shims live in the host program
+            stubs.append(f'void {n}(void) {{ if (recomp_slots[{i}]) recomp_slots[{i}](); '
+                         f'else import_unimplemented("{dll}", "{name}"); }}')
+        else:             # the runtime's strong definitions replace these at link time
+            stubs.append(f'__attribute__((weak)) void {n}(void) {{ import_unimplemented("{dll}", "{name}"); }}')
+    stubs += ["", "const ImportEntry import_table[] = {"]
     stubs += [f'    {{0x{va:08x}u, "{dll}", "{name}", {imp(dll, name)}}},' for va, (dll, name) in all_imports]
     stubs += ["};", f"const uint32_t import_table_len = {len(all_imports)};", ""]
     write_if_changed(os.path.join(args.out, "imports.c"), "\n".join(stubs))
 
     table = [HEADER, '#include "recomp.h"', '#include "recomp_funcs.h"', "",
-             "typedef struct { uint32_t va; RecompFn fn; } RecompEntry;",
              "const RecompEntry recomp_table[] = {"]
     table += [f"    {{0x{e:08x}u, {fn_name(e)}}}," for e in sorted(d.entries)]
     table += ["};", f"const uint32_t recomp_table_len = {len(d.entries)};", ""]
+    # the translated bodies of functions with a native version, which the runtime's check mode and
+    # fallbacks call by name
+    natives = [e for e in sorted(d.entries) if e in NATIVE_FUNCS]
+    table += [f"void {fn_name(e)}_t(void);" for e in natives]
+    table += ["const RecompEntry recomp_fallbacks[] = {"]
+    table += [f"    {{0x{e:08x}u, {fn_name(e)}_t}}," for e in natives]
+    table += ["};", "",
+              "extern const ImportEntry import_table[];",
+              "extern const char *const recomp_slot_names[];",
+              "extern RecompFn recomp_slots[];",
+              "/* what a host program loading this code as a module looks up (docs/28-easy-install.md) */",
+              "RECOMP_EXPORT const RecompModule recomp_module = {",
+              f"    RECOMP_MODULE_VERSION, recomp_table, {len(d.entries)}, recomp_fallbacks, {len(natives)},",
+              f"    import_table, {len(all_imports)}, recomp_slot_names, recomp_slots, {len(used)},",
+              "};", ""]
     write_if_changed(os.path.join(args.out, "dispatch_table.c"), "\n".join(table))
 
     print(f"functions {len(entries)} in {len(chunks)} files, imports {len(tr.imports_used)}, "

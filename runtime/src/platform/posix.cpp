@@ -1,5 +1,6 @@
 // POSIX adapters (macOS, Linux): mmap virtual memory, fd-based files, signal crash reports.
 #include <dirent.h>
+#include <dlfcn.h>
 #include <execinfo.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -178,13 +179,25 @@ public:
 
 }  // namespace
 
+class PosixModules final : public Modules {
+public:
+    void *open(const std::string &path, std::string *error) override {
+        void *h = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+        if (!h && error) *error = dlerror();
+        return h;
+    }
+    void *symbol(void *module, const char *name) override { return dlsym(module, name); }
+    const char *suffix() override { return ".so"; }
+};
+
 Host &host() {
     static PosixVirtualMemory memory;
     static PosixExecution execution;
     static PosixCrashReporter crash;
     static PosixFileSystem fs;
     static PosixHostInfo info;
-    static Host h{memory, execution, crash, fs, os_paths(), info};
+    static PosixModules modules;
+    static Host h{memory, execution, crash, fs, os_paths(), info, modules};
     return h;
 }
 

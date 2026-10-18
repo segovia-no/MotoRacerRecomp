@@ -8,12 +8,6 @@
 #include "platform/platform.h"
 #include "win32.h"
 
-extern "C" {
-typedef struct { uint32_t iat_va; const char *dll; const char *name; RecompFn fn; } ImportEntry;
-extern const ImportEntry import_table[];
-extern const uint32_t import_table_len;
-}
-
 namespace w32 {
 
 // ---------- handles ----------
@@ -120,8 +114,9 @@ uint32_t module_handle_for(const std::string &dll_name) {
 
 uint32_t proc_address(uint32_t hmodule, const std::string &name) {
     (void)hmodule;
-    for (uint32_t i = 0; i < import_table_len; i++)
-        if (name == import_table[i].name) return RD32(import_table[i].iat_va);
+    const RecompModule &g = rt::guest_code();
+    for (uint32_t i = 0; i < g.import_count; i++)
+        if (name == g.imports[i].name) return RD32(g.imports[i].iat_va);
     return 0;
 }
 

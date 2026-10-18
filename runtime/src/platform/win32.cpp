@@ -306,6 +306,19 @@ public:
 
 }  // namespace
 
+class WinModules final : public Modules {
+public:
+    void *open(const std::string &path, std::string *error) override {
+        HMODULE h = LoadLibraryW(wide(path).c_str());
+        if (!h && error) *error = "LoadLibrary error " + std::to_string(GetLastError());
+        return reinterpret_cast<void *>(h);
+    }
+    void *symbol(void *module, const char *name) override {
+        return reinterpret_cast<void *>(GetProcAddress(static_cast<HMODULE>(module), name));
+    }
+    const char *suffix() override { return ".dll"; }
+};
+
 Host &host() {
     static WinVirtualMemory memory;
     static WinExecution execution;
@@ -313,7 +326,8 @@ Host &host() {
     static WinFileSystem fs;
     static WinPaths paths;
     static WinHostInfo info;
-    static Host h{memory, execution, crash, fs, paths, info};
+    static WinModules modules;
+    static Host h{memory, execution, crash, fs, paths, info, modules};
     return h;
 }
 

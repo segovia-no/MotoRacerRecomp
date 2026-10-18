@@ -6,12 +6,6 @@
 
 #include "runtime.h"
 
-extern "C" {
-typedef struct { uint32_t iat_va; const char *dll; const char *name; RecompFn fn; } ImportEntry;
-extern const ImportEntry import_table[];
-extern const uint32_t import_table_len;
-}
-
 namespace rt {
 
 LoadedImage image;
@@ -57,15 +51,16 @@ void load_image(const std::string &exe_path) {
     }
 
     // Point every IAT slot at a thunk that runs the host shim.
-    for (uint32_t i = 0; i < import_table_len; i++) {
-        const ImportEntry &e = import_table[i];
+    const RecompModule &g = guest_code();
+    for (uint32_t i = 0; i < g.import_count; i++) {
+        const ImportEntry &e = g.imports[i];
         WR32(e.iat_va, register_thunk(e.fn, e.name));
     }
 
     image.exe_path = exe_path;
     size_t slash = exe_path.find_last_of('/');
     image.game_dir = slash == std::string::npos ? "." : exe_path.substr(0, slash);
-    log("loaded %s: entry 0x%08x, %u imports\n", exe_path.c_str(), image.entry, import_table_len);
+    log("loaded %s: entry 0x%08x, %u imports\n", exe_path.c_str(), image.entry, g.import_count);
 }
 
 void setup_thread_environment(const std::string &command_line) {

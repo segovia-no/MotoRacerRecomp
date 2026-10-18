@@ -157,6 +157,17 @@ public:
 
 }  // namespace
 
+// The PSP build links the game code in.
+class PspModules final : public Modules {
+public:
+    void *open(const std::string &, std::string *error) override {
+        if (error) *error = "not supported on the PSP";
+        return nullptr;
+    }
+    void *symbol(void *, const char *) override { return nullptr; }
+    const char *suffix() override { return ".prx"; }
+};
+
 Host &host() {
     static PspVirtualMemory memory;
     static PspExecution execution;
@@ -164,7 +175,8 @@ Host &host() {
     static PspFileSystem fs;
     static PspPaths paths;
     static PspHostInfo info;
-    static Host h{memory, execution, crash, fs, paths, info};
+    static PspModules modules;
+    static Host h{memory, execution, crash, fs, paths, info, modules};
     return h;
 }
 

@@ -1,4 +1,4 @@
-# Easy installation without toolchains (plan, 2026-10-18)
+# Easy installation without toolchains (plan 2026-10-18; E1 done)
 
 Owner request: make installing simpler than "install tools / containers, then recompile". Decision
 (owner, 2026-10-18): **option A** — keep the rule that nothing translated from `game.EXE` is ever
@@ -108,3 +108,31 @@ The translator is Python (pefile, capstone). Options, in order of preference:
 | E3 | Frozen translator + bundled innoextract | runs on a machine without Python / Homebrew |
 | E4 | First-run installer UI in the host (file dialog, progress, cache key) | fresh user account install |
 | E5 | CI release packaging (P4 of 15-ports-plan.md extended), README "Download" section | owner installs from a release on Mac, PC and Deck |
+
+## E1 done: host / game-code module split (2026-10-18)
+`cmake -DMOTORACER_GAME_MODULE=ON` builds `motoracer` (1.3 MB on macOS: runtime + SDL, no translated
+code) and `gamecode.so` / `gamecode.dll` (3.6 MB) next to it; the default build is unchanged (game
+code linked in), and so is the PSP build.
+- **Generated side** (`recomp_main.py`): every build exports one `RecompModule` (`recomp.h`):
+  version, dispatch table, `recomp_fallbacks` (the `f_<va>_t` bodies of the functions with a native
+  version, by address), the import table and the import slots. With `--module` each import shim
+  `imp_<DLL>_<NAME>` is a thunk through `recomp_slots[i]` (or `import_unimplemented`) instead of a
+  weak fallback that the runtime's strong definition replaces at link time. The module is compiled
+  with hidden visibility (only `recomp_module` is exported, calls between guest functions stay
+  direct) and links against the program's symbols (`ENABLE_EXPORTS`; macOS `-bundle_loader`).
+- **Host side**: `rt::guest_code()` (`guest_code.cpp`) returns the linked `recomp_module` or loads
+  the module at the first use (`MOTORACER_GAME_MODULE=<path>`, else `gamecode<suffix>` in the
+  program's folder via `SDL_GetBasePath`), checks the version and fills the slots from a registry
+  that `STDCALL` / `CDECL` build (`rt::ImportShim`, name → shim). `dispatch.cpp`, `loader.cpp` and
+  `support.cpp` read the tables through it. The 26 guest functions the runtime calls by name
+  (native hooks, check mode) are forwarders in module builds (`GUEST_FN` / `GUEST_FALLBACK`).
+- **Platform adapter** `plat::Modules` (open / symbol / suffix): `dlopen` (POSIX), `LoadLibraryW`
+  (Windows, not built yet), none on the PSP.
+- **Checks (macOS)**: race with the module: log "4106 functions, 284 of 284 import shims", contact
+  sheet normal; check mode: 38.4 M checks, 0 mismatches; PSP build boots and races.
+- **Cost**: race-to-race comparisons vary ~10% with the scene (a first A/B showed +16%, the repeat
+  −8%), so the gate ran on the bike-selection screen (fixed scene, `MOTORACER_FRAME_WORK`, PSP
+  profile, two runs each, alternating): 14.07 M instructions per frame both ways (+0.03%), cycles
+  within run-to-run noise. No measurable cost.
+- Not yet: `MotoRacer.app` does not carry the module (`make_app.sh`), Windows / Linux module builds
+  (E2, with the bundled compiler).
