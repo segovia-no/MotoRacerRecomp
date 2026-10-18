@@ -1,0 +1,110 @@
+# Easy installation without toolchains (plan, 2026-10-18)
+
+Owner request: make installing simpler than "install tools / containers, then recompile". Decision
+(owner, 2026-10-18): **option A** — keep the rule that nothing translated from `game.EXE` is ever
+distributed, but ship everything else prebuilt, so the player's machine only translates and compiles
+the game code, with tools that come in the download. Option B (prebuilt complete binaries, as
+Zelda64Recomp / UnleashedRecomp ship) stays out of scope: it would distribute code translated from
+`game.EXE`.
+
+## Today
+| Platform | The player installs | Then |
+|---|---|---|
+| macOS | Xcode Command Line Tools, Homebrew, `cmake` `sdl3` `innoextract`, a Python venv (pefile, capstone) | `setup.sh`: unpack, translate, build all, `MotoRacer.app` |
+| Steam Deck / Linux | podman (preinstalled on SteamOS) + ~2 GB of images (Steam Runtime "sniper" SDK, a Debian container) | build inside the container |
+| Windows | Python (winget), llvm-mingw, innoextract, CMake, Ninja (pinned downloads into `build/`) | `setup.cmd` → `setup.ps1` |
+
+Measured (MacBook, 10 cores, 2026-10-18): translation 12.8 s (Python, one core); compiling the
+generated C (68 files, 33 MB) at `-O2` 6 s wall / 40 s CPU. The runtime, SDL3 (built from source on
+Linux) and the toolchain set-up are the rest. So the player's machine has little real work: the
+friction is the tools.
+
+## Target
+Download one archive for the platform, open the app, pick the GOG installer, wait for a progress
+bar (~30 s on a desktop, ~1–2 min on a Deck), play. No Homebrew, no containers, no Python, no
+compiler installed system-wide. A new release rebuilds the game code by itself on first start.
+
+## Design
+### 1. Prebuilt host program + game-code module built on the player's machine
+Split today's single binary in two:
+- **Host** (`motoracer` / `MotoRacer.app` / `motoracer.exe`), built by CI: runtime, SDL3, shaders,
+  the native reimplementations (`native_*.cpp`, already public source). It contains nothing
+  translated from `game.EXE` (CI builds it against no game code at all, see 15-ports-plan.md P4).
+- **Game module** (`gamecode.dylib` / `.so` / `.dll`), built at install: the translator's C only,
+  compiled and linked into a shared library that the host loads at start.
+
+Why a module rather than linking the final executable on the player's machine: the final link
+would need what the host needs — on macOS the SDK's frameworks (Metal, Cocoa, … through SDL), on
+Windows the system import libraries, on Linux the glibc-2.29 sysroot of the sniper SDK. A module of
+plain C needs only a C compiler and its libc stubs, and the host can be signed / tested once.
+
+Interface (both directions are small):
+- module → host: guest memory and state (`M`, `R`, `F`), the import shims (`imp_*`, 284), the x86
+  helpers and hooks the translator emits. The host exports them (Windows: `dllexport` + an import
+  library shipped with the host for linking the DLL; macOS: `-bundle_loader` / `-undefined
+  dynamic_lookup`; Linux: `-rdynamic`).
+- host → module: the dispatch table and the ~26 guest functions the runtime calls by name
+  (`f_<va>` / `f_<va>_t` from the native hooks, e.g. `f_0049c590_t`). The translator emits one
+  exported table of these pointers (`recomp_module_api`), checked against a version number; the
+  runtime calls through it instead of linking the symbols.
+- Cost to check: globals reached through the GOT / import table in generated code (`MEM_LOCAL` and
+  `REGS_LOCAL` already load them once per function). Gate: `MOTORACER_FRAME_WORK` benchmark,
+  instructions per frame within 1–2% of the static build.
+- The PSP stays a static developer build (pspdev), unaffected.
+
+### 2. Bundled compiler: `zig cc`
+One pinned toolchain for the three desktop platforms (clang inside, its own libc headers / stubs):
+- targets `aarch64-macos` / `x86_64-macos`, `x86_64-windows-gnu`, `x86_64-linux-gnu.2.29` (the
+  glibc floor of today's Deck build), no SDK or container needed for a C-only module;
+- ~45 MB compressed per platform; pruned to the one target's headers it is smaller;
+- options as today: `-O2 -fno-strict-aliasing`, `-ffp-contract` as now, files compiled in parallel
+  (one job per core). Fallback if zig fails a target: clang from llvm-mingw (Windows) / Apple clang
+  when the Command Line Tools exist (macOS).
+
+### 3. Self-contained translator
+The translator is Python (pefile, capstone). Options, in order of preference:
+1. Freeze it with the runtime it needs (python-build-standalone + vendored wheels, or PyInstaller):
+   no code changes, ~20–30 MB.
+2. Later, port it to C++ inside the host (no Python at all, faster than 12.8 s); large, not needed
+   for the first release.
+
+### 4. First-run installer inside the host
+- SDL3 file dialog: "Choose the GOG installer (`setup_moto_racer_2.1.0.11.exe`)"; also accepts an
+  already-unpacked folder containing `game.EXE`.
+- Unpack with a bundled `innoextract` (zlib licence; prebuilt per platform by CI), check
+  `game.EXE`'s hash, translate, compile, link, load. A progress screen with the step and a log file
+  for support.
+- Cache key = hash(`game.EXE`) + translator version + compiler flags: a new release with an
+  unchanged translator reuses the module; otherwise it rebuilds once, without asking for the
+  installer again (the unpacked files stay in the data folder as today).
+
+### 5. Release packaging (CI, GitHub Actions)
+- macOS: `MotoRacer.app` in a `.dmg`/zip (universal or arm64 + x86-64), translator, zig, innoextract
+  inside the bundle's `Resources`.
+- Windows: portable zip (`motoracer.exe` + tools folder), optional Start-menu shortcut on first run.
+- Linux / Steam Deck: tarball built in the sniper SDK container by CI (the player never runs a
+  container), plus the existing "add to Steam" step from `setup_linux.sh`.
+- Saves, settings and game files stay where they are today (`~/Library/Application
+  Support/MotoRacerRecomp`, `~/.local/share/MotoRacerRecomp`, `%LOCALAPPDATA%\MotoRacerRecomp`).
+- The source build (`setup.sh`, `setup.cmd`, by hand) stays for developers.
+
+## Risks / open points
+- **macOS Gatekeeper:** a downloaded unsigned app is blocked ("cannot be opened"). Without a
+  Developer ID ($99/year) and notarisation, players need right-click › Open once (or `xattr -dr
+  com.apple.quarantine`). The module built locally is not quarantined; zig ad-hoc signs arm64
+  output (to verify). If the host is ever notarised with the hardened runtime, loading a locally
+  built module needs the `disable-library-validation` entitlement.
+- **Windows SmartScreen / antivirus:** unsigned exe and a DLL compiled on the spot may be flagged.
+- **Steam Deck:** zig's glibc-2.29 target vs today's sniper build: verify on the owner's Deck.
+- **Release size:** ~80–120 MB per platform with zig + frozen Python; prune zig's targets.
+- **Legal line:** the host contains the hand-written native reimplementations and the hook tables
+  (already public source); no translated code and no `game.EXE` data. CI never sees `game.EXE`.
+
+## Phases
+| Phase | Work | Check |
+|---|---|---|
+| E1 | Host / module split: exported host API, module API table, loader; source build produces both | e2e race + check mode on macOS; frame-work benchmark vs static |
+| E2 | Build the module with `zig cc` from a script (translate → compile → link), all three OSes | same game on macOS, Windows (owner's PC), Deck |
+| E3 | Frozen translator + bundled innoextract | runs on a machine without Python / Homebrew |
+| E4 | First-run installer UI in the host (file dialog, progress, cache key) | fresh user account install |
+| E5 | CI release packaging (P4 of 15-ports-plan.md extended), README "Download" section | owner installs from a release on Mac, PC and Deck |

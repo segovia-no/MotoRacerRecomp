@@ -46,6 +46,7 @@ Not yet: Linux / Steam Deck, Windows, multiplayer (stubbed by decision), GDI tex
 - [25-psp-port.md](25-psp-port.md) — PSP port: pspdev + PPSSPP setup, PSP build (compact guest address space, PSP adapter), sizes, status
 - [26-psp-profile.md](26-psp-profile.md) — PSP hot functions: estimated MIPS cost per guest function, MIPS-specific overheads (parity, soft double conversion, rep movs, 64-bit division), candidates; sampling profiler (`MOTORACER_PROF`) with the PSP race frame split (game code, audio, Execute, natives)
 - [27-native-geometry.md](27-native-geometry.md) — native vertex transform, face visibility loops and polygon setup (check mode, PSP timings, alignment of packed objects, local memory base fix)
+- [28-easy-install.md](28-easy-install.md) — plan for installing without toolchains (option A): prebuilt host + game-code module built on the player's machine with a bundled `zig cc`, frozen translator, first-run installer, CI releases; nothing translated is distributed
 - [13-e2e-testing.md](13-e2e-testing.md) — unattended E2E runs: scripted keys, snapshots, contact sheets, menu navigation facts
 - [15-ports-plan.md](15-ports-plan.md) — Linux / Steam Deck / Windows ports: plan, platform adapters (P0 done), shader pipeline, risks
 
