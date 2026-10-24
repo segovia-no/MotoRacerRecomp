@@ -7,7 +7,8 @@
 Downloads the pinned files of tools/release/toolchain.json (SHA-256 checked, cached) and lays out:
     DIR/python/            a private CPython (python-build-standalone) with the translator's
                            dependencies (pefile, capstone) in its site-packages
-    DIR/zig/               the C compiler for the game-code module (tools/build_gamecode.py)
+    DIR/zig/               the C compiler for the game-code module (tools/build_gamecode.py),
+                           with only this platform's C headers / libc sources
     DIR/innoextract[.exe]  unpacks the GOG installer (macOS: --innoextract, a binary from
                            tools/release/build_innoextract_macos.sh)
     DIR/licenses/          the bundled tools' licences
@@ -87,6 +88,31 @@ def unpack(archive, dest, strip_top):
         t.extractall(dest, members=members, filter="data")
 
 
+# zig carries the C headers and libc sources of every target it supports (~420 MB unpacked); a
+# release builds the game code for one (tools/build_gamecode.py: C only, no C++): keep that one's
+ZIG_KEEP = {
+    "macos": {"include": {"any-darwin-any"}, "libc": {"darwin"}},
+    "linux": {"include": {"x86-linux-gnu", "x86-linux-any", "any-linux-any", "generic-glibc"}, "libc": {"glibc"}},
+    "windows": {"include": {"any-windows-any"}, "libc": {"mingw"}},
+}
+ZIG_DROP = ["doc", "lib/docs", "lib/libcxx", "lib/libcxxabi", "lib/libtsan"]
+
+
+def prune_zig(zig, os_name):
+    keep = ZIG_KEEP[os_name]
+    for d in ZIG_DROP:
+        shutil.rmtree(os.path.join(zig, d), ignore_errors=True)
+    libc = os.path.join(zig, "lib", "libc")
+    for name in os.listdir(libc):
+        path = os.path.join(libc, name)
+        if os.path.isdir(path) and name != "include" and name not in keep["libc"]:
+            shutil.rmtree(path)
+    inc = os.path.join(libc, "include")
+    for name in os.listdir(inc):
+        if name not in keep["include"]:
+            shutil.rmtree(os.path.join(inc, name))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--platform", choices=PLATFORMS, required=True)
@@ -116,6 +142,7 @@ def main():
     # zig
     name, sha = pins["zig"]["files"][plat]
     unpack(fetch(pins["zig"]["url"].format(file=name), sha, args.cache), os.path.join(out, "zig"), strip_top=True)
+    prune_zig(os.path.join(out, "zig"), plat.split("-")[0])
     shutil.copy(os.path.join(out, "zig", "LICENSE"), os.path.join(lic, "zig.txt"))
 
     # innoextract

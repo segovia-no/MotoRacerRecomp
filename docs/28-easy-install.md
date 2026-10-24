@@ -176,8 +176,14 @@ platform's folder from any machine):
   translator's dependencies unpacked into its own `site-packages` (pefile 2024.8.26 wheel, capstone
   5.0.9 wheel per platform). 74 MB unpacked on macOS. The Linux tarball's `share/terminfo` is
   skipped (unused; its case-only name variants loop on case-insensitive disks).
-- `zig/`: zig 0.16.0 (E2). 418 MB unpacked (the libc headers of every target): pruning to the one
-  target is for E5.
+- `zig/`: zig 0.16.0 (E2), pruned to the platform's own target (owner: "trim per target"): only
+  its C headers (`lib/libc/include`: macOS `any-darwin-any`; Linux `x86-linux-gnu`, `x86-linux-any`,
+  `any-linux-any`, `generic-glibc`; Windows `any-windows-any`) and libc sources (`darwin` / `glibc`
+  / `mingw`); no libc++, libc++abi, TSan or docs. `lib/` 225 MB → 47 MB (macOS), 54 MB (Linux),
+  124 MB (Windows); the rest is the zig binary itself (~190–230 MB, LLVM inside). Whole tools folder
+  compressed (xz): 58 MB macOS, 70 MB Linux, 67 MB Windows. Checked: the pruned zig builds the
+  module for each target with an empty zig cache (Windows: the Mac's zig with the pruned Windows
+  `lib/` through `ZIG_LIB_DIR`).
 - `innoextract`: **1.9**. Linux and Windows: the official builds (Linux: static amd64 binary).
   macOS has no official build: `tools/release/build_innoextract_macos.sh` builds 1.9 with
   Homebrew's three patches (CMake 4, Boost 1.85, Boost 1.89) and Boost / zstd linked statically, so
