@@ -79,7 +79,7 @@ def main():
 
     t0 = time.time()
     progress("step", "translate")
-    run([sys.executable, "-I", os.path.join(HERE, "recomp", "recomp_main.py"), args.exe, gen,
+    run([sys.executable, "-I", "-B", os.path.join(HERE, "recomp", "recomp_main.py"), args.exe, gen,
          "--files", str(FILES), "--module"])
     t1 = time.time()
     print(f"translated in {t1 - t0:.1f} s", flush=True)

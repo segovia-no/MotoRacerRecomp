@@ -23,7 +23,7 @@ find build/e2e -mindepth 2 -name '*.bmp' -mmin +60 -delete 2>/dev/null || true
 find build/e2e -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null || true
 rm -rf "$out" && mkdir -p "$out"
 env MOTORACER_FULLSCREEN=0 MOTORACER_SNAPSHOT_DIR="$PWD/$out" MOTORACER_AUTOKEYS="$keys" "$@" \
-    perl -e 'alarm shift; exec @ARGV' "$secs" "${MOTORACER_BIN:-build/cmake/motoracer}" >/dev/null 2>&1 || true
+    perl -e 'alarm shift; exec { $ARGV[0] } @ARGV' "$secs" "${MOTORACER_BIN:-build/cmake/motoracer}" >/dev/null 2>&1 || true
 if [ "$(uname -s)" = Darwin ]; then logdir=$HOME/Library/Logs/MotoRacerRecomp
 else logdir=${XDG_STATE_HOME:-$HOME/.local/state}/MotoRacerRecomp; fi
 cp "$logdir/motoracer.log" "build/e2e/$name.log"

@@ -203,7 +203,8 @@ bool unpack(const Job &job, Status &st, int step_no) {
 bool build(const Job &job, Status &st, int step_no) {
     st.set("Translating game.EXE", step_no);
     fs::path work = P(job.data) / "gamecode-build", final_dir = P(job.data) / "gamecode";
-    std::vector<std::string> args = {job.kit + "/" + PYTHON, "-I", job.kit + "/tools/build_gamecode.py",
+    // -B: no __pycache__ inside the kit (a signed, maybe read-only app bundle)
+    std::vector<std::string> args = {job.kit + "/" + PYTHON, "-I", "-B", job.kit + "/tools/build_gamecode.py",
                                      "--exe", job.game_dir + "/game.EXE", "--out", S(work),
                                      "--zig", job.kit + "/zig/zig" + EXE, "--progress"};
 #ifdef _WIN32
@@ -371,12 +372,14 @@ Key poll(Screen &s, const std::vector<Button> &bs, int &sel) {
         SDL_ConvertEventToRenderCoordinates(s.ren, &e);
         switch (e.type) {
         case SDL_EVENT_QUIT:
-        case SDL_EVENT_WINDOW_CLOSE_REQUESTED: return Key::Quit;
+        case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+            log("installer: %s\n", e.type == SDL_EVENT_QUIT ? "quit event" : "window closed");
+            return Key::Quit;
         case SDL_EVENT_GAMEPAD_ADDED: SDL_OpenGamepad(e.gdevice.which); break;
         case SDL_EVENT_KEY_DOWN:
             switch (e.key.key) {
             case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SPACE: return Key::Activate;
-            case SDLK_ESCAPE: return Key::Quit;
+            case SDLK_ESCAPE: log("installer: Esc\n"); return Key::Quit;
             case SDLK_LEFT: return Key::Left;
             case SDLK_RIGHT: case SDLK_TAB: return Key::Right;
             case SDLK_O: return Key::Choose;
@@ -386,7 +389,7 @@ Key poll(Screen &s, const std::vector<Button> &bs, int &sel) {
         case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
             switch (e.gbutton.button) {
             case SDL_GAMEPAD_BUTTON_SOUTH: case SDL_GAMEPAD_BUTTON_START: return Key::Activate;
-            case SDL_GAMEPAD_BUTTON_EAST: return Key::Quit;
+            case SDL_GAMEPAD_BUTTON_EAST: log("installer: gamepad B\n"); return Key::Quit;
             case SDL_GAMEPAD_BUTTON_WEST: return Key::Choose;
             case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return Key::Left;
             case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return Key::Right;

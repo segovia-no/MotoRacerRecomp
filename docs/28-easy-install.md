@@ -242,3 +242,26 @@ looked up:
 - Open: on Windows the kit's console programs may flash console windows (python, zig) — to check
   on the PC; a force-quit (not the window's close button) leaves the tools running; the file dialog
   in the Deck's Game Mode is unverified (the Downloads auto-detection covers the usual Deck flow).
+
+## Test packages before any release (2026-10-24)
+Owner: "we need to test before doing any releases". Nothing is published; packages are built
+locally and tried on each device first.
+- `tools/release/package.py --platform P --program BIN --tools DIR --out build/packages
+  [--host-lib LIB] [--build-id ID]`: macOS `MotoRacer-macos-arm64.zip` (`MotoRacer.app`, kit in
+  `Contents/Resources/kit`, ad-hoc signed again with the kit inside, zipped with `ditto`), Windows
+  `MotoRacer-windows-x86_64.zip` (`MotoRacer/motoracer.exe` + `kit/` with `libmotoracer.dll.a`),
+  Linux `MotoRacer-linux-x86_64.tar.xz` (`MotoRacer/motoracer` + `kit/`). Sizes: 95 / 102 / 71 MB.
+- Programs for packages: built with `MOTORACER_GAME_MODULE=ON`, no `GAME_EXE`, SDL from source
+  (`MOTORACER_BUNDLED_SDL=ON`), macOS `CMAKE_OSX_DEPLOYMENT_TARGET=12.0` (only system libraries),
+  debug info stripped (the exported symbols the module links against stay).
+- The kit's Python runs with `-B` (no `__pycache__` written into a signed, possibly read-only app).
+- Checked: the Mac zip unpacked → first start into an empty data folder → race (signature still
+  valid after the run); the Linux tarball → the same headless in Docker. Windows: built, not run
+  (needs the PC).
+- Test-harness bug found on the way: `perl -e 'alarm …; exec @ARGV'` with a single program path
+  goes through the shell, which splits a path with spaces ("Application Support") — the exec failed
+  silently and perl exited 0, which looked like the app quitting. `tools/e2e.sh` now uses
+  `exec { $ARGV[0] } @ARGV`.
+- To test on the devices (owner): see the checklist in the conversation of 2026-10-24 — Mac (app
+  from the zip, right-click › Open once if macOS blocks it), Windows PC (zip, first start, watch for
+  console windows / SmartScreen / antivirus), Steam Deck (tarball in Desktop Mode, then Game Mode).
