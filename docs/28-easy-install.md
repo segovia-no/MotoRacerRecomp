@@ -1,4 +1,4 @@
-# Easy installation without toolchains (plan 2026-10-18; E1–E3 done)
+# Easy installation without toolchains (plan 2026-10-18; E1–E4 done)
 
 Owner request: make installing simpler than "install tools / containers, then recompile". Decision
 (owner, 2026-10-18): **option A** — keep the rule that nothing translated from `game.EXE` is ever
@@ -206,3 +206,39 @@ Checks:
   byte-identical) work; `zig.exe cc` fails under Wine (`CacheCheckFailed`: Wine's file system
   emulation), so the DLL build on Windows itself awaits the owner's PC. Cross-built DLLs (E2) run.
 - Not covered yet: macOS x86-64 (innoextract arm64 only; universal binaries in E5).
+
+## E4 done: first start inside the program (2026-10-24)
+`runtime/src/installer.cpp` (module builds only), called from `main.cpp` before the game folder is
+looked up:
+- **Kit**: `<program folder>/kit`, macOS `Contents/Resources/kit` (or `MOTORACER_KIT`), assembled by
+  `tools/release/make_kit.py --tools <fetch_tools.py folder> --out KIT [--host-lib] [--build-id]`:
+  the tools (python, zig, innoextract, licences), `tools/build_gamecode.py` + `tools/recomp/`,
+  `runtime/include/`, `default_settings.ini`, the Windows import library, `BUILD_ID` (local kits:
+  `git describe` + a hash of the translator and headers).
+- **Decision**: game files missing (`<data>/game/game.EXE`) → ask for the installer, unpack, build;
+  module missing or `<data>/gamecode/build_id.txt` ≠ the kit's `BUILD_ID` (a new release) → build
+  only. Developer builds (`MOTORACER_GAME_MODULE`, or `gamecode.*` next to the program, or no kit)
+  skip all of it as before.
+- **Screens** (SDL renderer, `SDL_RenderDebugText`: no font files; 480×270 logical, letterboxed):
+  choose — the installer found in the Downloads folder (`SDL_GetUserFolder`, `setup_moto_racer*.exe`)
+  with Install / Choose another… / Quit, else Choose installer… (`SDL_ShowOpenFileDialog`) / Quit;
+  keyboard (Enter, arrows, Esc), mouse, gamepad (A, d-pad, B, X); progress — "Step n of m", a bar
+  (compile: files done / total; unpack / translate: a moving block), elapsed time; error — the
+  message, the last output lines and the log path. Title "FIRST START" or "UPDATING".
+- **Work** in a thread through SDL's process API (`SDL_CreateProcessWithProperties`, stdout + stderr
+  piped and logged as `innoextract:` / `build:` lines): innoextract into `<data>/install-tmp`, copy
+  `app/` to the game folder keeping the player's `CONFIG.BPT`, `bestscor.dat`, `motoracer.ini` (as
+  `install_game.sh`), append the default `[Recomp]` settings once; `build_gamecode.py --progress`
+  (`@step translate|compile|link`, `@compiled n total`) into `<data>/gamecode-build`, module moved to
+  `<data>/gamecode/` with the stamp; sources / objects deleted, zig's cache kept. Quitting kills the
+  running tool and exits (`_Exit`): without a stamp the next start builds again.
+- Test aids: `MOTORACER_DATA_DIR` (another data folder), `MOTORACER_SETUP` (installer path, no
+  question), `MOTORACER_SNAPSHOT_DIR` also saves the installer screens (`installer_NNN.bmp`, 3 s).
+- **Checks**: macOS — first start into an empty data folder: unpack + translate + compile, then the
+  game starts with the module and races (E2E); a changed `BUILD_ID` rebuilds without unpacking
+  ("UPDATING", 2 steps); the choose screen (installer not in Downloads). Linux — the same first start
+  headless in Docker from a copied Linux kit (sniper-built program), race OK. Windows — compiles
+  (llvm-mingw); untested at run time (zig does not run under Wine): owner's PC.
+- Open: on Windows the kit's console programs may flash console windows (python, zig) — to check
+  on the PC; a force-quit (not the window's close button) leaves the tools running; the file dialog
+  in the Deck's Game Mode is unverified (the Downloads auto-detection covers the usual Deck flow).

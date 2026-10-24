@@ -15,6 +15,7 @@
 #include <SDL3/SDL_main.h>   // Windows: WinMain entry for a GUI program, UTF-8 argv
 
 #include "platform/platform.h"
+#include "installer.h"
 #include "runtime.h"
 #include "settings.h"
 
@@ -105,7 +106,13 @@ int main(int argc, char **argv) {
     // Gamepads from the start: SDL then reports each connected pad (SDL_EVENT_GAMEPAD_ADDED) and
     // the runtime opens it, so the menus react to it before the game itself polls the joystick.
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) log("gamepad: init failed: %s\n", SDL_GetError());
+#ifdef RECOMP_GAME_MODULE
+    // release build: first start / after an update (installer.cpp); "" for developer builds
+    std::string game_dir = installer::prepare(game_dir_arg);
+    if (game_dir.empty()) game_dir = find_game_dir(game_dir_arg);
+#else
     std::string game_dir = find_game_dir(game_dir_arg);
+#endif
     if (!has_game(game_dir)) no_game();
     settings::load(game_dir);
     if (!explicit_args) game_args = settings::get().game_args;

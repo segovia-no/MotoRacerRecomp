@@ -60,7 +60,11 @@ def main():
     ap.add_argument("--arch", choices=["arm64", "x86_64"], default=host_arch())
     ap.add_argument("--host-lib", help="Windows: the program's import library")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 4)
+    ap.add_argument("--progress", action="store_true",
+                    help="machine-readable progress lines (@step NAME, @compiled DONE TOTAL) for the "
+                         "program's first-start screen")
     args = ap.parse_args()
+    progress = (lambda *a: print("@" + " ".join(str(x) for x in a), flush=True)) if args.progress else (lambda *a: None)
 
     triple = TARGETS[args.target].get(args.arch)
     if not triple:
@@ -74,6 +78,7 @@ def main():
     env["ZIG_LOCAL_CACHE_DIR"] = os.path.join(out, "zig-cache")
 
     t0 = time.time()
+    progress("step", "translate")
     run([sys.executable, "-I", os.path.join(HERE, "recomp", "recomp_main.py"), args.exe, gen,
          "--files", str(FILES), "--module"])
     t1 = time.time()
@@ -87,8 +92,12 @@ def main():
         run([args.zig, "cc", "-target", triple, "-c", *CFLAGS, *inc, "-o", o, os.path.join(gen, name)], env)
         return o
 
+    progress("step", "compile")
+    objects = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        objects = list(pool.map(compile_one, sources))
+        for o in pool.map(compile_one, sources):
+            objects.append(o)
+            progress("compiled", len(objects), len(sources))
     t2 = time.time()
     print(f"compiled {len(objects)} files in {t2 - t1:.1f} s ({args.jobs} jobs)", flush=True)
 
@@ -103,6 +112,7 @@ def main():
     else:
         module = os.path.join(out, "gamecode.so")
         link = ["-shared", "-o", module, *objects]
+    progress("step", "link")
     run([args.zig, "cc", "-target", triple, "-s", *link], env)   # -s: no symbol / debug tables
     print(f"linked {module} in {time.time() - t2:.1f} s (total {time.time() - t0:.1f} s)")
 

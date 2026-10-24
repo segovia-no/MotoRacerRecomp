@@ -26,12 +26,14 @@ std::map<std::string, RecompFn> &shims() {
 }
 
 #ifdef RECOMP_GAME_MODULE
+std::string module_path;   // set by the first-start installer (installer.cpp)
+
 const RecompModule *load_module() {
     plat::Modules &mods = plat::host().modules;
-    std::string path;
+    std::string path = module_path;
     if (const char *e = getenv("MOTORACER_GAME_MODULE"); e && *e) {
         path = e;
-    } else {
+    } else if (path.empty()) {
         const char *base = SDL_GetBasePath();
         path = std::string(base ? base : "") + "gamecode" + mods.suffix();
     }
@@ -53,6 +55,10 @@ const RecompModule *load_module() {
 }  // namespace
 
 ImportShim::ImportShim(const char *name, RecompFn fn) { shims()[name] = fn; }
+
+#ifdef RECOMP_GAME_MODULE
+void set_game_module(const std::string &path) { module_path = path; }
+#endif
 
 RecompFn import_shim(const char *name) {
     auto it = shims().find(name);

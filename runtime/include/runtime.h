@@ -102,6 +102,7 @@ struct ImportShim {
     ImportShim(const char *name, RecompFn fn);
 };
 RecompFn import_shim(const char *name);   // nullptr if not implemented
+void set_game_module(const std::string &path);   // module builds: the module to load (installer.cpp)
 // Call guest code: pushes args right-to-left and a magic return address.
 uint32_t guest_call_stdcall(uint32_t fn, std::initializer_list<uint32_t> args);
 uint32_t guest_call_cdecl(uint32_t fn, std::initializer_list<uint32_t> args);
