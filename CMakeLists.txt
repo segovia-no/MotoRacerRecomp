@@ -44,6 +44,14 @@ option(MOTORACER_GAME_MODULE "Build the game code as a module the program loads 
 if(MOTORACER_GAME_MODULE)
   list(APPEND RECOMP_TRANSLATOR_FLAGS --module)
 endif()
+# Without game.EXE a module build makes the program only (CI, releases: docs/28-easy-install.md);
+# the player's machine builds the module with tools/build_gamecode.py.
+set(MOTORACER_HAVE_GAME ON)
+if(MOTORACER_GAME_MODULE AND NOT EXISTS "${GAME_EXE}")
+  set(MOTORACER_HAVE_GAME OFF)
+  message(STATUS "No game.EXE: building the program only (game code: tools/build_gamecode.py)")
+endif()
+if(MOTORACER_HAVE_GAME)
 file(GLOB RECOMP_TOOL_SOURCES "${CMAKE_SOURCE_DIR}/tools/recomp/*.py" "${CMAKE_SOURCE_DIR}/tools/recomp/recomp/*.py")
 add_custom_command(
   OUTPUT ${GEN_SOURCES} "${GEN_DIR}/recomp_funcs.h" "${GEN_DIR}/imports.h"
@@ -66,6 +74,7 @@ if(MOTORACER_GAME_MODULE)
   set_target_properties(gamecode PROPERTIES POSITION_INDEPENDENT_CODE ON C_VISIBILITY_PRESET hidden)
   target_compile_definitions(gamecode PRIVATE RECOMP_MODULE)
 endif()
+endif()  # MOTORACER_HAVE_GAME
 
 # SDL3: the system package by default. MOTORACER_BUNDLED_SDL builds a pinned release and links it
 # statically; SDL then loads X11/Wayland/Vulkan/audio libraries at run time, so the binary needs
@@ -143,12 +152,18 @@ endif()
 if(MOTORACER_GAME_MODULE)
   add_executable(motoracer ${RUNTIME_SOURCES})
   target_compile_definitions(motoracer PRIVATE RECOMP_GAME_MODULE)
-  # the module links against the program's runtime symbols (R, M, the hooks, the import shims)
+  # the module links against the program's runtime symbols (R, M, the hooks, the import shims);
+  # Windows: exported from the .exe, with an import library (libmotoracer.dll.a) for linking the DLL
   set_target_properties(motoracer PROPERTIES ENABLE_EXPORTS ON)
-  add_library(gamemodule MODULE $<TARGET_OBJECTS:gamecode>)
-  set_target_properties(gamemodule PROPERTIES PREFIX "" OUTPUT_NAME gamecode
-                        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
-  target_link_libraries(gamemodule PRIVATE motoracer)
+  if(WIN32)
+    target_link_options(motoracer PRIVATE -Wl,--export-all-symbols)
+  endif()
+  if(MOTORACER_HAVE_GAME)
+    add_library(gamemodule MODULE $<TARGET_OBJECTS:gamecode>)
+    set_target_properties(gamemodule PROPERTIES PREFIX "" OUTPUT_NAME gamecode
+                          RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    target_link_libraries(gamemodule PRIVATE motoracer)
+  endif()
 else()
   add_executable(motoracer ${RUNTIME_SOURCES} $<TARGET_OBJECTS:gamecode>)
 endif()

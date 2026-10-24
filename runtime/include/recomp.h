@@ -52,9 +52,15 @@ typedef struct {
     uint64_t mm[8]; /* MMX registers (not aliased onto st[]; game never mixes them) */
 } X87State;
 
-extern X86Regs R;
-extern X87State F;
-extern uint8_t *M;
+/* Data of the program that a Windows game-code module reads through the program's import table */
+#if defined(RECOMP_MODULE) && defined(_WIN32)
+#define RECOMP_HOST_DATA __declspec(dllimport)
+#else
+#define RECOMP_HOST_DATA
+#endif
+RECOMP_HOST_DATA extern X86Regs R;
+RECOMP_HOST_DATA extern X87State F;
+RECOMP_HOST_DATA extern uint8_t *M;
 
 typedef void (*RecompFn)(void);
 
@@ -222,7 +228,7 @@ void REP_CMPS(int size, int rep, uint32_t *cf, uint32_t *zf, uint32_t *sf, uint3
 void eh_register(uint32_t record, jmp_buf *jb);
 void eh_unlink(uint32_t new_head);
 void nonlocal_jump(uint32_t target);
-extern uint32_t eh_resume_va;
+RECOMP_HOST_DATA extern uint32_t eh_resume_va;
 
 /* ---------- game hooks ----------
  * Called by translated code just before specific instructions (GAME_HOOKS in translate.py). */
@@ -251,7 +257,7 @@ int native_emit_triangle(void);
 int native_emit_line(void);
 /* sampling profiler (runtime/src/prof.cpp, MOTORACER_PROF=1): the region the running code is in,
    sampled by a timer. Generated code marks each native hook with a region of its own. */
-extern volatile uint8_t prof_region;
+RECOMP_HOST_DATA extern volatile uint8_t prof_region;
 uint8_t prof_register(const char *name);
 #define PROF_IN(NAME)                                                                            \
     static uint8_t prof_id_;                                                                     \

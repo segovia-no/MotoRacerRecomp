@@ -1,4 +1,4 @@
-# Easy installation without toolchains (plan 2026-10-18; E1 done)
+# Easy installation without toolchains (plan 2026-10-18; E1, E2 done)
 
 Owner request: make installing simpler than "install tools / containers, then recompile". Decision
 (owner, 2026-10-18): **option A** — keep the rule that nothing translated from `game.EXE` is ever
@@ -136,3 +136,33 @@ code linked in), and so is the PSP build.
   within run-to-run noise. No measurable cost.
 - Not yet: `MotoRacer.app` does not carry the module (`make_app.sh`), Windows / Linux module builds
   (E2, with the bundled compiler).
+
+## E2 done: the module built with a bundled `zig cc` (2026-10-24)
+`tools/build_gamecode.py --exe game.EXE --out DIR --zig ZIG [--target macos|linux|windows]
+[--arch arm64|x86_64] [--host-lib LIB]`: translates with `--module`, compiles the 66 files in
+parallel with `zig cc` (flags as the CMake `gamecode` target + `-fPIC -fvisibility=hidden -g0
+-fno-sanitize=all`), links `gamecode.so` / `gamecode.dll` stripped (`-s`). zig's caches go under
+DIR. Targets: `aarch64/x86_64-macos.11.0` (`-undefined dynamic_lookup`), `x86_64-linux-gnu.2.29`
+(the Deck build's glibc floor), `x86_64-windows-gnu` (linked against the program's import library).
+Pinned: **zig 0.16.0** (2026-04-13), SHA-256 per platform from ziglang.org's index (aarch64-macos
+`b23d70de…1489`, x86_64-linux `70e49664…3d00`, x86_64-windows `68659eb5…5a7e`).
+- **Program without game code**: with `MOTORACER_GAME_MODULE=ON` and no `GAME_EXE`, CMake builds the
+  program only (no Python, no translation) — for CI. Windows: the `.exe` exports its symbols
+  (`--export-all-symbols`) and comes with `libmotoracer.dll.a`; the module reads the program's data
+  (`R`, `F`, `M`, `eh_resume_va`, `prof_region`) through `__declspec(dllimport)`
+  (`RECOMP_HOST_DATA` in `recomp.h`). Both sides use the UCRT, so a guest exception's `longjmp`
+  from the program into the module's `setjmp` works (seen under Wine: three nonlocal jumps while
+  loading, the race continues).
+- **macOS** (zig on the Mac, no Xcode SDK needed): 20–25 s for translate + compile + link on 10
+  cores; the module is ad-hoc signed by zig's linker. Race OK; check mode 43 M checks, 0
+  mismatches; fixed-scene benchmark same instructions as the Apple-clang module (14.07 M per frame),
+  cycles 3–6% lower.
+- **Linux / Deck**: the program built in the sniper SDK container (glibc 2.29), the module
+  cross-built by zig on the Mac, a full race headless in Docker (Xvfb, lavapipe). zig running on
+  Linux itself (in the sniper container, x86-64 emulated on the Mac) builds it as well: 67 s there.
+- **Windows**: the program cross-built with llvm-mingw, the DLL by zig, a full race under Wine 8.
+  zig running on Windows itself is untested (owner's PC).
+- Module sizes: 3.5 MB (macOS), 3.7 MB (Linux), 3.5 MB (Windows); 26 MB before `-g0` / `-s` (zig
+  adds debug info by default).
+- Still for later phases: the translator needs Python (E3), the program does not build the module
+  itself yet (E4), packaging (E5).
