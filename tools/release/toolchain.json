@@ -1,0 +1,50 @@
+{
+  "_comment": "Tools bundled with a release (docs/28-easy-install.md): pinned downloads, SHA-256 checked by tools/release/fetch_tools.py. Nothing here contains game code.",
+  "python": {
+    "version": "3.12.15 (python-build-standalone 20261001)",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261001/{file}",
+    "files": {
+      "macos-arm64": ["cpython-3.12.15+20261001-aarch64-apple-darwin-install_only_stripped.tar.gz", "10cab8f6ed6202fdd81637aa6eda4af8d5b7eaa8fc42f9df3c6bea4923de0d93"],
+      "macos-x86_64": ["cpython-3.12.15+20261001-x86_64-apple-darwin-install_only_stripped.tar.gz", "d101ac54bc34afff54741406261325dc896b7b646a36a58fff4845ef0a00b2ce"],
+      "linux-x86_64": ["cpython-3.12.15+20261001-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz", "7bb1659e3235077b7f63d5b6eb6ce653c6fcd6c5041e9d5f73b42ce10421464d"],
+      "windows-x86_64": ["cpython-3.12.15+20261001-x86_64-pc-windows-msvc-install_only_stripped.tar.gz", "52124cee54126f3f360eaa378288f6f64c402c983a3c14c95eff67f4af986aaa"]
+    }
+  },
+  "wheels": {
+    "_comment": "the translator's dependencies (tools/recomp/requirements.txt), unpacked into the bundled Python's site-packages",
+    "all": [
+      ["https://files.pythonhosted.org/packages/54/16/12b82f791c7f50ddec566873d5bdd245baa1491bac11d15ffb98aecc8f8b/pefile-2024.8.26-py3-none-any.whl", "76f8b485dcd3b1bb8166f1128d395fa3d87af26360c2358fb75b80019b957c6f"]
+    ],
+    "macos-arm64": [
+      ["https://files.pythonhosted.org/packages/42/9a/4eecfbc94961cda70301fd13de69042be1943bee456e37bc1369840601b1/capstone-5.0.9-py3-none-macosx_11_0_arm64.whl", "fc269c5082e17d7f9f265cd6980e2fdc6ab572df913951d76db0357e06b8001d"]
+    ],
+    "macos-x86_64": [
+      ["https://files.pythonhosted.org/packages/70/74/d00de02c62ce864c6b43796c524516ea064e3e6fc1327d452f78270e8323/capstone-5.0.9-py3-none-macosx_10_9_x86_64.whl", "8c4a1d7134d7d5290e5d77066500385f2c7a4bf66835ccbfde5180042d508b3c"]
+    ],
+    "linux-x86_64": [
+      ["https://files.pythonhosted.org/packages/d1/39/17747862222bb062e86b501f1f148d5ff589b77908b080d30f7f085cbfb7/capstone-5.0.9-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", "273fd8d747d2e35c88f91450be51a603ecfaafb00d96d9f315dcb8689c86193e"]
+    ],
+    "windows-x86_64": [
+      ["https://files.pythonhosted.org/packages/50/e6/6f06fdb6a9ed32b2f7cd9c036b92d5324112c3ef7080f2c71efc367d40dd/capstone-5.0.9-py3-none-win_amd64.whl", "732cedbbb56d42e723f14d7af6387f1454194a820b4b96b56d1e53f865ef85d0"]
+    ]
+  },
+  "zig": {
+    "version": "0.16.0",
+    "url": "https://ziglang.org/download/0.16.0/{file}",
+    "files": {
+      "macos-arm64": ["zig-aarch64-macos-0.16.0.tar.xz", "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489"],
+      "macos-x86_64": ["zig-x86_64-macos-0.16.0.tar.xz", "0387557ed1877bc6a2e1802c8391953baddba76081876301c522f52977b52ba7"],
+      "linux-x86_64": ["zig-x86_64-linux-0.16.0.tar.xz", "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"],
+      "windows-x86_64": ["zig-x86_64-windows-0.16.0.zip", "68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e"]
+    }
+  },
+  "innoextract": {
+    "version": "1.9",
+    "_comment": "official builds for Linux (static) and Windows; macOS has none: tools/release/build_innoextract_macos.sh",
+    "url": "https://github.com/dscharrer/innoextract/releases/download/1.9/{file}",
+    "files": {
+      "linux-x86_64": ["innoextract-1.9-linux.tar.xz", "008efe5011476ccc4aae17c3e22038b5a1bc5c7aad2b9d4d869537bf3874d21f", "innoextract-1.9-linux/bin/amd64/innoextract"],
+      "windows-x86_64": ["innoextract-1.9-windows.zip", "6989342c9b026a00a72a38f23b62a8e6a22cc5de69805cf47d68ac2fec993065", "innoextract.exe"]
+    }
+  }
+}

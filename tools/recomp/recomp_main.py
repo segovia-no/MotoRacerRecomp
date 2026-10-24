@@ -20,9 +20,10 @@ HEADER = "/* Generated from game.EXE by tools/recomp. Do not edit, do not commit
 
 
 def write_if_changed(path, text):
-    if os.path.exists(path) and open(path).read() == text:
+    # "\n" on every host: the same bytes on Windows as elsewhere
+    if os.path.exists(path) and open(path, encoding="utf-8", newline="").read() == text:
         return
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
 
 

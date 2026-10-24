@@ -1,4 +1,4 @@
-# Easy installation without toolchains (plan 2026-10-18; E1, E2 done)
+# Easy installation without toolchains (plan 2026-10-18; E1–E3 done)
 
 Owner request: make installing simpler than "install tools / containers, then recompile". Decision
 (owner, 2026-10-18): **option A** — keep the rule that nothing translated from `game.EXE` is ever
@@ -166,3 +166,37 @@ Pinned: **zig 0.16.0** (2026-04-13), SHA-256 per platform from ziglang.org's ind
   adds debug info by default).
 - Still for later phases: the translator needs Python (E3), the program does not build the module
   itself yet (E4), packaging (E5).
+
+## E3 done: translator and unpacker without system tools (2026-10-24)
+A release carries a tools folder per platform, assembled by `tools/release/fetch_tools.py
+--platform macos-arm64|macos-x86_64|linux-x86_64|windows-x86_64 --out DIR` from the pins in
+`tools/release/toolchain.json` (URL + SHA-256 each, downloads cached in `build/tools/cache`, any
+platform's folder from any machine):
+- `python/`: **CPython 3.12.15** (python-build-standalone 20261001, `install_only_stripped`) with the
+  translator's dependencies unpacked into its own `site-packages` (pefile 2024.8.26 wheel, capstone
+  5.0.9 wheel per platform). 74 MB unpacked on macOS. The Linux tarball's `share/terminfo` is
+  skipped (unused; its case-only name variants loop on case-insensitive disks).
+- `zig/`: zig 0.16.0 (E2). 418 MB unpacked (the libc headers of every target): pruning to the one
+  target is for E5.
+- `innoextract`: **1.9**. Linux and Windows: the official builds (Linux: static amd64 binary).
+  macOS has no official build: `tools/release/build_innoextract_macos.sh` builds 1.9 with
+  Homebrew's three patches (CMake 4, Boost 1.85, Boost 1.89) and Boost / zstd linked statically, so
+  it needs only system libraries. Homebrew's Boost targets the build machine's macOS (26 here): a
+  release build has to compile Boost for macOS 11 (CI, E5). It unpacks the GOG installer in 13 s,
+  `game.EXE` hash correct.
+- `licenses/`: Python, zig, innoextract (and its bzip2 / zlib / liblzma notices).
+
+Translator fix found on the way: Python on Windows wrote the generated C with CRLF line ends (text
+mode), so the C differed byte-wise from other hosts. `recomp_main.py` now writes UTF-8 with `\n`;
+the output of the bundled Python is byte-identical on macOS, Linux and Windows (SHA-256 of all
+generated files `a2ff7a82…46bf`, same as the dev venv).
+
+Checks:
+- **macOS**: `python/bin/python3 -I tools/build_gamecode.py … --zig zig/zig`, from the bundle only:
+  22.6 s, module loads in the game.
+- **Linux**: in a container with an empty environment (`env -i`): the bundle's innoextract unpacks
+  the installer (19 s, x86-64 emulated), the bundle's Python and zig build `gamecode.so` (48.5 s).
+- **Windows (Wine)**: the bundle's `innoextract.exe` (75 s under Wine) and `python.exe` (translation
+  byte-identical) work; `zig.exe cc` fails under Wine (`CacheCheckFailed`: Wine's file system
+  emulation), so the DLL build on Windows itself awaits the owner's PC. Cross-built DLLs (E2) run.
+- Not covered yet: macOS x86-64 (innoextract arm64 only; universal binaries in E5).
