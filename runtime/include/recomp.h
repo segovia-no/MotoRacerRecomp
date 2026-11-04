@@ -258,6 +258,11 @@ int native_emit_line(void);
 /* sampling profiler (runtime/src/prof.cpp, MOTORACER_PROF=1): the region the running code is in,
    sampled by a timer. Generated code marks each native hook with a region of its own. */
 RECOMP_HOST_DATA extern volatile uint8_t prof_region;
+/* MOTORACER_NATIVE_OFF=name,name (dev): native hooks to skip (their translated code runs), by the
+   region id their name gets (prof_register) */
+RECOMP_HOST_DATA extern uint8_t native_off[256];
+/* one call statement for the translator's register spill pass, also when the hook is skipped */
+#define NATIVE_CALL(fn) (native_off[prof_id_] ? 0 : fn())
 uint8_t prof_register(const char *name);
 #define PROF_IN(NAME)                                                                            \
     static uint8_t prof_id_;                                                                     \

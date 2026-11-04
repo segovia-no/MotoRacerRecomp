@@ -211,3 +211,26 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   or FILTERED). Verified by E2E (log: "original (D3D off) list" → "16:9 list, 1920x1440").
 - So `Renderer=software` in motoracer.ini is only needed for a fully software menu/intro path;
   in-game, D3D OFF already gives the original renderer.
+
+### Cockpit view (F6) see-through — GitHub issue #1 (2026-11-04)
+- Report (Linux player, Fedora 44 KDE, Intel UHD 620): in the cockpit view only the fairing outline
+  and two black shapes are drawn; the dashboard is missing, the road shows through. Owner: same on
+  macOS, and how much is missing depends on the camera angle (most outdoors, least in the tunnel).
+- Not the native code: the same stationary scene with `MOTORACER_NATIVE=0` is pixel-identical in the
+  cockpit area (an earlier "better" tunnel screenshot was the camera angle). Not Vulkan / Metal either.
+- Cause: the game's own Direct3D Z-buffer mode (`-ZBuffer`, which GOG's launcher settings enable:
+  `ZBuffer=true`). One frame's draws (`MOTORACER_D3D_DUMP`): the cockpit model is placed *further*
+  than the road at the bottom of the screen (dashboard screen depth ~0.0086–0.0101, road below it
+  0.0057–0.0077) and drawn last, relying on painter's order — but every draw has Z test LESSEQUAL and
+  Z write on (the execute buffer's opening state block `0x41a1ec`: ZENABLE / ZWRITEENABLE from one
+  flag, ZFUNC 4, the same all frame; one Z clear per frame, none before the cockpit), so the road
+  drawn earlier hides it wherever it is nearer. Without `-ZBuffer` the full dashboard (both gauge
+  pods, dark fairing) is drawn. `-InfiniteZBuffer` changes nothing.
+- Whether the 1997 release behaved the same on real hardware is unknown (no report found). Fix to
+  choose: draw the cockpit without the Z test (find where the game draws it), or play without the
+  Z-buffer (then the HUD scaler, which recognises HUD sprites by their depths, needs adjusting).
+- Dev aids added on the way: `MOTORACER_D3D_DUMP=<frame>` (every draw and clear of one presented
+  frame: states, screen box, z/w ranges, texture); `MOTORACER_NATIVE_OFF=name,name` (skip single
+  native hooks, by the names in `translate.py`; also `native_bucket_skip`). The switch first skipped
+  the register spill around a jump hook and crashed the translated code; it is now
+  `h = NATIVE_CALL(name);`, one statement for the spill pass.

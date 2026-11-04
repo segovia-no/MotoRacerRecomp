@@ -763,9 +763,9 @@ class FunctionTranslator:
                 name, target = GAME_JUMP_HOOKS[va]
                 if isinstance(target, tuple):   # several exits: the hook returns 1, 2, ... for each
                     jumps = " ".join(f"if (h == {i + 1}) {self.goto(t)}" for i, t in enumerate(target))
-                    self.emit(f"{{ int h; PROF_IN(\"{name}\"); h = {name}(); PROF_OUT(); {jumps} }}")
+                    self.emit(f"{{ int h; PROF_IN(\"{name}\"); h = NATIVE_CALL({name}); PROF_OUT(); {jumps} }}")
                 else:
-                    self.emit(f"{{ int h; PROF_IN(\"{name}\"); h = {name}(); PROF_OUT(); if (h) {self.goto(target)} }}")
+                    self.emit(f"{{ int h; PROF_IN(\"{name}\"); h = NATIVE_CALL({name}); PROF_OUT(); if (h) {self.goto(target)} }}")
             try:
                 falls = self.insn(insn)
             except Unsupported as e:
@@ -874,7 +874,7 @@ class FunctionTranslator:
         if native:
             # the profiler's region (runtime/src/prof.cpp): the native function's own, the
             # translated fallback runs in the caller's
-            lines.append(f"void {fn_name(self.entry)}(void) {{ int h; PROF_IN(\"{native}\"); h = {native}(); PROF_OUT();"
+            lines.append(f"void {fn_name(self.entry)}(void) {{ int h; PROF_IN(\"{native}\"); h = NATIVE_CALL({native}); PROF_OUT();"
                          f" if (!h) {name}(); }}")
         return "\n".join(lines)
 

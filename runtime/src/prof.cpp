@@ -11,6 +11,7 @@
 // buffer to the post-mix callback): on the PSP's single core that time counts as "audio mixing";
 // elsewhere it runs in parallel and is ignored.
 #include <cstdlib>
+#include <string>
 
 #include <SDL3/SDL_timer.h>
 
@@ -18,6 +19,7 @@
 #include "runtime.h"
 
 extern "C" volatile uint8_t prof_region = 0;
+extern "C" uint8_t native_off[256] = {};
 
 namespace {
 const char *names[256] = {"game code (translated)", "Win32 / COM shims", "D3D Execute", "present", "wait",
@@ -45,6 +47,14 @@ extern "C" uint8_t prof_register(const char *name) {
         return 255;
     }
     names[next_id] = name;
+    // MOTORACER_NATIVE_OFF: a comma-separated list of native hook names to skip
+    if (const char *off = getenv("MOTORACER_NATIVE_OFF")) {
+        const std::string list = std::string(",") + off + ",";
+        if (list.find(std::string(",") + name + ",") != std::string::npos) {
+            native_off[next_id] = 1;
+            rt::log("native: %s off (MOTORACER_NATIVE_OFF)\n", name);
+        }
+    }
     return static_cast<uint8_t>(next_id++);
 }
 

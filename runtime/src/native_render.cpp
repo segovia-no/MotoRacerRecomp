@@ -10,6 +10,7 @@
 //   (default)               native
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "runtime.h"
@@ -258,6 +259,11 @@ extern "C" void native_vertices_check(void) {
 extern "C" void native_bucket_skip(void) {
     MEM_LOCAL();
     if (mode() == OFF) return;
+    static const bool off = [] {   // a GAME_HOOK: MOTORACER_NATIVE_OFF is checked here
+        const char *e = getenv("MOTORACER_NATIVE_OFF");
+        return e && (std::string(",") + e + ",").find(",native_bucket_skip,") != std::string::npos;
+    }();
+    if (off) return;
     constexpr uint32_t HEADS = 0x655d38;
     const uint32_t sp = R.esp, step = RD32(sp + 0x50), end = RD32(sp + 0x40);
     if (RD32(sp + 0x30) || (RD32(sp + 0x44) && RD32(sp + 0x48) == 1)) return;

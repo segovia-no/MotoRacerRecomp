@@ -400,11 +400,17 @@ void check_widescreen() {
     crop_now = host::gpu::widescreen_vote(black && picture, g_w, g_h);
 }
 
+// Debug: MOTORACER_D3D_DUMP=<n> logs every draw of the n-th presented GPU frame (counted like the
+// gpu_<n>.bmp snapshots, from 0): states, screen box, depth (z/w) and w ranges, texture.
+uint64_t presented = 0;
+const int64_t dump_frame = getenv("MOTORACER_D3D_DUMP") ? atoll(getenv("MOTORACER_D3D_DUMP")) : -1;
+
 // Debug: MOTORACER_SNAPSHOT_DIR also captures GPU frames (full render-target resolution).
 void snapshot_rt() {
     static const char *dir = getenv("MOTORACER_SNAPSHOT_DIR");
     static const uint64_t every = getenv("MOTORACER_SNAPSHOT_EVERY") ? std::max(1, atoi(getenv("MOTORACER_SNAPSHOT_EVERY"))) : 120;
     static uint64_t n = 0;
+    presented++;
     if (!dir || (n++ % every)) return;
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
     SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, rt_w * rt_h * 4, 0};
@@ -912,6 +918,20 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             else if (std::fabs(v.w - w0) > 1e-4f * std::fabs(w0) || std::fabs(z - z0) > 1e-5f) flat = false;
         }
     }
+    if (dump_frame >= 0 && presented == static_cast<uint64_t>(dump_frame)) {
+        float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f, z0 = 1e9f, z1 = -1e9f, w0 = 1e9f, w1 = -1e9f;
+        for (uint32_t t = 0; t < ntri * 3; t++) {
+            const GpuVertex &v = frame_vertices[base + (indices[t] < nverts ? indices[t] : 0)];
+            const float sx = (v.x / v.w + 1.f) * 0.5f * g_w, sy = (1.f - v.y / v.w) * 0.5f * g_h, sz = v.z / v.w;
+            x0 = std::min(x0, sx); x1 = std::max(x1, sx); y0 = std::min(y0, sy); y1 = std::max(y1, sy);
+            z0 = std::min(z0, sz); z1 = std::max(z1, sz); w0 = std::min(w0, v.w); w1 = std::max(w1, v.w);
+        }
+        log("dump %4zu: tri %3u box %4.0f..%4.0f x %4.0f..%4.0f z %.6f..%.6f w %.3f..%.3f ztest %d zwrite %d zfunc %u "
+            "blend %d %u/%u cull %u fog %u atest %d tex %ux%u mapblend %u\n",
+            frame_cmds.size(), ntri, x0, x1, y0, y1, z0, z1, w0, w1, c.pipe.ztest, c.pipe.zwrite, c.pipe.zfunc,
+            c.pipe.blend, c.pipe.src, c.pipe.dst, c.pipe.cull, rs[RS_FOGENABLE], rs[RS_ALPHATESTENABLE],
+            texture ? texture->w : 0, texture ? texture->h : 0, rs[RS_TEXTUREMAPBLEND]);
+    }
     bool hud = hud_factor() > 1.f && hud_record(base, nverts, indices, ntri, frame_cmds.size());
     c.hud = hud;
     c.uniforms.snap[0] = flat && texture && rt_w != g_w ? 1.f : 0.f;
@@ -979,6 +999,8 @@ void clear(uint32_t flags, uint32_t argb, float depth_value) {
     c.clear_flags = flags;
     c.clear_argb = argb;
     c.clear_depth = depth_value;
+    if (dump_frame >= 0 && presented == static_cast<uint64_t>(dump_frame))
+        log("dump %4zu: CLEAR flags %x argb %08x depth %f\n", frame_cmds.size(), flags, argb, depth_value);
     frame_cmds.push_back(c);
 }
 
