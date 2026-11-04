@@ -245,3 +245,23 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   native hooks, by the names in `translate.py`; also `native_bucket_skip`). The switch first skipped
   the register spill around a jump hook and crashed the translated code; it is now
   `h = NATIVE_CALL(name);`, one statement for the spill pass.
+
+### Intro glitches — GitHub issue #3 (2026-11-04, analysis, not fixed yet)
+- Report (Linux): the first logo sits in the top-left corner; the picture "zooms" when the
+  Delphine Software International logo appears.
+- First logo: the game itself draws the 120×72 logo at (0,0) of the 640×480 primary (guest frame
+  `frame_000000`, same on macOS). Most likely original behaviour; not checked against a real Windows run.
+- Zoom: `Widescreen=auto` (`host::gpu::widescreen_vote`) crops any 4:3 frame whose top and bottom
+  60-row bands are pure black (and whose middle row is not) to the 16:9 band. The DSI logo phase
+  qualifies: running the detector over the `introdense` GPU snapshots gives no crop up to guest
+  frame ~1001 (flying text crosses the bands), crop for frames 1006–1116 (logo settled inside the
+  band), no crop from 1121 (shatter effect fills the screen). In a 16:9 window or fullscreen the
+  crop scales the picture up 4/3 (pillarbox → full width), then back down: the zoom. In the owner's
+  tall macOS window (1280×1377 pt) the band crop keeps the same width and only drops black rows, so
+  nothing visible happens; it reproduces on macOS in fullscreen on a 16:9 display.
+- The D3D 16/9 race already gets a deterministic crop in `present_blt` (640×360 offscreen target
+  blitted to [0,60,640,420]); the pixel vote is still used for flipped D3D frames
+  (`check_widescreen`) and the software renderer (`host_video.cpp` `submit`).
+- Fix options: tie the vote to the game's live 16/9 flag `0x4dc0d4` (menus park it at 0), drop the
+  vote on the D3D flip path, or both. Workaround: RECOMP menu > WIDESCREEN CROP off
+  (`Widescreen=off`).
