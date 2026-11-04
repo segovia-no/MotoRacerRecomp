@@ -162,7 +162,8 @@ void limit_frame_rate() {
 
 void submit(int w, int h) {
     maybe_snapshot(rgba.data(), w, h);
-    gpu::Crop crop = gpu::widescreen_vote(bars_black(w, h), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+    gpu::Crop crop = gpu::widescreen_vote(game::mode_169_live() && bars_black(w, h), static_cast<uint32_t>(w),
+                                          static_cast<uint32_t>(h));
     gpu::present_rgba(rgba.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h), crop);
     frames++;
     game::frame_tick();

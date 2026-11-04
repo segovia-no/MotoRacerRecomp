@@ -8,4 +8,5 @@ bool speedometer_button();      // a race is on and gamepad Back is free: Back s
 bool initials_entry_active();   // the end-of-race record page (9) is waiting for initials
 int initials_count();           // initials typed so far (0..3)
 int preferred_frame_width();    // width of the remembered SCREEN MODE (0 if none yet)
+bool mode_169_live();           // the live 16/9 flag 0x4dc0d4 (0 in the 640x480 menus)
 }

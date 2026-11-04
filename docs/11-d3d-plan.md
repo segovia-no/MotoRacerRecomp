@@ -246,7 +246,7 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   the register spill around a jump hook and crashed the translated code; it is now
   `h = NATIVE_CALL(name);`, one statement for the spill pass.
 
-### Intro glitches — GitHub issue #3 (2026-11-04, analysis, not fixed yet)
+### Intro glitches — GitHub issue #3 (2026-11-04, zoom fixed, owner-confirmed)
 - Report (Linux): the first logo sits in the top-left corner; the picture "zooms" when the
   Delphine Software International logo appears.
 - First logo: the game itself draws the 120×72 logo at (0,0) of the 640×480 primary (guest frame
@@ -262,6 +262,11 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
 - The D3D 16/9 race already gets a deterministic crop in `present_blt` (640×360 offscreen target
   blitted to [0,60,640,420]); the pixel vote is still used for flipped D3D frames
   (`check_widescreen`) and the software renderer (`host_video.cpp` `submit`).
-- Fix options: tie the vote to the game's live 16/9 flag `0x4dc0d4` (menus park it at 0), drop the
-  vote on the D3D flip path, or both. Workaround: RECOMP menu > WIDESCREEN CROP off
-  (`Widescreen=off`).
+- Owner repro on macOS: fullscreen on a 16:9 display zooms at the DSI logo; with WIDESCREEN CROP
+  off it does not.
+- Fix: the vote only counts while the game's live 16/9 flag `0x4dc0d4` is set (`game::mode_169_live`,
+  used in `check_widescreen` and the software `submit`). Logged in E2E runs with 16/9 MODE on: the
+  flag is 0 from the first frame through the intro and menus (the menus park it before the intro)
+  and turns 1 when the race starts, so races still get the band crop and the intro never does.
+- First logo: shown ~20 frames at launch, drawn by the game at (0,0) (no Blt to the primary: only
+  colour fills in the `MOTORACER_D3D_DEBUG` Blt summary). Left as is.

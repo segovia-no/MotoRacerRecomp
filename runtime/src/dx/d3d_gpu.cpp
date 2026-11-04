@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "ddraw_internal.h"
+#include "game_hooks.h"
 #include "gpu/shaders.h"
 #include "host_gpu.h"
 #include "host_video.h"
@@ -368,7 +369,7 @@ void check_widescreen() {
     static uint32_t n = 0;
     if (n++ % 10) return;
     uint32_t band = (g_h - g_w * 9 / 16) / 2;
-    if (!band || !settings::get().widescreen) { crop_now = host::gpu::widescreen_vote(false, g_w, g_h); return; }
+    if (!band || !settings::get().widescreen || !game::mode_169_live()) { crop_now = host::gpu::widescreen_vote(false, g_w, g_h); return; }
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
     blit(cmd, rt, rt_w, rt_h, lowres_tex(), g_w, g_h, SDL_GPU_FILTER_NEAREST);
     uint32_t bytes = g_w * band * 4;
