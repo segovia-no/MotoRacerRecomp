@@ -262,6 +262,10 @@ locally and tried on each device first.
   goes through the shell, which splits a path with spaces ("Application Support") — the exec failed
   silently and perl exited 0, which looked like the app quitting. `tools/e2e.sh` now uses
   `exec { $ARGV[0] } @ARGV`.
+- Rebuilt 2026-11-04 from `64a6c7b` (BUILD_ID `test-64a6c7b`: cockpit #1, mouse #2, intro zoom #3
+  fixes), same commands: `build/pkg-macos` (stripped), `build/win-mod` (llvm-mingw, llvm-strip),
+  `build/linux-mod` (`build_host.sh` in the Steam Runtime sniper SDK, GLIBC 2.29). Linux tarball
+  checked headless again (fresh install from the GOG setup → race). Mac / Windows: owner to test.
 - To test on the devices (owner): see the checklist in the conversation of 2026-10-24 — Mac (app
   from the zip, right-click › Open once if macOS blocks it), Windows PC (zip, first start, watch for
   console windows / SmartScreen / antivirus), Steam Deck (tarball in Desktop Mode, then Game Mode).
