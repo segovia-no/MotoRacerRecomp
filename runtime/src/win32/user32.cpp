@@ -86,6 +86,10 @@ uint32_t send_message(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
 
 void post_message(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) { post(hwnd, msg, wp, lp); }
 
+namespace {
+void client_offset(Window *w, int32_t &dx, int32_t &dy);   // below
+}  // namespace
+
 // Pump SDL and translate host events into window messages.
 void pump_host_events() {
     dx::ddraw_tick();
@@ -114,7 +118,18 @@ void pump_host_events() {
             uint32_t target = capture_hwnd ? capture_hwnd : main_window;
             if (!target) break;
             uint32_t mk = mouse_buttons | (key_state(0x10) & 0x8000 ? 4 : 0) | (key_state(0x11) & 0x8000 ? 8 : 0);
-            uint32_t lp = (static_cast<uint32_t>(gy) << 16) | (static_cast<uint32_t>(gx) & 0xFFFF);
+            // (gx, gy) is a position on the game's picture, i.e. on the (fullscreen) screen; mouse
+            // messages carry client coordinates, as on Windows. The game's window has a caption, so
+            // its ClientToScreen adds the caption / border (3, 22): without this the menus' hit
+            // tests sat 22 pixels low (GitHub issue #2).
+            int32_t cx = gx, cy = gy;
+            if (Window *tw = window(target)) {
+                int32_t ox, oy;
+                client_offset(tw, ox, oy);
+                cx -= ox;
+                cy -= oy;
+            }
+            uint32_t lp = (static_cast<uint32_t>(cy) << 16) | (static_cast<uint32_t>(cx) & 0xFFFF);
             uint32_t msg = WM_MOUSEMOVE;
             if (e.type != SDL_EVENT_MOUSE_MOTION) {
                 bool down = e.type == SDL_EVENT_MOUSE_BUTTON_DOWN;

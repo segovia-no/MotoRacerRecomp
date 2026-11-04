@@ -122,11 +122,14 @@ void present_placed(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, 
     // remember letterbox in window points for mouse mapping
     int ww = 0, wh = 0;
     SDL_GetWindowSize(win, &ww, &wh);
-    float px_per_pt = ww ? static_cast<float>(sw) / ww : 1.f;
-    lb_x = dx / px_per_pt;
-    lb_y = dy / px_per_pt;
-    lb_w = dw / px_per_pt;
-    lb_h = dh / px_per_pt;
+    // Each axis with its own ratio: the swapchain need not have the window's aspect in pixels
+    // (fractional display scaling rounds each side; macOS limits a window taller than the
+    // screen), and one ratio for both shifted the mouse vertically (GitHub issue #2).
+    const float px_x = ww ? static_cast<float>(sw) / ww : 1.f, px_y = wh ? static_cast<float>(sh) / wh : 1.f;
+    lb_x = dx / px_x;
+    lb_y = dy / px_y;
+    lb_w = dw / px_x;
+    lb_h = dh / px_y;
 }
 
 void present(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_t h, const Crop &crop) {
@@ -173,11 +176,14 @@ void present(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, uint32_t w, uint32_
     SDL_SubmitGPUCommandBuffer(cmd);
     int ww = 0, wh = 0;
     SDL_GetWindowSize(win, &ww, &wh);
-    float px_per_pt = ww ? static_cast<float>(sw) / ww : 1.f;
-    lb_x = dx / px_per_pt;
-    lb_y = dy / px_per_pt;
-    lb_w = dw / px_per_pt;
-    lb_h = dh / px_per_pt;
+    // Each axis with its own ratio: the swapchain need not have the window's aspect in pixels
+    // (fractional display scaling rounds each side; macOS limits a window taller than the
+    // screen), and one ratio for both shifted the mouse vertically (GitHub issue #2).
+    const float px_x = ww ? static_cast<float>(sw) / ww : 1.f, px_y = wh ? static_cast<float>(sh) / wh : 1.f;
+    lb_x = dx / px_x;
+    lb_y = dy / px_y;
+    lb_w = dw / px_x;
+    lb_h = dh / px_y;
 }
 
 void set_game_size(uint32_t w, uint32_t h) {

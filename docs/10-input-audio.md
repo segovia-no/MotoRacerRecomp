@@ -140,3 +140,20 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
   Page 9 test (temporary harness: jump to page 9, mark row 1 as a new record after the page's init):
   typing "mac" took the count from 0 to 3; owner confirmed typing initials works. The gamepad path is not
   E2E-tested (no joystick injection in tests).
+
+## Mouse offset in the menus — GitHub issue #2 (2026-11-04)
+- Report (Linux player), confirmed by the owner on macOS: the pointer had to be above a menu item
+  (e.g. above DIFFICULTY / EASY in Options) to highlight or click it.
+- Cause: the game's window is `WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX` (`0x80CA0000`),
+  so our `ClientToScreen` adds the caption and border, (3, 22). The game takes the mouse from
+  `WM_MOUSEMOVE` (window procedure, `0x433637` / `0x43440c`), converts it with `ClientToScreen` and
+  hit-tests the menus with those screen coordinates (`[0x51be94]`, `[0x53eb60]`). On Windows the
+  message carries client coordinates and the conversion gives back the position on the fullscreen
+  picture; the runtime put picture coordinates straight into the message, so the game shifted them
+  a second time: hit tests 22 pixels low (3 right).
+- Fix (`user32.cpp`, `pump_host_events`): mouse messages carry client coordinates (picture position
+  minus the target window's `client_offset`); `GetCursorPos` keeps returning screen (= picture)
+  coordinates. Owner-tested: "perfect".
+- Also changed on the way (not the cause): the letterbox used for the mouse (`host_gpu.cpp`) converts
+  pixels to points per axis instead of with the horizontal ratio for both.
+- Test aid: `MOTORACER_AUTOKEYS` takes `MOUSE:fx,fy` (move the pointer to a fraction of the window).

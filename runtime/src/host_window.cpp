@@ -322,6 +322,23 @@ void autokeys_tick() {
     std::string tok(spec + pos, end - pos);
     pos = end;
     if (isdigit(static_cast<unsigned char>(tok[0]))) { next = now + strtoull(tok.c_str(), nullptr, 10); return; }
+    // MOUSE:fx,fy moves the mouse to a fraction of the window's client area (points)
+    if (tok.rfind("MOUSE:", 0) == 0) {
+        float fx = 0, fy = 0;
+        int ww = 0, wh = 0;
+        SDL_Window *w = host::sdl_window;
+        if (w && sscanf(tok.c_str() + 6, "%f,%f", &fx, &fy) == 2 && SDL_GetWindowSize(w, &ww, &wh)) {
+            SDL_Event ev{};
+            ev.type = SDL_EVENT_MOUSE_MOTION;
+            ev.motion.windowID = SDL_GetWindowID(w);
+            ev.motion.x = fx * ww;
+            ev.motion.y = fy * wh;
+            SDL_PushEvent(&ev);
+            log("autokeys: mouse %.1f,%.1f (window %dx%d)\n", ev.motion.x, ev.motion.y, ww, wh);
+        }
+        next = now + 80;
+        return;
+    }
     char mode = 0;
     if (tok[0] == '+' || tok[0] == '-') { mode = tok[0]; tok.erase(0, 1); }
     static const std::pair<const char *, uint32_t> names[] = {
