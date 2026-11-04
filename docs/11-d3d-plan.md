@@ -226,9 +226,20 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   flag, ZFUNC 4, the same all frame; one Z clear per frame, none before the cockpit), so the road
   drawn earlier hides it wherever it is nearer. Without `-ZBuffer` the full dashboard (both gauge
   pods, dark fairing) is drawn. `-InfiniteZBuffer` changes nothing.
-- Whether the 1997 release behaved the same on real hardware is unknown (no report found). Fix to
-  choose: draw the cockpit without the Z test (find where the game draws it), or play without the
-  Z-buffer (then the HUD scaler, which recognises HUD sprites by their depths, needs adjusting).
+- Whether the 1997 release behaved the same on real hardware is unknown (no report found).
+- Fix (owner's choice: draw only the cockpit without the Z test): F6 toggles `[0x4dc00c]`
+  (`0x4320b8` in the in-race key switch); `0x4583e0` derives the effective flag `[0x4dc008]`; the bike
+  loop `0x458b80` then calls `0x462110` (cockpit model: transform `0x49b2c0`, face loop `0x49bca0` →
+  polygon setup `0x49c590`, i.e. ordinary render nodes in the nearest buckets) instead of the
+  player's bike. GAME_HOOKs at `0x458b80` (clear), `0x458c19` / `0x458c1e` (node counter
+  `[0x655d14]` before / after the call) give the cockpit's node range; the native flush
+  (`native_flush_polygon`) wraps each of those polygons in two one-state STATERENDER blocks, ZFUNC
+  ALWAYS before and LESSEQUAL after (no cached state, so execute-buffer boundaries cannot desync
+  it; room for both blocks is checked first). Works for both GPU backends and the PSP (whose
+  `depth_func` maps ALWAYS). The translated flush (`MOTORACER_NATIVE=0`, dev only) is unchanged.
+- Verified: the stationary cockpit scene now shows both gauge pods and the dark fairing (the
+  windscreen inside the outline stays see-through, as without the Z-buffer); owner-tested "worked
+  flawlessly".
 - Dev aids added on the way: `MOTORACER_D3D_DUMP=<frame>` (every draw and clear of one presented
   frame: states, screen box, z/w ranges, texture); `MOTORACER_NATIVE_OFF=name,name` (skip single
   native hooks, by the names in `translate.py`; also `native_bucket_skip`). The switch first skipped

@@ -273,6 +273,9 @@ int native_blend_states(void);
 int native_wrap_states(void);
 int native_state_1a(void);
 void native_flush_check(void);
+void game_hook_bikes_begin(void);   /* cockpit view with the Z-buffer (native_render.cpp) */
+void game_hook_cockpit_begin(void);
+void game_hook_cockpit_end(void);
 /* whole functions (NATIVE_FUNCS in translate.py, runtime/src/native_geom.cpp): nonzero = done */
 int native_transform(void);
 int native_faces(void);

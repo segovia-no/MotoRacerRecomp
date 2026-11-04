@@ -63,6 +63,11 @@ def relocate(value, indexed=False):
 
 # Runtime callbacks run just before the instruction at a VA (runtime/src/game_hooks.cpp).
 GAME_HOOKS = {
+    # Cockpit view (F6) with the Z-buffer (native_render.cpp, GitHub issue #1): the bike loop starts,
+    # and the render nodes the cockpit model call 0x462110 creates (drawn without the Z test)
+    0x458B80: "game_hook_bikes_begin",
+    0x458C19: "game_hook_cockpit_begin",
+    0x458C1E: "game_hook_cockpit_end",
     # Options load: "ScreenMode" (only the size class 0..2) has just been mapped to a mode area
     # at 0x4dc0cc. The runtime restores a remembered mode above 640x480 here.
     0x42B0A3: "game_hook_screen_mode_loaded",

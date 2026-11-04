@@ -438,6 +438,32 @@ void state_1a(uint32_t eb, uint32_t value, uint32_t force) {
     WR32(0x4e4f3c, 0xffffff9cu);
 }
 
+// ---- cockpit view with the Z-buffer (GitHub issue #1, docs/11-d3d-plan.md) ----
+// The cockpit model (0x462110, called by the bike loop 0x458b80 instead of the player's bike in the
+// F6 view) lies behind the road's depth near the bottom of the screen and relies on being drawn
+// last (it is in the nearest buckets): in -ZBuffer mode the road hid it. Its polygons are the render
+// nodes created during that call; the flush draws each of them with ZFUNC ALWAYS, then restores
+// LESSEQUAL (the state the execute buffer's opening block sets for the whole frame).
+constexpr uint32_t NODES = 0x65f0e0, NODE_COUNT = 0x655d14;
+uint32_t cockpit_lo = 0, cockpit_hi = 0;   // node indexes [lo, hi) of this frame's cockpit model
+
+bool cockpit_node(uint32_t node) {
+    if (cockpit_hi <= cockpit_lo || node < NODES || (node - NODES) % 24u) return false;
+    const uint32_t i = (node - NODES) / 24u;
+    return i >= cockpit_lo && i < cockpit_hi;
+}
+
+void zfunc_state(uint32_t eb, uint32_t func) {   // a one-state STATERENDER block, as state_1a writes
+    MEM_LOCAL();
+    const uint32_t ip = RD32(eb + 8);
+    WR8(ip, 8);
+    WR8(ip + 1, 8);
+    WR16(ip + 2, 1);
+    WR32(eb + 8, ip + 4);
+    put_state(eb, 0x17, func);
+    WR32(0x4e4f3c, 0xffffff9cu);   // the next triangle opens a new header
+}
+
 int flush_polygon() {
     MEM_LOCAL();
     const uint32_t sp = R.esp, node = R.ebx, eb = RD32(EB_OBJ);
@@ -598,7 +624,13 @@ extern "C" int native_flush_polygon(void) {
     if (md == OFF) return 0;
     const uint32_t sp = R.esp, node = R.ebx;
     if (md == ON) {
+        // cockpit polygon: Z test off around it, if the buffer has room for both state blocks
+        // besides the polygon's own 0x70 bytes (else flush_polygon reports it full: no change)
+        const uint32_t eb = RD32(EB_OBJ);
+        const bool cockpit = cockpit_node(node) && RD32(eb + 8) + 0x70 + 24 < RD32(ROOM_INS_END);
+        if (cockpit) zfunc_state(eb, 8);
         const int r = flush_polygon();
+        if (cockpit && r == 1) zfunc_state(eb, 4);
         R.ebx = node;
         R.esp = sp;
         return r;
@@ -692,3 +724,16 @@ extern "C" int native_state_1a(void) {
     return method([](uint32_t sp, uint32_t eb) { MEM_LOCAL(); state_1a(eb, RD32(sp + 4), RD32(sp + 8)); return R.eax; },
                   f_0041e380_t, 2, "state 0x41e380", false);
 }
+
+// GAME_HOOKs: the bike loop 0x458b80 starts (no cockpit yet this frame); the cockpit model call
+// 0x462110 at 0x458c19 and its return 0x458c1e: the render nodes it created
+extern "C" void game_hook_bikes_begin(void) { cockpit_lo = cockpit_hi = 0; }
+extern "C" void game_hook_cockpit_begin(void) {
+    MEM_LOCAL();
+    cockpit_lo = cockpit_hi = RD32(NODE_COUNT);
+}
+extern "C" void game_hook_cockpit_end(void) {
+    MEM_LOCAL();
+    cockpit_hi = RD32(NODE_COUNT);
+}
+
