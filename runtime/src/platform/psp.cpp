@@ -8,6 +8,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <malloc.h>
 
 #include <pspthreadman.h>
 
@@ -29,7 +30,10 @@ class PspVirtualMemory final : public VirtualMemory {
 public:
     uint8_t *reserve(uint64_t size) override {
         if (size > 0xFFFFFFFFull) return nullptr;
-        return static_cast<uint8_t *>(calloc(1, static_cast<size_t>(size)));
+        // 64-byte aligned: textures are read by the GE straight from guest memory (16-byte rule)
+        void *p = memalign(64, static_cast<size_t>(size));
+        if (p) memset(p, 0, static_cast<size_t>(size));
+        return static_cast<uint8_t *>(p);
     }
     bool commit(void *, uint64_t) override { return true; }
     bool make_inaccessible(void *, uint64_t) override { return true; }

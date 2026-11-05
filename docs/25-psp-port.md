@@ -235,11 +235,24 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   polling sceCtrl as one gamepad with SDL's mapping, audio (one PSP channel + thread per bound stream,
   pulling through the stream's get callback; f32 / s16 stereo 44.1 kHz in, s16 out), and
   `SDL_SaveBMP` for snapshots. Text 7.19 → 5.71 MB, bss 1.69 → 0.59 MB; C heap room on a PSP-1000
-  13.88 → 16.44 MB. PPSSPP race OK (64 MB build), pad detected, both audio streams start.
+  13.88 → 16.44 MB. PPSSPP race OK (64 MB build), pad detected, both audio streams start;
+  owner-tested in PPSSPP (input, sound): "worked pretty great".
   Still needed: ~19 MB (guest block 17.94 + ~1.1 MB other) → ~2.6 MB to go.
 - `MOTORACER_MUTE=1`: audio runs at volume 0 (desktop and PSP); the test scripts use it instead of
   `MOTORACER_NO_AUDIO`, so the audio path is still exercised.
-- Next: cold game code compiled for size, libstdc++ (0.84 MB), one texture copy instead of two.
+- Measured again during a race (memory stats now also tick on GE-presented frames: they used to run
+  only on CPU frames, i.e. menus): host allocations 26.96 MB = guest block 21.94 (64 MB build) + 5.0
+  MB, of which GE texture copies 3.49 MB (2.12 MB from 8-bit textures expanded to 8888). So the
+  PSP-1000 gap was ~6.5 MB, not 2.6.
+- `-Os` for all game code: 3.78 → 3.56 MB only (−0.22); race speed about the same. Kept `-O2`.
+- Step 3, zero-copy 8-bit textures: the GE reads them as T8 + a 256-entry 8888 CLUT straight from
+  the guest surface (16-byte aligned start, pitch 16n; the guest block is now `memalign(64)`), colour
+  key as CLUT alpha. Host allocations in a race 26.96 → 24.85 MB; race 306–366 presents per 5 s
+  (205–247 before; runs vary).
+- Mute fix: `MOTORACER_MUTE` is read when audio starts (the PSP's environment comes from
+  psp_env.txt in main(), after static initialisers); the log says "audio: muted".
+- Next: 16-bit textures converted in place in guest memory (converted back in `sync_to_cpu`, which
+  Lock / Blt / GetDC call), the remaining ~1.4 MB of host allocations, libstdc++ (0.84 MB).
 - Test runs are muted (`tools/psp/e2e_psp.sh`, `tools/e2e.sh`; `WITH_SOUND=1` for sound).
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)

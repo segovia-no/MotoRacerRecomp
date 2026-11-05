@@ -18,6 +18,7 @@
 
 #include "../dx/d3d_gpu.h"
 #include "../dx/ddraw_internal.h"
+#include "game_hooks.h"
 #include "runtime.h"
 #include "ge.h"
 
@@ -51,6 +52,8 @@ struct Texture {
     void *data = nullptr;
     int psm = GU_PSM_5650, tw = 0, th = 0, tbw = 0;
     bool alpha = false;
+    bool shared = false;        // data points into guest memory (not owned)
+    uint32_t *clut = nullptr;   // T8: 256 palette entries (GE 8888), 16-byte aligned
 };
 
 // The game sends 3-6 render states with every polygon, mostly unchanged: GE commands are sent only
@@ -61,6 +64,7 @@ struct GeState {
     int depth_test = -1, depth_func = -1, depth_mask = -1, blend = -1, bsrc = -1, bdst = -1;
     unsigned bsfix = 0, bdfix = 0;
     int alpha_test = -1, alpha_ref = -1, shade = -1, texturing = -1, psm = -1, tfx = -1, tcc = -1;
+    const void *clut = nullptr;
     int fmin = -1, fmag = -1, wrap = -1;
     const void *tdata = nullptr;
 } gs;
@@ -100,10 +104,14 @@ void stats_tick() {
     if (now - last < 5000) return;
     last = now;
     uint64_t ns_ge = psp_ge::take_wait_ns();
-    uint64_t tex_bytes = 0;
+    uint64_t tex_bytes = 0, tex8 = 0;
     for (auto &[surf, t] : textures)
-        if (t.data) tex_bytes += static_cast<uint64_t>(t.tbw) * t.th * (t.psm == GU_PSM_8888 ? 4 : 2);
-    log("ge: %zu textures %.2f MB | ", textures.size(), tex_bytes / 1048576.0);
+        if (t.data && !t.shared) {
+            const uint64_t b = static_cast<uint64_t>(t.tbw) * surf->h * (t.psm == GU_PSM_8888 ? 4 : 2);
+            tex_bytes += b;
+            if (t.psm == GU_PSM_8888) tex8 += b;
+        }
+    log("ge: %zu textures %.2f MB (from 8-bit %.2f MB) | ", textures.size(), tex_bytes / 1048576.0, tex8 / 1048576.0);
     log("ge: draws %u tris %u (+%u split) clears %u flip gpu/cpu %u/%u blt gpu/cpu %u/%u downloads %u uploads %u texconv %u | "
         "ms in 5 s: execute %llu, draw %llu (textures %llu), GE wait %llu\n",
         st.draws, st.tris, st.subdivided, st.clears, st.flips_gpu, st.flips_cpu, st.blts_gpu, st.blts_cpu, st.downloads, st.uploads,
@@ -215,11 +223,12 @@ Texture *texture_for(Surface *s) {
     while (static_cast<uint32_t>(t.th) < s->h) t.th <<= 1;
     t.tbw = static_cast<int>((s->w + 7) & ~7u);
     const bool keyed = s->ckey_src;
+    gs.clut = nullptr;
+    if (!t.shared) free(t.data);
+    t.data = nullptr;
+    t.shared = false;
     if (s->bpp == 8) {
-        t.psm = GU_PSM_8888;
         t.alpha = keyed;
-        free(t.data);
-        t.data = memalign(16, static_cast<size_t>(t.tbw) * s->h * 4);
         uint32_t pal[256];
         for (int i = 0; i < 256; i++) {
             uint32_t e = s->palette ? s->palette->entries[i] : static_cast<uint32_t>(i * 0x010101);
@@ -227,12 +236,25 @@ Texture *texture_for(Surface *s) {
         }
         if (keyed)
             for (uint32_t i = s->ckey_lo; i <= s->ckey_hi && i < 256; i++) pal[i] &= 0x00FFFFFF;
+        // PSP-1000 memory: the GE reads 8-bit textures as T8 + CLUT straight from the guest surface
+        // (no 32-bit copy, 4x the size); needs a 16-byte aligned start and a pitch of 16n texels.
+        uint8_t *src = reinterpret_cast<uint8_t *>(rt::host_ptr(s->mem));
+        if ((reinterpret_cast<uintptr_t>(src) & 15) == 0 && (s->pitch & 15) == 0) {
+            if (!t.clut) t.clut = static_cast<uint32_t *>(memalign(16, 256 * 4));
+            std::memcpy(t.clut, pal, sizeof pal);
+            t.psm = GU_PSM_T8;
+            t.tbw = static_cast<int>(s->pitch);
+            t.data = src;
+            t.shared = true;
+            return &t;
+        }
+        t.psm = GU_PSM_8888;
+        t.data = memalign(16, static_cast<size_t>(t.tbw) * s->h * 4);
         auto *out = static_cast<uint32_t *>(t.data);
         for (uint32_t y = 0; y < s->h; y++)
             for (uint32_t x = 0; x < s->w; x++) out[y * t.tbw + x] = pal[RD8(s->mem + y * s->pitch + x)];
         return &t;
     }
-    free(t.data);
     t.data = memalign(16, static_cast<size_t>(t.tbw) * s->h * 2);
     auto *out = static_cast<uint16_t *>(t.data);
     const bool is1555 = s->gmask == 0x03E0, is4444 = s->gmask == 0x00F0;
@@ -321,6 +343,11 @@ void apply_states(const uint32_t *rs, Texture *tex) {
     int tx = tex ? 1 : 0;
     if (tx != gs.texturing) { tx ? sceGuEnable(GU_TEXTURE_2D) : sceGuDisable(GU_TEXTURE_2D); gs.texturing = tx; }
     if (!tex) return;
+    if (tex->psm == GU_PSM_T8 && tex->clut != gs.clut) {
+        sceGuClutMode(GU_PSM_8888, 0, 0xFF, 0);
+        sceGuClutLoad(256 / 8, tex->clut);
+        gs.clut = tex->clut;
+    }
     if (tex->data != gs.tdata || tex->psm != gs.psm) {
         sceGuTexMode(tex->psm, 0, 0, 0);
         sceGuTexImage(0, tex->tw, tex->th, tex->tbw, tex->data);
@@ -614,7 +641,7 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             snprintf(path, sizeof path, "%s/tex_%p_ge.bmp", dir, (void *)texture);
             SDL_PixelFormat f = tex->psm == GU_PSM_4444 ? SDL_PIXELFORMAT_ABGR4444
                                 : tex->psm == GU_PSM_5551 ? SDL_PIXELFORMAT_ABGR1555 : SDL_PIXELFORMAT_BGR565;
-            if (tex->psm != GU_PSM_8888)
+            if (tex->psm != GU_PSM_8888 && tex->psm != GU_PSM_T8)
                 if (SDL_Surface *g = SDL_CreateSurfaceFrom(static_cast<int>(texture->w), static_cast<int>(texture->h), f,
                                                            tex->data, tex->tbw * 2)) {
                     SDL_SaveBMP(g, path);
@@ -678,7 +705,9 @@ void cpu_wrote(Surface *s) {
 void surface_destroyed(Surface *s) {
     auto it = textures.find(s);
     if (it != textures.end()) {
-        free(it->second.data);
+        if (!it->second.shared) free(it->second.data);
+        free(it->second.clut);
+        if (gs.clut == it->second.clut) gs.clut = nullptr;
         textures.erase(it);
     }
     if (last_tex_surface == s) last_tex_surface = nullptr, last_tex = nullptr;
@@ -698,6 +727,7 @@ bool present_flip(Surface *back) {
     psp_ge::show();
     end_frame();
     st_frames++;
+    game::frame_tick();   // per-frame hooks (memory stats, state saving) also during races
     return true;
 }
 

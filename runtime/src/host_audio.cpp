@@ -18,8 +18,9 @@ namespace {
 SDL_AudioDeviceID device = 0;
 bool tried = false;
 std::atomic<float> g_master{1.f}, g_sfx{1.f}, g_music{1.f};
-// MOTORACER_MUTE=1 (test runs): everything plays at volume 0, so the audio path still runs
-const bool g_mute = getenv("MOTORACER_MUTE") != nullptr;
+// MOTORACER_MUTE=1 (test runs): everything plays at volume 0, so the audio path still runs. Read when
+// audio starts, not at static init: the PSP sets its environment from psp_env.txt in main().
+bool g_mute = false;
 
 struct Source {
     std::function<int(uint8_t *, int)> pull;
@@ -40,6 +41,8 @@ void SDLCALL feed(void *userdata, SDL_AudioStream *stream, int additional, int) 
 bool audio_init() {
     if (tried) return device != 0;
     tried = true;
+    g_mute = getenv("MOTORACER_MUTE") != nullptr;
+    if (g_mute) log("audio: muted (MOTORACER_MUTE)\n");
     if (getenv("MOTORACER_NO_AUDIO")) {   // dev: measure the cost of audio (e.g. on the PSP)
         log("audio: off (MOTORACER_NO_AUDIO)\n");
         return false;
