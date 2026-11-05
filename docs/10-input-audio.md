@@ -157,3 +157,22 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
 - Also changed on the way (not the cause): the letterbox used for the mouse (`host_gpu.cpp`) converts
   pixels to points per axis instead of with the horizontal ratio for both.
 - Test aid: `MOTORACER_AUTOKEYS` takes `MOUSE:fx,fy` (move the pointer to a fraction of the window).
+
+## In-race keys (game's own F1 help) and GitHub issue #4 (2026-11-05)
+- F1 shows the game's key help during a race. From it: Shift+F1 on-screen info (resolution, mode),
+  F2/F3 lower/upper screen resolution, F4 16/9 on/off, F5 change view, Shift+F5 link: track next
+  bike, F6 first-person view, F7 counter type, F8 signals (turn signs) on/off, F9 map type (debug-like
+  red arrow trail on the track), F11 on-screen sound menu, F12 on-screen display menu, Esc abort,
+  Tab rear view, Ctrl+V/S/A voices / sound FX / audio track, Ctrl+J/K joystick / keyboard mode,
+  Ctrl+F font size. Dispatch: byte index table `0x432668` (code − 9) → jump table `0x43260c`; the
+  codes are the VK minus 0x2a for F keys (F6 → `0x4320b8`, F7 → `0x432107`, F9 → `0x432169`
+  toggles `0x4f0e14`, F11 → `0x4321ca`).
+- Issue #4 (Linux reporter): a red "1 COMPUTER" tag with a down arrow, which should sit above an
+  opponent, floats elsewhere on screen. Likely cause: the HUD scaler (docs/11-d3d-plan.md, HUD
+  scaling) treats it as a screen-space sprite (rhw 1, z 0) and remaps its position like a centred
+  message, while it is placed at a projected 3D point. Not reproduced yet: no tag with one opponent
+  (`MOTORACER_OPPONENTS=1`, short and long race), in the attract demo, with F8, F9, Shift+F1 or
+  Shift+F5. The localized word "Computer" is string id 0xb7 of the table at `0x4e28e8` (7-dword
+  records: id + 6 languages); its user is not found yet. Next: ask the reporter how the tag appears
+  and whether it lands correctly with RECOMP › HUD SCALE = 1.
+- `MOTORACER_AUTOKEYS` now knows `SHIFT` and `CTRL` (`+SHIFT F5 -SHIFT`).

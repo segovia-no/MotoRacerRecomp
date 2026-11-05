@@ -185,6 +185,8 @@ uint32_t nav_scancode(uint32_t vk) {
     case VK_UP_: return 0x48;
     case VK_RIGHT_: return 0x4D;
     case VK_DOWN_: return 0x50;
+    case 0x10: return 0x2A;   // left Shift
+    case 0x11: return 0x1D;   // left Ctrl
     default: return 0;
     }
 }
@@ -343,7 +345,7 @@ void autokeys_tick() {
     if (tok[0] == '+' || tok[0] == '-') { mode = tok[0]; tok.erase(0, 1); }
     static const std::pair<const char *, uint32_t> names[] = {
         {"ENTER", VK_RETURN_}, {"ESC", VK_ESCAPE_}, {"UP", VK_UP_}, {"DOWN", VK_DOWN_},
-        {"LEFT", VK_LEFT_},    {"RIGHT", VK_RIGHT_}, {"SPACE", 0x20}};
+        {"LEFT", VK_LEFT_},    {"RIGHT", VK_RIGHT_}, {"SPACE", 0x20}, {"SHIFT", 0x10}, {"CTRL", 0x11}};
     uint32_t vk = tok.size() == 1 ? static_cast<uint32_t>(toupper(tok[0])) : 0;
     if (tok.size() >= 2 && tok[0] == 'F' && isdigit(static_cast<unsigned char>(tok[1]))) {
         int n = atoi(tok.c_str() + 1);
