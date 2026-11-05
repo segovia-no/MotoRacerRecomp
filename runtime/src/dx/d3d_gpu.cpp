@@ -401,10 +401,24 @@ void check_widescreen() {
     crop_now = host::gpu::widescreen_vote(black && picture, g_w, g_h);
 }
 
-// Debug: MOTORACER_D3D_DUMP=<n> logs every draw of the n-th presented GPU frame (counted like the
-// gpu_<n>.bmp snapshots, from 0): states, screen box, depth (z/w) and w ranges, texture.
+// Debug: MOTORACER_D3D_DUMP=<n>[:<count>:<step>] logs every draw of the n-th presented GPU frame
+// (counted like the gpu_<n>.bmp snapshots, from 0), or of <count> frames every <step> from n:
+// states, screen box, depth (z/w) and w ranges, texture, vertex alpha.
 uint64_t presented = 0;
-const int64_t dump_frame = getenv("MOTORACER_D3D_DUMP") ? atoll(getenv("MOTORACER_D3D_DUMP")) : -1;
+struct DumpRange { int64_t first = -1, count = 1, step = 1; };
+const DumpRange dump_range = [] {
+    DumpRange r;
+    if (const char *e = getenv("MOTORACER_D3D_DUMP")) {
+        long long a = -1, b = 1, c = 1;
+        sscanf(e, "%lld:%lld:%lld", &a, &b, &c);
+        r = DumpRange{a, b, c > 0 ? c : 1};
+    }
+    return r;
+}();
+bool dump_now() {
+    const int64_t d = static_cast<int64_t>(presented) - dump_range.first;
+    return dump_range.first >= 0 && d >= 0 && d < dump_range.count * dump_range.step && d % dump_range.step == 0;
+}
 
 // Debug: MOTORACER_SNAPSHOT_DIR also captures GPU frames (full render-target resolution).
 void snapshot_rt() {
@@ -925,7 +939,7 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             else if (std::fabs(v.w - w0) > 1e-4f * std::fabs(w0) || std::fabs(z - z0) > 1e-5f) flat = false;
         }
     }
-    if (dump_frame >= 0 && presented == static_cast<uint64_t>(dump_frame)) {
+    if (dump_now()) {
         float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f, z0 = 1e9f, z1 = -1e9f, w0 = 1e9f, w1 = -1e9f;
         uint32_t a0 = 255, a1 = 0;
         for (uint32_t t = 0; t < ntri * 3; t++) {
@@ -935,9 +949,9 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             x0 = std::min(x0, sx); x1 = std::max(x1, sx); y0 = std::min(y0, sy); y1 = std::max(y1, sy);
             z0 = std::min(z0, sz); z1 = std::max(z1, sz); w0 = std::min(w0, v.w); w1 = std::max(w1, v.w);
         }
-        log("dump %4zu: tri %3u box %4.0f..%4.0f x %4.0f..%4.0f z %.6f..%.6f w %.3f..%.3f ztest %d zwrite %d zfunc %u "
+        log("dump f%llu %4zu: tri %3u box %4.0f..%4.0f x %4.0f..%4.0f z %.6f..%.6f w %.3f..%.3f ztest %d zwrite %d zfunc %u "
             "blend %d %u/%u cull %u fog %u atest %d tex %ux%u mapblend %u valpha %u..%u texalpha %d ckey %d/%u\n",
-            frame_cmds.size(), ntri, x0, x1, y0, y1, z0, z1, w0, w1, c.pipe.ztest, c.pipe.zwrite, c.pipe.zfunc,
+            static_cast<unsigned long long>(presented), frame_cmds.size(), ntri, x0, x1, y0, y1, z0, z1, w0, w1, c.pipe.ztest, c.pipe.zwrite, c.pipe.zfunc,
             c.pipe.blend, c.pipe.src, c.pipe.dst, c.pipe.cull, rs[RS_FOGENABLE], rs[RS_ALPHATESTENABLE],
             texture ? texture->w : 0, texture ? texture->h : 0, rs[RS_TEXTUREMAPBLEND], a0, a1,
             c.uniforms.alpha[3] > 0.5f ? 1 : 0, texture && texture->ckey_src ? 1 : 0, rs[RS_COLORKEYENABLE]);
@@ -1009,8 +1023,8 @@ void clear(uint32_t flags, uint32_t argb, float depth_value) {
     c.clear_flags = flags;
     c.clear_argb = argb;
     c.clear_depth = depth_value;
-    if (dump_frame >= 0 && presented == static_cast<uint64_t>(dump_frame))
-        log("dump %4zu: CLEAR flags %x argb %08x depth %f\n", frame_cmds.size(), flags, argb, depth_value);
+    if (dump_now())
+        log("dump f%llu %4zu: CLEAR flags %x argb %08x depth %f\n", static_cast<unsigned long long>(presented), frame_cmds.size(), flags, argb, depth_value);
     frame_cmds.push_back(c);
 }
 

@@ -261,6 +261,17 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   (uniform `alpha.w` = 2): the glare is a 50% white streak, transparent texels stay invisible.
   The PSP GE already modulates alpha (`GU_TCC_RGBA`), no change there.
 
+### GAME OVER logo with black corners (2026-11-05, owner-confirmed)
+- Owner report: the GAME OVER logo (out of time) is not transparent; its corners are black.
+- Draw dumps (`MOTORACER_D3D_DUMP=<first>:<count>:<step>`, new: a range of frames, lines tagged
+  with the frame number): the logo is one screen-space quad, 256×128 texture with a source colour
+  key, no blending, no alpha test, `COLORKEYENABLE` 0. The game never sets `COLORKEYENABLE` in any
+  run (it is a DirectX 5 state; this is an execute-buffer device, where a texture's colour key
+  always applied). The player's bike and rider also use a keyed 256×256 texture page the same way.
+- Fix (`d3d.cpp`): the device starts with `COLORKEYENABLE` = 1, so keyed texels are discarded
+  (desktop shader `alpha.z`, PSP alpha test). Also seen on the way: the CONTINUE box behind
+  "CONTINUE YES/NO" uses the 6/6 glare blending (vertex alpha 128) and is now 50% see-through.
+
 ### Intro glitches — GitHub issue #3 (2026-11-04, zoom fixed, owner-confirmed)
 - Report (Linux): the first logo sits in the top-left corner; the picture "zooms" when the
   Delphine Software International logo appears.

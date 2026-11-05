@@ -76,6 +76,10 @@ struct Device : ComObj {
         rs[22] = 3;   // CULLMODE = CCW
         rs[23] = 4;   // ZFUNC = LESSEQUAL
         rs[25] = 8;   // ALPHAFUNC = ALWAYS
+        // COLORKEYENABLE: on for this execute-buffer device. Before DirectX 5 added the state, a
+        // texture's source colour key always applied; the game never sets it and relies on that
+        // (the GAME OVER logo is a keyed sprite drawn without blending: black corners otherwise).
+        rs[41] = 1;
     }
     std::vector<Viewport *> viewports;
     std::map<uint32_t, std::vector<uint8_t>> matrices;
