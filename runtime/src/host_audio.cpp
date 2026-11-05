@@ -18,6 +18,8 @@ namespace {
 SDL_AudioDeviceID device = 0;
 bool tried = false;
 std::atomic<float> g_master{1.f}, g_sfx{1.f}, g_music{1.f};
+// MOTORACER_MUTE=1 (test runs): everything plays at volume 0, so the audio path still runs
+const bool g_mute = getenv("MOTORACER_MUTE") != nullptr;
 
 struct Source {
     std::function<int(uint8_t *, int)> pull;
@@ -55,7 +57,7 @@ bool audio_init() {
     log("audio: device opened (%s)\n", SDL_GetAudioDeviceName(device));
     SDL_SetAudioPostmixCallback(device, [](void *, const SDL_AudioSpec *, float *, int) { prof::audio_mixing(false); },
                                 nullptr);
-    SDL_SetAudioDeviceGain(device, g_master);
+    SDL_SetAudioDeviceGain(device, g_mute ? 0.f : g_master.load());
     return true;
 }
 
@@ -75,7 +77,7 @@ SDL_AudioStream *audio_open_source(const SDL_AudioSpec &spec, std::function<int(
 
 void set_master_gain(float g) {
     g_master = g;
-    if (device) SDL_SetAudioDeviceGain(device, g);
+    if (device) SDL_SetAudioDeviceGain(device, g_mute ? 0.f : g);
 }
 void set_sfx_gain(float g) { g_sfx = g; }
 void set_music_gain(float g) { g_music = g; }

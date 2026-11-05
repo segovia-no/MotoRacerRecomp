@@ -229,11 +229,18 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   terms: −0.87 MB layout, −4 MB heap). PPSSPP race (64 MB build) and desktop race OK.
 - Image breakdown: game code 3.95 MB, runtime + newlib + pspsdk ~3.0, SDL3 1.05, libstdc++ 0.84;
   bss: SDL's PSP renderer `DisplayList` 1 MB (unused: the GE backend draws), our GE list 512 KB.
-- Next: no SDL on the PSP (a small SDL-subset on sce APIs: ticks, delays, events, buttons, audio,
-  no-op window, BMP snapshots: ~2.2 MB), cold game code compiled for size, libstdc++, one texture
-  copy instead of two.
-- Test runs are muted (`MOTORACER_NO_AUDIO=1` from `tools/psp/e2e_psp.sh` and `tools/e2e.sh`;
-  `WITH_SOUND=1` for sound).
+- Step 2, no SDL on the PSP: `runtime/src/psp/sdl_psp.cpp` defines the 47 SDL3 functions the
+  runtime calls, on sce APIs (SDL's headers stay for the types): `SDL_RunApp` (module info, HOME exit
+  callback), ticks / delays, a fixed 480x272 window, an event queue fed by `SDL_PushEvent` and by
+  polling sceCtrl as one gamepad with SDL's mapping, audio (one PSP channel + thread per bound stream,
+  pulling through the stream's get callback; f32 / s16 stereo 44.1 kHz in, s16 out), and
+  `SDL_SaveBMP` for snapshots. Text 7.19 → 5.71 MB, bss 1.69 → 0.59 MB; C heap room on a PSP-1000
+  13.88 → 16.44 MB. PPSSPP race OK (64 MB build), pad detected, both audio streams start.
+  Still needed: ~19 MB (guest block 17.94 + ~1.1 MB other) → ~2.6 MB to go.
+- `MOTORACER_MUTE=1`: audio runs at volume 0 (desktop and PSP); the test scripts use it instead of
+  `MOTORACER_NO_AUDIO`, so the audio path is still exercised.
+- Next: cold game code compiled for size, libstdc++ (0.84 MB), one texture copy instead of two.
+- Test runs are muted (`tools/psp/e2e_psp.sh`, `tools/e2e.sh`; `WITH_SOUND=1` for sound).
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).

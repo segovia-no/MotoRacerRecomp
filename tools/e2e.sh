@@ -12,7 +12,7 @@
 # Snapshots are full render-target BMPs (~20 MB each at 2560x1920), so they are deleted once the
 # contact sheet is made; KEEP_FRAMES=1 keeps them for closer inspection. Kept frames older than an
 # hour are removed at the start of every run. Runs are windowed (MOTORACER_FULLSCREEN=0), whatever
-# motoracer.ini says, and muted (MOTORACER_NO_AUDIO=1) unless WITH_SOUND=1.
+# motoracer.ini says, and muted (MOTORACER_MUTE=1: audio at volume 0) unless WITH_SOUND=1.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 name=$1 keys=$2 secs=${3:-60}
@@ -22,7 +22,7 @@ mkdir -p build/e2e
 find build/e2e -mindepth 2 -name '*.bmp' -mmin +60 -delete 2>/dev/null || true
 find build/e2e -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null || true
 rm -rf "$out" && mkdir -p "$out"
-mute=(); [ -n "${WITH_SOUND:-}" ] || mute=(MOTORACER_NO_AUDIO=1)   # muted unless WITH_SOUND=1
+mute=(); [ -n "${WITH_SOUND:-}" ] || mute=(MOTORACER_MUTE=1)   # muted unless WITH_SOUND=1
 env MOTORACER_FULLSCREEN=0 MOTORACER_SNAPSHOT_DIR="$PWD/$out" MOTORACER_AUTOKEYS="$keys" "${mute[@]}" "$@" \
     perl -e 'alarm shift; exec { $ARGV[0] } @ARGV' "$secs" "${MOTORACER_BIN:-build/cmake/motoracer}" >/dev/null 2>&1 || true
 if [ "$(uname -s)" = Darwin ]; then logdir=$HOME/Library/Logs/MotoRacerRecomp

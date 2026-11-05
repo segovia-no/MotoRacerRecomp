@@ -6,7 +6,7 @@
 #   tools/psp/e2e_psp.sh <name> "<keys>" [seconds] [KEY=VALUE ...]
 #
 # <keys>: MOTORACER_AUTOKEYS syntax (tools/e2e.sh). Output: build/e2e/<name>.png, build/e2e/<name>.log.
-# Runs are muted (MOTORACER_NO_AUDIO=1) unless WITH_SOUND=1.
+# Runs are muted (MOTORACER_MUTE=1: audio runs at volume 0) unless WITH_SOUND=1.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 name=$1 keys=$2 secs=${3:-60}
@@ -22,7 +22,7 @@ rm -rf "$run/snap" && mkdir -p "$run/snap"
 {
     echo "MOTORACER_AUTOKEYS=$keys"
     echo "MOTORACER_SNAPSHOT_DIR=umd0:/snap"   # absolute: the game changes into game/
-    [ -n "${WITH_SOUND:-}" ] || echo "MOTORACER_NO_AUDIO=1"   # test runs are muted; WITH_SOUND=1 for audio
+    [ -n "${WITH_SOUND:-}" ] || echo "MOTORACER_MUTE=1"   # test runs are muted; WITH_SOUND=1 for audio
     for kv in "$@"; do echo "$kv"; done
 } > "$run/psp_env.txt"
 rm -f "$run/motoracer.log"

@@ -113,6 +113,14 @@ if(MOTORACER_BUNDLED_SDL)
     URL_HASH SHA256=7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68)
   FetchContent_MakeAvailable(SDL3)
   set(SDL3_TARGET SDL3::SDL3-static)
+elseif(PSP)
+  # PSP: SDL's headers only; runtime/src/psp/sdl_psp.cpp implements the subset the runtime uses on
+  # the PSP's own APIs (SDL3's static library brought ~2 MB of unused video / renderer code and data).
+  find_package(SDL3 REQUIRED CONFIG)
+  get_target_property(SDL3_INCLUDES SDL3::SDL3 INTERFACE_INCLUDE_DIRECTORIES)
+  add_library(sdl3_headers INTERFACE)
+  target_include_directories(sdl3_headers INTERFACE ${SDL3_INCLUDES})
+  set(SDL3_TARGET sdl3_headers)
 else()
   find_package(SDL3 REQUIRED CONFIG)
   set(SDL3_TARGET SDL3::SDL3)
@@ -133,7 +141,7 @@ elseif(PSP)
   list(REMOVE_ITEM RUNTIME_SOURCES ${CMAKE_SOURCE_DIR}/runtime/src/host_gpu.cpp
        ${CMAKE_SOURCE_DIR}/runtime/src/dx/d3d_gpu.cpp ${CMAKE_SOURCE_DIR}/runtime/src/gpu/shaders.cpp)
   list(APPEND RUNTIME_SOURCES ${PLAT}/psp.cpp ${PLAT}/stack_mips.S runtime/src/psp/ge.cpp
-       runtime/src/psp/gpu_psp.cpp runtime/src/psp/d3d_ge.cpp)
+       runtime/src/psp/gpu_psp.cpp runtime/src/psp/d3d_ge.cpp runtime/src/psp/sdl_psp.cpp)
 elseif(UNIX)
   list(APPEND RUNTIME_SOURCES ${PLAT}/posix.cpp ${PLAT}/paths_xdg.cpp)
 else()
@@ -176,7 +184,7 @@ set_source_files_properties(runtime/src/native_geom.cpp runtime/src/native_rende
   PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 target_link_libraries(motoracer PRIVATE ${SDL3_TARGET})
 if(PSP)
-  target_link_libraries(motoracer PRIVATE pspgu pspge pspdisplay psppower)
+  target_link_libraries(motoracer PRIVATE pspgu pspge pspdisplay psppower pspaudio pspctrl pspvfpu)
 endif()
 
 get_filename_component(GAME_DIR_FOR_ICON "${GAME_EXE}" DIRECTORY)
