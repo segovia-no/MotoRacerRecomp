@@ -80,6 +80,11 @@ void load_psp_env() {
 }
 #endif
 
+#ifdef RECOMP_MALLOC_TRACE
+namespace rt { void malloc_trace_log(); }
+using rt::malloc_trace_log;
+#endif
+
 int main(int argc, char **argv) {
 #ifdef __PSP__
     scePowerSetClockFrequency(333, 333, 166);   // homebrew starts at 222 MHz
@@ -87,7 +92,12 @@ int main(int argc, char **argv) {
 #endif
     open_log_file();
     // out of host memory (the PSP-1000 runs close to its limit): say so instead of ending silently
-    std::set_new_handler([] { fatal("out of host memory (operator new)"); });
+    std::set_new_handler([] {
+#ifdef RECOMP_MALLOC_TRACE
+        malloc_trace_log();
+#endif
+        fatal("out of host memory (operator new)");
+    });
     std::string game_dir_arg, game_args;
     bool explicit_args = false;
     for (int i = 1; i < argc; i++) {

@@ -21,7 +21,7 @@ void __real_free(void *);
 
 namespace {
 struct Entry { void *p; uint32_t size; void *ra; };
-constexpr size_t kSlots = 1 << 15;
+constexpr size_t kSlots = 1 << 13;   // 96 KB of table (PSP-1000: pair with a smaller MOTORACER_PSP_HEAP_KB)
 Entry table[kSlots];
 volatile int lock_held = 0;
 
@@ -107,6 +107,22 @@ void malloc_trace_log() {
     for (size_t i = 0; i < nsites && i < 16 && len < static_cast<int>(sizeof line) - 40; i++)
         len += snprintf(line + len, sizeof line - len, " %p:%lluK/%u", sites[i].ra,
                         static_cast<unsigned long long>(sites[i].bytes / 1024), sites[i].blocks);
+    log("%s\n", line);
+    // sizes of the small blocks (< 4 KB): which objects are many
+    struct Size { uint32_t size, blocks; };
+    static Size sizes[512];
+    size_t nsz = 0;
+    for (const Entry &e : table) {
+        if (!e.p || e.size >= 4096) continue;
+        size_t i = 0;
+        while (i < nsz && sizes[i].size != e.size) i++;
+        if (i == nsz) { if (nsz == 512) continue; sizes[nsz++] = Size{e.size, 0}; }
+        sizes[i].blocks++;
+    }
+    std::sort(sizes, sizes + nsz, [](const Size &a, const Size &b) { return a.size * a.blocks > b.size * b.blocks; });
+    len = snprintf(line, sizeof line, "malloc trace: small blocks by size (bytes x count):");
+    for (size_t i = 0; i < nsz && i < 20 && len < static_cast<int>(sizeof line) - 24; i++)
+        len += snprintf(line + len, sizeof line - len, " %ux%u", sizes[i].size, sizes[i].blocks);
     log("%s\n", line);
 }
 }  // namespace rt

@@ -49,7 +49,7 @@ void *outside_heap(size_t bytes) {
 namespace {
 
 constexpr uint32_t FB_BYTES = FB_STRIDE * FB_H * 2;
-constexpr size_t LIST_BYTES = 256 * 1024;   // PSP-1000 memory: 512 KB before
+constexpr size_t LIST_BYTES = 128 * 1024;   // PSP-1000 memory: 512 KB before; a race frame needs ~67 KB
 uint32_t early_flush_count = 0, list_peak = 0;
 alignas(64) unsigned int list[LIST_BYTES / 4];   // commands and vertices; flushed early when half full
 size_t list_used = 0;                            // vertex bytes taken from the open list

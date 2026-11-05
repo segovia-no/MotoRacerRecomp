@@ -308,6 +308,19 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   peak 12.8 MB; host allocations 17.25 of 17.56 MB.
 - Test runs are muted (`tools/psp/e2e_psp.sh`, `tools/e2e.sh`; `WITH_SOUND=1` for sound).
 
+### Crash at the end of a Dirt Arena race (owner, 2026-11-05)
+- "guest memory 0x014a2000+0x10000 is outside the host block": the CRT's small-block heap commits
+  ~264 KB of its VirtualAlloc reservation by then; the earlier trim of `VALLOC_BACKED` to 256 KB was
+  wrong. Back to 512 KB; memstats logs the highest commit ("highest commit", 256 KB on Speed Bay).
+- Paying for it: the GE list 256 → 128 KB, host stack 40 KB. The first build then ran out of host
+  memory while a race loaded: the PSP backend kept every vertex of a frame in one vector
+  (`frame_vertices`, ~10,000 vertices in a race) whose doubling briefly needed twice that. Draws only
+  use the vertices of the latest PROCESSVERTICES, so the list now restarts in `add_vertices`: host
+  C++ allocations 555 → 331 KB and no load spike (C-heap high-water = in use).
+- Dev aids: `MOTORACER_PSP_HEAP_KB` (CMake, PSP-1000 guest heap, default 13312); the malloc tracer
+  (8,192 slots now) also lists small blocks by size and dumps itself on "out of host memory".
+- PSP-1000 build: race, Quit Race, Top 5 (muted E2E); heap peak 12.8 MB; host 17.25 of 17.69 MB.
+
 ### Circle paused races (owner, 2026-11-05)
 - Cause: the PPSSPP staging copies the Mac's game folder, so CONTROLLER = KEYBOARD and recomp_state's
   `Defaults=1` came along; the first-run switch to JOYSTICK never ran. With KEYBOARD the game does

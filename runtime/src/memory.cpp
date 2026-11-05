@@ -26,6 +26,7 @@ namespace rt {
 
 namespace {
 
+uint32_t valloc_commit_top = 0;
 constexpr uint32_t ALIGN = 16;
 constexpr uint32_t kBigBlock = 256u << 10;   // compact layout: allocated top-down (Arena::alloc)
 
@@ -133,6 +134,9 @@ void check_guest_range(uint32_t va, uint32_t size) {
         fatal("guest memory 0x%08x+0x%x is outside the host block (compact layout: raise RECOMP_GUEST_HEAP_MB "
               "or VALLOC_BACKED)", va, size);
 #ifdef RECOMP_COMPACT_GUEST
+    if (va >= VALLOC_LO && va < VALLOC_HI) {   // the highest VirtualAlloc commit (MOTORACER_MEM_STATS)
+        valloc_commit_top = std::max<uint32_t>(valloc_commit_top, va + size - VALLOC_LO);
+    }
     if (va >= VALLOC_LO && va < VALLOC_HI && va + static_cast<uint64_t>(size) > VALLOC_LO + VALLOC_BACKED)
         fatal("VirtualAlloc commit 0x%08x+0x%x past the backed %u KB (raise VALLOC_BACKED)", va, size,
               VALLOC_BACKED / 1024);
@@ -342,10 +346,10 @@ void memory_stats_log() {
             for (int i = 0; i < 512; i++)
                 if (q[i]) { touched++; break; }
         }
-    log("memstats: heap %.1f MB (peak %.1f, %zu blocks), VirtualAlloc %.1f MB (peak %.1f, %.2f MB non-zero); "
-        "largest:%s\n",
+    log("memstats: heap %.1f MB (peak %.1f, %zu blocks), VirtualAlloc %.1f MB (peak %.1f, %.2f MB non-zero, "
+        "highest commit %u KB); largest:%s\n",
         heap.in_use / 1048576.0, heap.peak / 1048576.0, heap.live.size(), varena.in_use / 1048576.0,
-        varena.peak / 1048576.0, touched * 4096 / 1048576.0, top.c_str());
+        varena.peak / 1048576.0, touched * 4096 / 1048576.0, valloc_commit_top >> 10, top.c_str());
     // guest stack high-water mark: the stack region is zero at start; lowest non-zero dword
     uint32_t low = STACK_HI;
     for (uint32_t a = STACK_LO; a < STACK_HI; a += 64)

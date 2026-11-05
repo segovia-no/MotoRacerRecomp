@@ -513,7 +513,11 @@ void set_target(Surface *s) {
 }
 
 uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
-    uint32_t base = static_cast<uint32_t>(frame_vertices.size());
+    // Draws only use the vertices of the latest PROCESSVERTICES (d3d.cpp passes this call's base), so
+    // the list restarts here instead of growing over the whole frame: PSP-1000 memory (a race frame
+    // reached ~10,000 vertices, and the vector's doubling briefly needed twice that).
+    frame_vertices.clear();
+    uint32_t base = 0;
     if (ge3d()) psp_ge::set_near_w(near_w());
     for (uint32_t i = 0; i < n; i++) {
         const TLVertex &v = verts[i];
