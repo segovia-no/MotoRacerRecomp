@@ -246,6 +246,21 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   the register spill around a jump hook and crashed the translated code; it is now
   `h = NATIVE_CALL(name);`, one statement for the spill pass.
 
+### Cockpit windscreen glare drawn black — issue #1 follow-up (2026-11-05, owner-confirmed)
+- Reporter: "the black texture I suspect is a visor reflection that isn't displayed correct".
+  Draw dump (`MOTORACER_D3D_DUMP`, now also logging vertex alpha, texture-alpha use and colour key):
+  3 cockpit draws per frame with SRCBLEND = DESTBLEND = INVSRCALPHA (6/6), MODULATE, vertex alpha
+  128, a 1555 texture with the alpha bit.
+- Game side (`0x41de45`): SRCBLEND = `[0x4dc1cc]` ? SRCALPHA : INVSRCALPHA, DESTBLEND = INVSRCALPHA.
+  `0x4dc1cc` is set only on a PowerVR card (`0x41eb3b`: a test surface with FourCC `PVRC`, or a
+  command-line switch at `0x414679`). Both variants give a 50% mix only with alpha = vertex alpha.
+- We took MODULATE alpha from the texture when its format has alpha (D3D5 rule, needed elsewhere
+  because many game vertices carry alpha 0), so opaque glare texels had alpha 1 and 6/6 drew
+  0·src + 0·dst = black.
+- Fix (`d3d_gpu.cpp`, `d3d.frag`): for MODULATE + blending 6/6 the alpha is vertex × texture
+  (uniform `alpha.w` = 2): the glare is a 50% white streak, transparent texels stay invisible.
+  The PSP GE already modulates alpha (`GU_TCC_RGBA`), no change there.
+
 ### Intro glitches — GitHub issue #3 (2026-11-04, zoom fixed, owner-confirmed)
 - Report (Linux): the first logo sits in the top-left corner; the picture "zooms" when the
   Delphine Software International logo appears.

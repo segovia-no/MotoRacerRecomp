@@ -12,7 +12,7 @@ layout(set = 2, binding = 0) uniform sampler2D tex;
 layout(set = 3, binding = 0) uniform FragUniforms {
     vec4 fog_color;
     vec4 mode;    // x: textured, y: TEXTUREMAPBLEND, z: fog, w: specular
-    vec4 alpha;   // x: alpha test on, y: ref (0..1), z: colour key on, w: texture format has alpha
+    vec4 alpha;   // x: alpha test on, y: ref (0..1), z: colour key on, w: MODULATE alpha source (0 vertex, 1 texture, 2 both)
     vec4 snap;    // x: sample at the original pixel centre, y: magnification, zw: grid origin (px)
 } u;
 
@@ -35,7 +35,8 @@ void main() {
         else if (blend == 3)           c = vec4(mix(c.rgb, t.rgb, t.a), c.a);  // DECALALPHA
         else if (blend == 4)           c = c * t;                              // MODULATEALPHA
         else if (blend == 8)           c = vec4(c.rgb + t.rgb, c.a);           // ADD
-        else                           c = vec4(c.rgb * t.rgb, u.alpha.w > 0.5 ? t.a : c.a); // MODULATE
+        else                           c = vec4(c.rgb * t.rgb,                 // MODULATE
+                                                u.alpha.w > 1.5 ? t.a * c.a : u.alpha.w > 0.5 ? t.a : c.a);
     }
     if (u.mode.w > 0.5) c.rgb = clamp(c.rgb + v_spec.rgb, 0.0, 1.0);
     if (u.mode.z > 0.5) c.rgb = mix(u.fog_color.rgb, c.rgb, v_spec.a);

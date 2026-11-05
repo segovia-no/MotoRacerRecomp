@@ -905,6 +905,12 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     // D3D MODULATE: alpha comes from the texture when its format has an alpha channel (even if
     // opaque), otherwise from the vertex. The game's vertices often carry alpha 0.
     c.uniforms.alpha[3] = (texture && (texture->amask || texture->gmask == 0x00F0 || texture->ckey_src)) ? 1.f : 0.f;
+    // Translucent effects (the cockpit windscreen glare, GitHub issue #1 follow-up) blend with
+    // SRCBLEND = DESTBLEND = INVSRCALPHA and vertex alpha 128 (0x41de45: SRCALPHA only on a PowerVR
+    // card), i.e. a 50% mix that only works with the vertex alpha. The texture's 1-bit alpha still
+    // cuts out the shape: alpha = vertex x texture. Plain texture alpha drew the opaque texels black.
+    if (c.uniforms.alpha[3] > 0.5f && rs[RS_ALPHABLENDENABLE] && rs[RS_SRCBLEND] == 6 && rs[RS_DESTBLEND] == 6)
+        c.uniforms.alpha[3] = 2.f;
     c.first_index = static_cast<uint32_t>(frame_indices.size());
     bool flat = rt_w != g_w;   // only matters when rendering above the original resolution
     float w0 = 0, z0 = 0;
@@ -921,17 +927,20 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     }
     if (dump_frame >= 0 && presented == static_cast<uint64_t>(dump_frame)) {
         float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f, z0 = 1e9f, z1 = -1e9f, w0 = 1e9f, w1 = -1e9f;
+        uint32_t a0 = 255, a1 = 0;
         for (uint32_t t = 0; t < ntri * 3; t++) {
             const GpuVertex &v = frame_vertices[base + (indices[t] < nverts ? indices[t] : 0)];
+            a0 = std::min(a0, v.color >> 24); a1 = std::max(a1, v.color >> 24);
             const float sx = (v.x / v.w + 1.f) * 0.5f * g_w, sy = (1.f - v.y / v.w) * 0.5f * g_h, sz = v.z / v.w;
             x0 = std::min(x0, sx); x1 = std::max(x1, sx); y0 = std::min(y0, sy); y1 = std::max(y1, sy);
             z0 = std::min(z0, sz); z1 = std::max(z1, sz); w0 = std::min(w0, v.w); w1 = std::max(w1, v.w);
         }
         log("dump %4zu: tri %3u box %4.0f..%4.0f x %4.0f..%4.0f z %.6f..%.6f w %.3f..%.3f ztest %d zwrite %d zfunc %u "
-            "blend %d %u/%u cull %u fog %u atest %d tex %ux%u mapblend %u\n",
+            "blend %d %u/%u cull %u fog %u atest %d tex %ux%u mapblend %u valpha %u..%u texalpha %d ckey %d/%u\n",
             frame_cmds.size(), ntri, x0, x1, y0, y1, z0, z1, w0, w1, c.pipe.ztest, c.pipe.zwrite, c.pipe.zfunc,
             c.pipe.blend, c.pipe.src, c.pipe.dst, c.pipe.cull, rs[RS_FOGENABLE], rs[RS_ALPHATESTENABLE],
-            texture ? texture->w : 0, texture ? texture->h : 0, rs[RS_TEXTUREMAPBLEND]);
+            texture ? texture->w : 0, texture ? texture->h : 0, rs[RS_TEXTUREMAPBLEND], a0, a1,
+            c.uniforms.alpha[3] > 0.5f ? 1 : 0, texture && texture->ckey_src ? 1 : 0, rs[RS_COLORKEYENABLE]);
     }
     bool hud = hud_factor() > 1.f && hud_record(base, nverts, indices, ntri, frame_cmds.size());
     c.hud = hud;
