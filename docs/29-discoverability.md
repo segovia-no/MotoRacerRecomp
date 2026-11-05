@@ -31,8 +31,8 @@ E2E fix found on the way: `tools/e2e_race.sh` now starts with `MOUSE:0.01,0.01`.
 fix (issue #2) the host cursor over the window highlights menu items for real, and a cursor resting
 over the Select Race page turned the scripted `UP UP UP ENTER` into Back.
 
-Seen in the cockpit-view shots: the needles of the cockpit model's own dials are missing (the HUD
-gauges are fine) — the open speedometer-needle report; the site uses chase-camera shots.
+The cockpit model's own dials show no needles in the shots; the owner checked: that is how the game
+draws them (the HUD gauges carry the needles), not a bug.
 
 ## Status (2026-11-05)
 - Site live at https://segovia-no.github.io/MotoRacerRecomp/ (Pages from Actions, enabled by the
