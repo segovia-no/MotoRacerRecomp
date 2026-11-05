@@ -33,3 +33,10 @@ over the Select Race page turned the scripted `UP UP UP ENTER` into Back.
 
 Seen in the cockpit-view shots: the needles of the cockpit model's own dials are missing (the HUD
 gauges are fine) — the open speedometer-needle report; the site uses chase-camera shots.
+
+## Status (2026-11-05)
+- Site live at https://segovia-no.github.io/MotoRacerRecomp/ (Pages from Actions, enabled by the
+  owner: the API call was outside what the agent may change). `llms.txt`, `sitemap.xml` served.
+- Repo: new description, homepage = the site, Discussions on, topics added (recompilation,
+  retro-gaming, pc-port, gog, sdl3, steam-deck, racing-game).
+- Owner to do: social preview upload (Settings › General), Google Search Console + sitemap.
