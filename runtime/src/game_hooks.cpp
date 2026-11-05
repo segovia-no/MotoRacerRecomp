@@ -162,8 +162,17 @@ constexpr int32_t kPspJoy[7] = {0, 2, -2, -3, 5, 4, 1};
 
 void apply_controller_preset() {
     if (!settings::get().controller_preset || RD32(INPUT_DEVICE) != 2) return;
-    for (uint32_t i = 0; i < 7; i++)
-        if (static_cast<int32_t>(RD32(BINDINGS + 8 * i + 4)) != kFactoryJoy[i]) return;   // player's own
+    auto bound = [](const int32_t *layout) {
+        for (uint32_t i = 0; i < 7; i++)
+            if (static_cast<int32_t>(RD32(BINDINGS + 8 * i + 4)) != layout[i]) return false;
+        return true;
+    };
+#ifdef __PSP__
+    // also over the desktop's Xbox preset (a config copied from a PC: throttle on triggers the PSP lacks)
+    if (!bound(kFactoryJoy) && !bound(kXboxJoy)) return;   // the player's own bindings
+#else
+    if (!bound(kFactoryJoy)) return;   // the player's own bindings
+#endif
 #ifdef __PSP__
     for (uint32_t i = 0; i < 7; i++) WR32(BINDINGS + 8 * i + 4, static_cast<uint32_t>(kPspJoy[i]));
     log("controller: PSP layout applied (Cross/Square throttle/brake, nub/D-pad steer, R/L gears, Circle stunts)\n");
@@ -286,6 +295,13 @@ extern "C" void game_hook_input_loaded(void) {
     if (first && (SDL_HasGamepad() || deck) && RD32(INPUT_DEVICE) != 2) {
         WR32(INPUT_DEVICE, 2);
         log("first run: %s, CONTROLLER set to JOYSTICK\n", deck ? "Steam Deck" : "gamepad found");
+    }
+    // Pad-only hosts (PSP) at every start: with CONTROLLER = KEYBOARD (a config copied from a PC, or
+    // changed in Options) the game ignores the pad and the menu mapping turns Circle into Escape,
+    // which pauses races.
+    if (plat::host().info.pad_only() && RD32(INPUT_DEVICE) != 2) {
+        WR32(INPUT_DEVICE, 2);
+        log("pad-only host: CONTROLLER set to JOYSTICK\n");
     }
 }
 

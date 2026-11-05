@@ -157,6 +157,7 @@ private:
 class PspHostInfo final : public HostInfo {
 public:
     bool is_steam_deck() override { return false; }
+    bool pad_only() override { return true; }
 };
 
 }  // namespace

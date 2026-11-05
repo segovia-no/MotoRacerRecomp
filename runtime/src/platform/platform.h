@@ -114,6 +114,8 @@ public:
     virtual ~HostInfo() = default;
     // Steam Deck / SteamOS handheld: built-in gamepad, possibly not enumerated at the first look.
     virtual bool is_steam_deck() = 0;
+    // The built-in pad is the only input (PSP): the game's CONTROLLER option is kept at JOYSTICK.
+    virtual bool pad_only() { return false; }
 };
 
 struct Host {

@@ -308,6 +308,15 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   peak 12.8 MB; host allocations 17.25 of 17.56 MB.
 - Test runs are muted (`tools/psp/e2e_psp.sh`, `tools/e2e.sh`; `WITH_SOUND=1` for sound).
 
+### Circle paused races (owner, 2026-11-05)
+- Cause: the PPSSPP staging copies the Mac's game folder, so CONTROLLER = KEYBOARD and recomp_state's
+  `Defaults=1` came along; the first-run switch to JOYSTICK never ran. With KEYBOARD the game does
+  not poll the pad, so the runtime's menu mapping stayed active in races and Circle (B) became
+  Escape = pause.
+- Fix: `HostInfo::pad_only()` (true on the PSP) sets CONTROLLER = JOYSTICK at every start
+  (`game_hook_input_loaded`), and on the PSP the PSP layout also replaces the desktop's Xbox preset
+  (throttle on triggers the PSP lacks), not only the factory bindings; the player's own bindings stay.
+
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).
 - Time per 5 s in the race: Direct3D Execute (parsing + GE backend) 400–660 ms (8–13%), of which the
