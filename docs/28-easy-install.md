@@ -273,3 +273,6 @@ locally and tried on each device first.
 - To test on the devices (owner): see the checklist in the conversation of 2026-10-24 — Mac (app
   from the zip, right-click › Open once if macOS blocks it), Windows PC (zip, first start, watch for
   console windows / SmartScreen / antivirus), Steam Deck (tarball in Desktop Mode, then Game Mode).
+- 2026-11-05: draft release **0.1.1** (BUILD_ID `0.1.1-9c13071`, target `9c13071`): the cockpit
+  windscreen glare fix (#1). Linux tarball checked headless (fresh install → race). Same build
+  commands as above (zsh note: run the three `package.py` calls separately, not from a word-split loop).
