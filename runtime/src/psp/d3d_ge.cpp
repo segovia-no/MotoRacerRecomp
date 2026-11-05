@@ -133,7 +133,11 @@ bool usable() { return target != nullptr; }
 // Guest back buffer (RGB565) <-> GE draw buffer (scaled when the target is larger), through a RAM
 // staging buffer and GE block transfers (psp_ge::read_rect / write_rect).
 uint16_t *staging() {
-    static uint16_t *buf = static_cast<uint16_t *>(memalign(64, psp_ge::FB_STRIDE * psp_ge::FB_H * 2));
+    static uint16_t *buf = [] {
+        const size_t n = psp_ge::FB_STRIDE * psp_ge::FB_H * 2;
+        void *p = psp_ge::outside_heap(n);
+        return static_cast<uint16_t *>(p ? p : memalign(64, n));
+    }();
     return buf;
 }
 

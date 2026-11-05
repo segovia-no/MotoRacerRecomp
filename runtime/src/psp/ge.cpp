@@ -8,6 +8,7 @@
 #include <pspge.h>
 #include <pspgu.h>
 #include <pspkernel.h>
+#include <pspsysmem.h>
 
 #include <SDL3/SDL.h>
 
@@ -21,6 +22,29 @@
 #include "runtime.h"
 
 namespace psp_ge {
+
+void *outside_heap(size_t bytes) {
+    static uint8_t *base = nullptr, *end = nullptr, *next = nullptr;
+    static bool tried = false;
+    if (!tried) {
+        tried = true;
+        const size_t want = 512u << 10, avail = sceKernelMaxFreeMemSize();
+        const size_t size = std::min(want, avail);
+        if (size >= (64u << 10)) {
+            SceUID id = sceKernelAllocPartitionMemory(PSP_MEMORY_PARTITION_USER, "motoracer frames", PSP_SMEM_Low, size, nullptr);
+            if (id >= 0) {
+                base = static_cast<uint8_t *>(sceKernelGetBlockHeadAddr(id));
+                end = base + size;
+                next = reinterpret_cast<uint8_t *>((reinterpret_cast<uintptr_t>(base) + 63) & ~uintptr_t(63));
+                rt::log("ge: %zu KB outside the C heap for frame buffers\n", size >> 10);
+            }
+        }
+    }
+    if (!next || static_cast<size_t>(end - next) < bytes) return nullptr;
+    void *p = next;
+    next = reinterpret_cast<uint8_t *>((reinterpret_cast<uintptr_t>(next) + bytes + 63) & ~uintptr_t(63));
+    return p;
+}
 
 namespace {
 

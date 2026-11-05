@@ -42,10 +42,10 @@ constexpr uint32_t STACK_HI = 0x00760000;
 constexpr uint32_t EXT_LO = 0x00760000;       // relocated engine tables (2 x 16 KB from 0x760010)
 constexpr uint32_t EXT_HI = 0x00770000;
 constexpr uint32_t HEAP_LO = 0x00770000;
-#ifndef RECOMP_GUEST_HEAP_MB
-#define RECOMP_GUEST_HEAP_MB 18
+#ifndef RECOMP_GUEST_HEAP_KB
+#define RECOMP_GUEST_HEAP_KB (18 * 1024)
 #endif
-constexpr uint32_t HEAP_HI = HEAP_LO + (RECOMP_GUEST_HEAP_MB << 20);
+constexpr uint32_t HEAP_HI = HEAP_LO + (RECOMP_GUEST_HEAP_KB << 10);
 constexpr uint32_t VALLOC_LO = HEAP_HI;
 constexpr uint32_t VALLOC_HI = VALLOC_LO + 0x01000000;
 constexpr uint32_t VALLOC_BACKED = 0x00040000;   // the CRT commits 256 KB
@@ -70,6 +70,7 @@ void dump_state();
 
 // ---------- guest memory ----------
 void memory_init();
+void donate_text_to_heap();   // compact layout: unused x86 .text becomes guest heap (after load_image)
 uint32_t heap_alloc(uint32_t size, bool zero = false);
 void heap_free(uint32_t va);
 uint32_t heap_realloc(uint32_t va, uint32_t size, bool zero = false);

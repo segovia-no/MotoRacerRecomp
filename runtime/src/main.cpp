@@ -8,6 +8,7 @@
 // Game arguments default to Params= from <game dir>/motoracer.ini (GOG's launcher config).
 #include <cstdio>
 #include <cstdlib>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -85,6 +86,8 @@ int main(int argc, char **argv) {
     load_psp_env();
 #endif
     open_log_file();
+    // out of host memory (the PSP-1000 runs close to its limit): say so instead of ending silently
+    std::set_new_handler([] { fatal("out of host memory (operator new)"); });
     std::string game_dir_arg, game_args;
     bool explicit_args = false;
     for (int i = 1; i < argc; i++) {
@@ -120,6 +123,7 @@ int main(int argc, char **argv) {
 
     memory_init();
     load_image(game_dir + "/game.EXE");
+    donate_text_to_heap();
     if (!plat::host().fs.set_current_dir(game_dir)) fatal("cannot chdir to %s", game_dir.c_str());
     setup_thread_environment("game.EXE " + game_args);
 

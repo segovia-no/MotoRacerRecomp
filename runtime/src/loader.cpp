@@ -1,9 +1,7 @@
 // Maps game.EXE into guest memory at its preferred base and prepares the main thread.
 #include <cstdio>
-#include <iterator>
 #include <vector>
 
-#include "textio.h"
 #include "runtime.h"
 
 namespace rt {
@@ -23,12 +21,19 @@ template <class T> T get(const std::vector<uint8_t> &b, size_t off) {
 }  // namespace
 
 void load_image(const std::string &exe_path) {
-    std::vector<uint8_t> b;
-    if (!rt::read_file(exe_path, b)) fatal("cannot open %s", exe_path.c_str());
+    // Headers into a small buffer, sections straight into guest memory: no copy of the whole file
+    // (1.1 MB; the PSP-1000 has ~1 MB of C heap left once the guest block is allocated).
+    FILE *f = fopen(exe_path.c_str(), "rb");
+    if (!f) fatal("cannot open %s", exe_path.c_str());
+    fseek(f, 0, SEEK_END);
+    const long file_size = ftell(f);
+    std::vector<uint8_t> b(0x1000);
+    fseek(f, 0, SEEK_SET);
+    if (file_size < 0x400 || fread(b.data(), 1, b.size(), f) != b.size()) fatal("%s is not a PE file", exe_path.c_str());
     uint32_t pe = get<uint32_t>(b, 0x3C);
-    if (b.size() < 0x400 || get<uint32_t>(b, pe) != 0x4550) fatal("%s is not a PE file", exe_path.c_str());
+    if (pe + 0x200 > b.size() || get<uint32_t>(b, pe) != 0x4550) fatal("%s is not a PE file", exe_path.c_str());
     uint32_t ts = get<uint32_t>(b, pe + 8);
-    if (b.size() != GOG_SIZE || ts != GOG_TIMESTAMP)
+    if (file_size != static_cast<long>(GOG_SIZE) || ts != GOG_TIMESTAMP)
         fatal("%s is not the GOG game.EXE this build was generated from", exe_path.c_str());
 
     uint16_t nsec = get<uint16_t>(b, pe + 6);
@@ -39,6 +44,7 @@ void load_image(const std::string &exe_path) {
     image.entry = base + get<uint32_t>(b, opt + 16);
     image.image_size = get<uint32_t>(b, opt + 56);
     uint32_t hdr_size = get<uint32_t>(b, opt + 60);
+    if (hdr_size > b.size()) fatal("unexpected PE header size 0x%x", hdr_size);
     memcpy(M + base, b.data(), hdr_size);
 
     uint32_t sec = opt + opt_size;
@@ -46,8 +52,10 @@ void load_image(const std::string &exe_path) {
         uint32_t vsize = get<uint32_t>(b, sec + 8), va = get<uint32_t>(b, sec + 12);
         uint32_t raw_size = get<uint32_t>(b, sec + 16), raw_off = get<uint32_t>(b, sec + 20);
         uint32_t n = raw_size < vsize || vsize == 0 ? raw_size : vsize;
-        memcpy(M + base + va, b.data() + raw_off, n);
+        if (fseek(f, static_cast<long>(raw_off), SEEK_SET) != 0 || fread(M + base + va, 1, n, f) != n)
+            fatal("%s: cannot read section %u", exe_path.c_str(), i);
     }
+    fclose(f);
 
     // Point every IAT slot at a thunk that runs the host shim.
     const RecompModule &g = guest_code();

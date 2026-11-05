@@ -156,6 +156,35 @@ void memory_init() {
     varena.init(VALLOC_LO, VALLOC_HI);
 }
 
+#ifdef RECOMP_COMPACT_GUEST
+// PSP-1000 memory (docs/25-psp-port.md): the translated code never executes the x86 .text and reads
+// only its jump / index tables and the self-modifying rasterizer (text_keep.inc). The rest becomes
+// guest heap once the image is loaded. MOTORACER_TEXT_HEAP=0 turns it off.
+namespace {
+#include "text_keep.inc"
+}
+void donate_text_to_heap() {
+    if (const char *e = getenv("MOTORACER_TEXT_HEAP"); e && e[0] == '0') return;
+    uint32_t total = 0, pieces = 0, at = TEXT_LO;
+    auto give = [&](uint32_t a, uint32_t b) {
+        a = (a + 15) & ~15u;
+        b &= ~15u;
+        if (b <= a || b - a < 256) return;
+        heap.insert_free(a, b - a);
+        total += b - a;
+        pieces++;
+    };
+    for (const auto &r : TEXT_KEEP) {
+        give(at, r[0]);
+        at = r[1];
+    }
+    give(at, TEXT_HI);
+    log("memory: %u KB of the x86 .text (%u pieces) added to the guest heap\n", total >> 10, pieces);
+}
+#else
+void donate_text_to_heap() {}
+#endif
+
 // MOTORACER_MEM_STATS: who owns the live heap blocks — the first return address on the guest stack
 // inside the game's own code (below the CRT, which starts around 0x4b0000), i.e. past malloc.
 std::unordered_map<uint32_t, uint32_t> block_owner;

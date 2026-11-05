@@ -269,9 +269,27 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   stream code drops out: text 5.71 → 5.03 MB, rodata 240 → 113 KB.
 - Trims: log buffer 64 → 4 KB (PSP), host stack 128 → 64 KB (peaks ~17 KB), VirtualAlloc backing
   512 → 256 KB (what the CRT commits; more fails loudly), audio thread stacks 64 → 32 KB.
-- Looked at and left: `-Os` game code (−0.22 MB), the fallback bodies of natived functions (49 KB).
-  Candidate: most of the x86 `.text` (0.83 MB) is never read — but jump tables and index tables are
-  (`switch (RD32(table + i*4))`), and the self-modifying rasterizer is 48 KB of it.
+- Looked at and left: `-Os` game code (−0.22 MB), the fallback bodies of natived functions (49 KB),
+  a larger C heap via `PSP_HEAP_SIZE_KB` (no effect: the 0.75 MB the heap does not take are separate
+  pieces, the largest 0.5 MB).
+- Step 6, the x86 `.text` as guest heap: the translated code never executes it and reads only jump
+  tables, their byte index tables, the self-modifying rasterizer (48 KB) and a few data operands.
+  `tools/psp/gen_text_keep.py` lists those ranges from the discovery analysis and the instructions'
+  memory operands (indexed ones up to the next function, at most 1 KB — the CRT's memcpy tables are
+  found that way; a first version that kept 4 bytes per operand died with "jump table miss at
+  0x4bb326") into `runtime/src/text_keep.inc` (62 KB in 61 ranges); `donate_text_to_heap` (compact
+  layout, after `load_image`; `MOTORACER_TEXT_HEAP=0` off) gives the other 764 KB in 61 pieces to the
+  guest heap. PPSSPP race OK.
+- Step 7, PSP-1000 fit: guest heap 12.5 MB (`RECOMP_GUEST_HEAP_KB=12800`) + the 764 KB from `.text`
+  ≈ 13.25 MB for races that peak at 12.6–12.8 MB; guest block 16.19 MB in 17.31 MB of room. The GE
+  staging buffer and the CPU-frame buffer (512 KB) come from the user partition's leftover piece
+  (`psp_ge::outside_heap`, `sceKernelAllocPartitionMemory`), not the C heap. The PE loader reads the
+  sections straight into guest memory (it held the whole 1.1 MB file, more than the heap had left).
+  An out-of-memory `new` now ends with "out of host memory" in the log instead of silently.
+- **Result (2026-11-05): the `MOTORACER_PSP_1000=ON` EBOOT runs in PPSSPP within the 24 MB partition**
+  — intro, menus, a race to the time-out screen (muted E2E). Margin is small: `MOTORACER_MEM_STATS`
+  (its per-block owner map) runs out of host memory in this build. Still to check: Dirt Arena (the
+  12.8 MB heap peak), other modes, longer play, a real PSP-1000.
 - Test runs are muted (`tools/psp/e2e_psp.sh`, `tools/e2e.sh`; `WITH_SOUND=1` for sound).
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)

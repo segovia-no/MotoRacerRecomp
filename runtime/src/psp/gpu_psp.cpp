@@ -22,6 +22,26 @@ struct SpriteVertex {
 
 uint16_t *frame16 = nullptr;   // the frame in GE 5650, stride = frame width (16-byte aligned)
 uint32_t frame16_px = 0;
+bool frame16_pooled = false;    // in psp_ge::outside_heap (a fixed slot), not malloc
+
+// A buffer of at least px pixels. Up to kSlot bytes it is a fixed slot outside the C heap (the
+// downscaled 640x480 menus need 368x272); larger frames use malloc.
+uint16_t *frame_buffer(uint32_t px) {
+    constexpr size_t kSlot = 240u << 10;
+    static uint16_t *slot = static_cast<uint16_t *>(psp_ge::outside_heap(kSlot));
+    if (frame16 && frame16_px >= px) return frame16;
+    if (frame16 && !frame16_pooled) free(frame16);
+    if (slot && px * 2u <= kSlot) {
+        frame16 = slot;
+        frame16_pooled = true;
+        frame16_px = static_cast<uint32_t>(kSlot / 2);
+    } else {
+        frame16 = static_cast<uint16_t *>(memalign(64, px * 2u));
+        frame16_pooled = false;
+        frame16_px = px;
+    }
+    return frame16;
+}
 
 // Draws the w x h 5650 image (stride w) into the visible 480x272 window of the draw buffer, keeping
 // its aspect ratio; strips of at most 512 texels (the GE's texture limit).
@@ -70,11 +90,7 @@ void present_placed(SDL_GPUCommandBuffer *, SDL_GPUTexture *, uint32_t, uint32_t
 
 void present_rgba(const uint32_t *px, uint32_t w, uint32_t h, const Crop &) {
     if (w > 1024 || h > 512) return;
-    if (frame16_px < w * h) {
-        free(frame16);
-        frame16 = static_cast<uint16_t *>(memalign(64, w * h * 2));
-        frame16_px = w * h;
-    }
+    frame_buffer(w * h);
     for (uint32_t i = 0; i < w * h; i++) {   // RGBA8 (R in the low byte) -> 5650 (R in the low bits)
         uint32_t p = px[i];
         frame16[i] = static_cast<uint16_t>(((p >> 3) & 0x1F) | ((p >> 10) & 0x3F) << 5 | ((p >> 19) & 0x1F) << 11);
@@ -92,21 +108,13 @@ void present_rgb16(const uint8_t *px, uint32_t w, uint32_t h, uint32_t pitch, bo
         float scale = std::min(static_cast<float>(psp_ge::SCREEN_W) / w, static_cast<float>(psp_ge::SCREEN_H) / h);
         uint32_t dw = static_cast<uint32_t>(w * scale), dh = static_cast<uint32_t>(h * scale);
         const uint32_t dstride = (dw + 7) & ~7u;
-        if (frame16_px < dstride * dh) {
-            free(frame16);
-            frame16 = static_cast<uint16_t *>(memalign(64, dstride * dh * 2));
-            frame16_px = dstride * dh;
-        }
+        frame_buffer(dstride * dh);
         psp_ge::downscale_565(px, pitch, w, h, frame16, dstride, dw, dh);
         draw_frame(frame16, dw, dh, dstride);
         return;
     }
     const uint32_t stride = (w + 7) & ~7u;
-    if (frame16_px < stride * h) {
-        free(frame16);
-        frame16 = static_cast<uint16_t *>(memalign(64, stride * h * 2));
-        frame16_px = stride * h;
-    }
+    frame_buffer(stride * h);
     for (uint32_t y = 0; y < h; y++) {
         const uint16_t *row = reinterpret_cast<const uint16_t *>(px + static_cast<size_t>(y) * pitch);
         uint16_t *out = frame16 + y * stride;
