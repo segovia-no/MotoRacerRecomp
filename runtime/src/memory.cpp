@@ -27,6 +27,7 @@ namespace rt {
 namespace {
 
 constexpr uint32_t ALIGN = 16;
+constexpr uint32_t kBigBlock = 256u << 10;   // compact layout: allocated top-down (Arena::alloc)
 
 // Arena blocks: heap blocks lie inside the block by construction; VirtualAlloc reservations may extend
 // past what is backed in the compact layout (only commits must fit: check_guest_range in VirtualAlloc).
@@ -39,6 +40,7 @@ struct Arena {
     std::multimap<uint32_t, uint32_t> free_by_size;     // size -> addr
     std::unordered_map<uint32_t, uint32_t> live;        // addr -> size (rounded)
     uint64_t in_use = 0, peak = 0;                      // bytes handed out (MOTORACER_MEM_STATS)
+    bool big_top_down = false;                          // guest heap only (not the VirtualAlloc arena)
 
     void init(uint32_t lo, uint32_t hi) { insert_free(lo, hi - lo); }
 
@@ -56,6 +58,29 @@ struct Arena {
     uint32_t alloc(uint32_t size, uint32_t align) {
         uint32_t need = (size + ALIGN - 1) & ~(ALIGN - 1);
         if (need == 0) need = ALIGN;
+#ifdef RECOMP_COMPACT_GUEST
+        // Small heaps (PSP-1000, docs/25-psp-port.md): big blocks (640x480 surfaces, models) from the top
+        // of the highest free range that fits, small ones best-fit from the bottom, so long-lived small
+        // objects do not split the space the next big block needs (a race left no 600 KB gap for the
+        // menus' surfaces otherwise).
+        if (big_top_down && need >= kBigBlock) {
+            for (auto it = free_by_addr.rbegin(); it != free_by_addr.rend(); ++it) {
+                uint32_t a = it->first, s = it->second;
+                if (s < need + align) continue;
+                uint32_t start = (a + s - need) & ~(align - 1);
+                if (start < a) continue;
+                erase_free(free_by_addr.find(a));
+                if (start > a) insert_free(a, start - a);
+                if (start + need < a + s) insert_free(start + need, a + s - start - need);
+                live[start] = need;
+                in_use += need;
+                peak = std::max(peak, in_use);
+                commit(start, need);
+                return start;
+            }
+            return 0;
+        }
+#endif
         for (auto it = free_by_size.lower_bound(need); it != free_by_size.end(); ++it) {
             uint32_t a = it->second, s = it->first;
             uint32_t start = (a + align - 1) & ~(align - 1);
@@ -152,6 +177,7 @@ void memory_init() {
     commit(THUNK_LO, THUNK_HI - THUNK_LO);      // host thunk addresses stay readable, as before
     vm.make_inaccessible(M, NULL_GUARD);
 #endif
+    heap.big_top_down = true;
     heap.init(HEAP_LO, HEAP_HI);
     varena.init(VALLOC_LO, VALLOC_HI);
 }
@@ -179,7 +205,10 @@ void donate_text_to_heap() {
         at = r[1];
     }
     give(at, TEXT_HI);
-    log("memory: %u KB of the x86 .text (%u pieces) added to the guest heap\n", total >> 10, pieces);
+    // the unused layout gaps: after the PEB up to the stack, after the relocated tables (2 x 16 KB)
+    give(PEB_VA + 0x1000, STACK_LO);
+    give(EXT_LO + 0x10 + 2 * (4 * 4096 + 16) + 64, EXT_HI);
+    log("memory: %u KB of the x86 .text and layout gaps (%u pieces) added to the guest heap\n", total >> 10, pieces);
 }
 #else
 void donate_text_to_heap() {}
@@ -188,8 +217,8 @@ void donate_text_to_heap() {}
 // MOTORACER_MEM_STATS: who owns the live heap blocks — the first return address on the guest stack
 // inside the game's own code (below the CRT, which starts around 0x4b0000), i.e. past malloc.
 std::unordered_map<uint32_t, uint32_t> block_owner;
-bool track_owners() {
-    static const bool on = getenv("MOTORACER_MEM_STATS") != nullptr;
+bool track_owners() {   // MOTORACER_MEM_STATS=2: the per-block owner map costs host memory (PSP-1000)
+    static const bool on = [] { const char *e = getenv("MOTORACER_MEM_STATS"); return e && atoi(e) >= 2; }();
     return on;
 }
 uint32_t guest_caller() {
@@ -202,7 +231,13 @@ uint32_t guest_caller() {
 
 uint32_t heap_alloc(uint32_t size, bool zero) {
     uint32_t a = heap.alloc(size, ALIGN);
-    if (!a) fatal("guest heap exhausted (request %u)", size);
+    if (!a) {
+        uint64_t free_total = 0, largest = 0;
+        for (auto &[fa, fs] : heap.free_by_addr) { free_total += fs; largest = std::max<uint64_t>(largest, fs); }
+        fatal("guest heap exhausted (request %u; in use %.2f MB in %zu blocks, peak %.2f MB, free %.2f MB, largest free %u KB)",
+              size, heap.in_use / 1048576.0, heap.live.size(), heap.peak / 1048576.0, free_total / 1048576.0,
+              static_cast<unsigned>(largest >> 10));
+    }
     if (zero) memset(M + a, 0, heap.live[a]);
     if (track_owners()) block_owner[a] = guest_caller();
     return a;
@@ -302,7 +337,7 @@ void memory_stats_log() {
     // commits as it grows): count the 4 KB pages holding anything but zeros.
     uint32_t touched = 0;
     for (auto &[a, s] : varena.live)
-        for (uint32_t p = a; p < a + s; p += 4096) {
+        for (uint32_t p = a; p < a + s && p + 4096 <= GUEST_HI; p += 4096) {   // only what is backed
             const uint64_t *q = reinterpret_cast<const uint64_t *>(M + p);
             for (int i = 0; i < 512; i++)
                 if (q[i]) { touched++; break; }

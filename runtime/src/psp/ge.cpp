@@ -49,7 +49,8 @@ void *outside_heap(size_t bytes) {
 namespace {
 
 constexpr uint32_t FB_BYTES = FB_STRIDE * FB_H * 2;
-constexpr size_t LIST_BYTES = 512 * 1024;
+constexpr size_t LIST_BYTES = 256 * 1024;   // PSP-1000 memory: 512 KB before
+uint32_t early_flush_count = 0, list_peak = 0;
 alignas(64) unsigned int list[LIST_BYTES / 4];   // commands and vertices; flushed early when half full
 size_t list_used = 0;                            // vertex bytes taken from the open list
 bool inited = false, open = false;
@@ -133,6 +134,15 @@ void write_rect(const uint16_t *ram, int ram_stride, int x, int y, int w, int h)
     sceGuTexSync();
 }
 
+uint16_t *staging() {
+    static uint16_t *buf = [] {
+        const size_t n = FB_STRIDE * FB_H * 2;
+        void *p = outside_heap(n);
+        return static_cast<uint16_t *>(p ? p : memalign(64, n));
+    }();
+    return buf;
+}
+
 // Debug: MOTORACER_SNAPSHOT_DIR saves every MOTORACER_SNAPSHOT_EVERY-th (120) shown frame, the
 // visible 480x272 picture, as gpu_NNNNNN.bmp (the desktop name for GPU frames).
 static void maybe_snapshot(const uint8_t *shown) {
@@ -141,7 +151,7 @@ static void maybe_snapshot(const uint8_t *shown) {
     static uint64_t n = 0;
     if (!dir || n++ % every) return;
     (void)shown;
-    static uint16_t *buf = static_cast<uint16_t *>(memalign(64, FB_STRIDE * SCREEN_H * 2));
+    uint16_t *buf = staging();   // free between the D3D backend's transfers (no extra 272 KB)
     read_rect(buf, FB_STRIDE, 0, VIEW_Y0, SCREEN_W, SCREEN_H);
     SDL_Surface *s = SDL_CreateSurfaceFrom(SCREEN_W, SCREEN_H, SDL_PIXELFORMAT_BGR565, buf, FB_STRIDE * 2);
     if (!s) return;
@@ -231,11 +241,20 @@ uint16_t *draw_buffer() {
     return reinterpret_cast<uint16_t *>(vram_cpu() + fb_offset(cur));
 }
 
+uint32_t take_list_stats(uint32_t *peak) {
+    const uint32_t n = early_flush_count;
+    *peak = list_peak;
+    early_flush_count = 0;
+    list_peak = 0;
+    return n;
+}
+
 void *list_memory(size_t n) {
     n = (n + 15) & ~size_t{15};
-    if (open && list_used + n > LIST_BYTES / 2) finish();   // the rest of the frame goes into a new list
+    if (open && list_used + n > LIST_BYTES / 2) { finish(); early_flush_count++; }   // the rest of the frame: a new list
     begin();
     list_used += n;
+    list_peak = std::max(list_peak, static_cast<uint32_t>(list_used));
     return sceGuGetMemory(static_cast<int>(n));
 }
 

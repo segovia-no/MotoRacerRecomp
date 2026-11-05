@@ -570,6 +570,8 @@ COM_METHOD(Tex_Load, 1) {
     // Copy a (system-memory) source texture into this one.
     Surface *dst = obj<Surface>(self), *src = dynamic_cast<Surface *>(lookup(arg(1)));
     if (!src) return D3DERR_INVALIDPARAMS;
+    gpu::sync_to_cpu(src);   // the GPU backend may hold either one in its own form (PSP: in-place GE order)
+    gpu::sync_to_cpu(dst);
     uint32_t rows = std::min(dst->h, src->h), bytes = std::min(dst->pitch, src->pitch);
     for (uint32_t y = 0; y < rows; y++) memcpy(M + dst->mem + y * dst->pitch, M + src->mem + y * src->pitch, bytes);
     if (src->palette) dst->palette = src->palette;

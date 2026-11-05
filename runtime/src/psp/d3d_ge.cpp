@@ -116,7 +116,9 @@ void stats_tick() {
             tex_bytes += b;
             if (t.psm == GU_PSM_8888) tex8 += b;
         }
-    log("ge: %zu textures %.2f MB (from 8-bit %.2f MB) | ", textures.size(), tex_bytes / 1048576.0, tex8 / 1048576.0);
+    uint32_t list_peak = 0, early = psp_ge::take_list_stats(&list_peak);
+    log("ge: %zu textures %.2f MB (from 8-bit %.2f MB), list peak %u KB, early flushes %u | ", textures.size(),
+        tex_bytes / 1048576.0, tex8 / 1048576.0, list_peak >> 10, early);
     log("ge: draws %u tris %u (+%u split) clears %u flip gpu/cpu %u/%u blt gpu/cpu %u/%u downloads %u uploads %u texconv %u | "
         "ms in 5 s: execute %llu, draw %llu (textures %llu), GE wait %llu\n",
         st.draws, st.tris, st.subdivided, st.clears, st.flips_gpu, st.flips_cpu, st.blts_gpu, st.blts_cpu, st.downloads, st.uploads,
@@ -132,14 +134,7 @@ bool usable() { return target != nullptr; }
 
 // Guest back buffer (RGB565) <-> GE draw buffer (scaled when the target is larger), through a RAM
 // staging buffer and GE block transfers (psp_ge::read_rect / write_rect).
-uint16_t *staging() {
-    static uint16_t *buf = [] {
-        const size_t n = psp_ge::FB_STRIDE * psp_ge::FB_H * 2;
-        void *p = psp_ge::outside_heap(n);
-        return static_cast<uint16_t *>(p ? p : memalign(64, n));
-    }();
-    return buf;
-}
+uint16_t *staging() { return psp_ge::staging(); }
 
 void upload_target() {
     st.uploads++;

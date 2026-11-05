@@ -290,6 +290,22 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   — intro, menus, a race to the time-out screen (muted E2E). Margin is small: `MOTORACER_MEM_STATS`
   (its per-block owner map) runs out of host memory in this build. Still to check: Dirt Arena (the
   12.8 MB heap peak), other modes, longer play, a real PSP-1000.
+- Owner test of that build: (1) quitting a race crashed with "guest heap exhausted (request 614432)"
+  — in use 12.2 MB, free 1.05 MB, largest free 524 KB: the menus allocate their 640x480 surfaces
+  (600 KB each) while the race data is still there; the 64 MB build peaks at 12.8 MB there, and the
+  `.text` pieces are too small for 600 KB blocks. (2) The menu's breaking-glass effect turned red:
+  `IDirect3DTexture::Load` copied pixels without `sync_to_cpu`, so an in-place converted texture
+  was copied and converted again (R/B swapped).
+- Fixes: `Tex_Load` syncs both surfaces; the guest heap places blocks ≥ 256 KB top-down (compact
+  layout, guest heap only — doing it in the VirtualAlloc arena too put the CRT's 4 MB reservation
+  past the backed part at once); guest heap 13 MB (`RECOMP_GUEST_HEAP_KB=13312`); guest stack 64 KB;
+  the layout gaps after the PEB and after the relocated tables also go to the heap (920 KB donated
+  in all); the GE display list 512 → 256 KB (a race frame peaks at ~67 KB, no early flushes); the
+  snapshot buffer borrows the GE staging buffer; "guest heap exhausted" reports in use / free /
+  largest free; `MOTORACER_MEM_STATS=2` for the per-block owner map (level 1 is cheap); the
+  memstats page count no longer reads past the guest block (it crashed the PSP-1000 build).
+- PSP-1000 build after the fixes (PPSSPP, muted E2E): race, pause, Quit Race, Top 5 screen; heap
+  peak 12.8 MB; host allocations 17.25 of 17.56 MB.
 - Test runs are muted (`tools/psp/e2e_psp.sh`, `tools/e2e.sh`; `WITH_SOUND=1` for sound).
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)

@@ -37,10 +37,10 @@ constexpr uint32_t NULL_GUARD = 0x00400000;   // nothing below the block (no MMU
 constexpr uint32_t IMAGE_BASE = 0x00400000;   // image [0x400000, 0x72f000)
 constexpr uint32_t TEB_VA = 0x0072F000;
 constexpr uint32_t PEB_VA = 0x00730000;
-constexpr uint32_t STACK_LO = 0x00740000;     // main thread stack, 128 KB (uses ~30 KB; PE reserve: 1 MB)
+constexpr uint32_t STACK_LO = 0x00750000;     // main thread stack, 64 KB (uses ~30 KB; PE reserve: 1 MB)
 constexpr uint32_t STACK_HI = 0x00760000;
 constexpr uint32_t EXT_LO = 0x00760000;       // relocated engine tables (2 x 16 KB from 0x760010)
-constexpr uint32_t EXT_HI = 0x00770000;
+constexpr uint32_t EXT_HI = 0x00770000;       // [0x731000, STACK_LO) and the tables' slack are guest heap too
 constexpr uint32_t HEAP_LO = 0x00770000;
 #ifndef RECOMP_GUEST_HEAP_KB
 #define RECOMP_GUEST_HEAP_KB (18 * 1024)

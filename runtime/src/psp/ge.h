@@ -21,9 +21,13 @@ void finish();                 // close it, write back the data cache, let the G
 void show();                   // finish, display the drawn buffer, swap
 uint16_t *draw_buffer();       // CPU (uncached) pointer to the buffer being drawn (RGB565, R low)
 void *list_memory(size_t n);   // memory inside the open display list (vertices)
+uint32_t take_list_stats(uint32_t *peak);   // early list flushes and peak vertex bytes since the last call
 // 64-byte aligned memory from a kernel block outside the C heap (the user partition keeps a ~0.5 MB
 // piece the heap cannot grow into); nullptr when it is used up. Never freed.
 void *outside_heap(size_t bytes);
+// RAM staging buffer for one 512x272 RGB565 picture (GE block transfers): the D3D backend's target
+// up / downloads and the dev snapshots share it.
+uint16_t *staging();
 uint64_t take_wait_ns();       // time spent waiting for the GE since the last call (stats)
 // Guest RGB565 (red high) -> GE 5650 (red low), scaled down from w x h to dw x dh by averaging 2x2
 // source pixels (keeps the game's 1-pixel checker "stippled" transparency as a blend).
