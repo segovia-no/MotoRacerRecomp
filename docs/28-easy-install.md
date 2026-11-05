@@ -268,6 +268,8 @@ locally and tried on each device first.
   checked headless again (fresh install from the GOG setup → race). Mac: owner-tested OK.
 - Draft GitHub release `test-64a6c7b` (draft + pre-release, only visible to the owner) holds the three
   packages so the PC and Deck can download them. Publishing waits for those device tests.
+- 2026-11-05: the owner published it as pre-release **0.1.0** (tag `0.1.0` at `64a6c7b`, same three
+  packages and checksums). README now leads with installing from the Releases page (source build second).
 - To test on the devices (owner): see the checklist in the conversation of 2026-10-24 — Mac (app
   from the zip, right-click › Open once if macOS blocks it), Windows PC (zip, first start, watch for
   console windows / SmartScreen / antivirus), Steam Deck (tarball in Desktop Mode, then Game Mode).
