@@ -320,6 +320,8 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
 - Dev aids: `MOTORACER_PSP_HEAP_KB` (CMake, PSP-1000 guest heap, default 13312); the malloc tracer
   (8,192 slots now) also lists small blocks by size and dumps itself on "out of host memory".
 - PSP-1000 build: race, Quit Race, Top 5 (muted E2E); heap peak 12.8 MB; host 17.25 of 17.69 MB.
+- Owner-tested (PPSSPP, PSP-1000 build): full Dirt Arena race to the results, quitting races, the
+  menu glass, Circle for stunts — "that worked".
 
 ### Circle paused races (owner, 2026-11-05)
 - Cause: the PPSSPP staging copies the Mac's game folder, so CONTROLLER = KEYBOARD and recomp_state's
