@@ -4,10 +4,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
 #include <map>
 #include <vector>
 
+#include "textio.h"
 #include "platform/platform.h"
 #include "win32.h"
 
@@ -111,9 +111,10 @@ std::string ini_host_path(uint32_t file_va) {
 
 Ini ini_load(const std::string &host) {
     Ini ini;
-    std::ifstream in(host);
-    std::string line, sec;
-    while (std::getline(in, line)) {
+    std::vector<std::string> lines;
+    rt::read_lines(host, lines);
+    std::string sec;
+    for (std::string line : lines) {
         line = trim(line);
         if (line.empty() || line[0] == ';') continue;
         if (line[0] == '[') { sec = lower(trim(line.substr(1, line.find(']') - 1))); continue; }
@@ -773,10 +774,11 @@ STDCALL(KERNEL32, WritePrivateProfileStringA, 4) {
     else if (!arg(2)) ini[sec].erase(lower(read_cstr(arg(1))));
     else ini[sec][lower(read_cstr(arg(1)))] = read_cstr(arg(2));
     plat::host().fs.make_dir("windows");
-    std::ofstream out(path);
+    std::string out;
     for (auto &[s, kv] : ini) {
-        out << "[" << s << "]\r\n";
-        for (auto &[k, v] : kv) out << k << "=" << v << "\r\n";
+        out += "[" + s + "]\r\n";
+        for (auto &[k, v] : kv) out += k + "=" + v + "\r\n";
     }
+    rt::write_file(path, out);
     return 1;
 }

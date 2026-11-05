@@ -57,7 +57,11 @@ void open_log_file() {
     log_path = dir + "/motoracer.log";
     h.fs.rename(log_path, log_path + ".1");
     log_file = fopen(log_path.c_str(), "w");
+#ifdef __PSP__
+    if (log_file) setvbuf(log_file, nullptr, _IOLBF, 4096);   // PSP-1000 memory
+#else
     if (log_file) setvbuf(log_file, nullptr, _IOLBF, 1 << 16);
+#endif
 }
 
 const std::string &log_file_path() { return log_path; }

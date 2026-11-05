@@ -1,9 +1,9 @@
 // Maps game.EXE into guest memory at its preferred base and prepares the main thread.
 #include <cstdio>
-#include <fstream>
 #include <iterator>
 #include <vector>
 
+#include "textio.h"
 #include "runtime.h"
 
 namespace rt {
@@ -23,9 +23,8 @@ template <class T> T get(const std::vector<uint8_t> &b, size_t off) {
 }  // namespace
 
 void load_image(const std::string &exe_path) {
-    std::ifstream f(exe_path, std::ios::binary);
-    if (!f) fatal("cannot open %s", exe_path.c_str());
-    std::vector<uint8_t> b((std::istreambuf_iterator<char>(f)), {});
+    std::vector<uint8_t> b;
+    if (!rt::read_file(exe_path, b)) fatal("cannot open %s", exe_path.c_str());
     uint32_t pe = get<uint32_t>(b, 0x3C);
     if (b.size() < 0x400 || get<uint32_t>(b, pe) != 0x4550) fatal("%s is not a PE file", exe_path.c_str());
     uint32_t ts = get<uint32_t>(b, pe + 8);

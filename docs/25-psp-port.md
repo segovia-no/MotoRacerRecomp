@@ -258,7 +258,20 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   565 texture (lossy as 5551) keeps a copy. Host allocations in a race 24.85 → 23.49 MB, no texture
   copies left; picture and race speed unchanged.
 - Tally for the PSP-1000: guest block 17.94 + other host allocations 1.55 = 19.49 MB vs 16.44 MB
-  room → ~3 MB to go. Next: what the 1.55 MB is, libstdc++ (0.84 MB of code).
+  room → ~3 MB to go.
+- `MOTORACER_MALLOC_TRACE` (CMake, PSP dev): `--wrap` malloc / calloc / realloc / memalign / free and
+  log live blocks by call site with `MOTORACER_MEM_STATS` (resolve with `psp-addr2line`). In a race
+  besides the guest block: 590 KB in ~7,000 small C++ objects, the snapshot buffer 272 KB (test runs
+  only), the GE staging buffer 272 KB, the CPU-frame buffer 195 KB, host stack 128 KB, log buffer 64 KB.
+- Step 5, no iostreams: `rt::read_lines` / `read_file` / `write_file` (`runtime/src/textio.cpp`, stdio)
+  replace ifstream / ofstream / stringstream in settings, recomp_state, registry, private-profile ini
+  and the PE loader (all platforms; installer.cpp, desktop-only, keeps them). libstdc++'s locale /
+  stream code drops out: text 5.71 → 5.03 MB, rodata 240 → 113 KB.
+- Trims: log buffer 64 → 4 KB (PSP), host stack 128 → 64 KB (peaks ~17 KB), VirtualAlloc backing
+  512 → 256 KB (what the CRT commits; more fails loudly), audio thread stacks 64 → 32 KB.
+- Looked at and left: `-Os` game code (−0.22 MB), the fallback bodies of natived functions (49 KB).
+  Candidate: most of the x86 `.text` (0.83 MB) is never read — but jump tables and index tables are
+  (`switch (RD32(table + i*4))`), and the self-modifying rasterizer is 48 KB of it.
 - Test runs are muted (`tools/psp/e2e_psp.sh`, `tools/e2e.sh`; `WITH_SOUND=1` for sound).
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)

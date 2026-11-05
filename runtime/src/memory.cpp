@@ -12,6 +12,7 @@
 #include <pspsysmem.h>
 #include <unistd.h>
 size_t psp_host_stack_used();
+namespace rt { void malloc_trace_log(); }
 #endif
 #include <string>
 #include <vector>
@@ -316,6 +317,9 @@ void memory_stats_log() {
     log("memstats: host malloc in use %.2f MB (arena %.2f MB), kernel free %.2f MB (largest block %.2f MB)\n",
         mi.uordblks / 1048576.0, mi.arena / 1048576.0, sceKernelTotalFreeMemSize() / 1048576.0,
         sceKernelMaxFreeMemSize() / 1048576.0);
+#ifdef RECOMP_MALLOC_TRACE
+    malloc_trace_log();
+#endif
 #endif
 }
 }  // namespace rt

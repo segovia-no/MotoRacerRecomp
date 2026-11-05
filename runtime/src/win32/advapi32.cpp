@@ -1,10 +1,9 @@
 // ADVAPI32 registry: an in-memory tree persisted to <game dir>/registry.txt.
 //
 // File format, one value per line:  KEY\PATH<TAB>name<TAB>type<TAB>hex-bytes
-#include <fstream>
 #include <map>
-#include <sstream>
 
+#include "textio.h"
 #include "win32.h"
 
 using namespace rt;
@@ -26,15 +25,16 @@ std::string upper(std::string s) { for (auto &c : s) c = static_cast<char>(toupp
 void load() {
     if (loaded) return;
     loaded = true;
-    std::ifstream in(kFile);
-    std::string line;
-    while (std::getline(in, line)) {
-        std::stringstream ss(line);
-        std::string path, name, type, hex;
-        std::getline(ss, path, '\t');
-        std::getline(ss, name, '\t');
-        std::getline(ss, type, '\t');
-        std::getline(ss, hex, '\t');
+    std::vector<std::string> lines;
+    rt::read_lines(kFile, lines);
+    for (const std::string &line : lines) {
+        std::string field[4];
+        for (size_t i = 0, f = 0; i < line.size() && f < 4; i++) {
+            if (line[i] == '\t') f++;
+            else field[f] += line[i];
+        }
+        const std::string &path = field[0], &name = field[1], &type = field[2], &hex = field[3];
+        if (type.empty()) continue;
         Value v{static_cast<uint32_t>(std::stoul(type)), ""};
         for (size_t i = 0; i + 1 < hex.size(); i += 2) v.data.push_back(static_cast<char>(std::stoi(hex.substr(i, 2), nullptr, 16)));
         keys[path].values[upper(name)] = v;
@@ -42,13 +42,14 @@ void load() {
 }
 
 void save() {
-    std::ofstream out(kFile);
+    std::string out;
     for (auto &[path, k] : keys)
         for (auto &[name, v] : k.values) {
-            out << path << '\t' << name << '\t' << v.type << '\t';
-            for (unsigned char c : v.data) { char b[3]; snprintf(b, 3, "%02x", c); out << b; }
-            out << '\n';
+            out += path + '\t' + name + '\t' + std::to_string(v.type) + '\t';
+            for (unsigned char c : v.data) { char b[3]; snprintf(b, 3, "%02x", c); out += b; }
+            out += '\n';
         }
+    rt::write_file(kFile, out);
 }
 
 std::string root_name(uint32_t h) {

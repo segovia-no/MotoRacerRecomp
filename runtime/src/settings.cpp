@@ -4,12 +4,12 @@
 
 #include <algorithm>
 #include <cstdlib>
-#include <fstream>
 #include <map>
 #include <vector>
 
 #include "platform/platform.h"
 
+#include "textio.h"
 #include "runtime.h"
 
 namespace settings {
@@ -38,9 +38,10 @@ void load(const std::string &game_dir) {
     ini_path = game_dir + "/motoracer.ini";
     s.game_args = kDefaultArgs;
     std::map<std::string, std::map<std::string, std::string>> ini;
-    std::ifstream in(game_dir + "/motoracer.ini");
-    std::string line, sec;
-    while (std::getline(in, line)) {
+    std::vector<std::string> ini_lines;
+    rt::read_lines(game_dir + "/motoracer.ini", ini_lines);
+    std::string sec;
+    for (std::string line : ini_lines) {
         line = trim(line);
         if (line.empty() || line[0] == ';' || line[0] == '#') continue;
         if (line[0] == '[') { sec = trim(line.substr(1, line.find(']') - 1)); continue; }
@@ -119,14 +120,9 @@ Settings &edit() { return s; }
 
 void save(const std::string &key, const std::string &value) {
     std::vector<std::string> lines;
-    {
-        std::ifstream in(ini_path);
-        std::string line;
-        while (std::getline(in, line)) {
-            if (!line.empty() && line.back() == '\r') line.pop_back();
-            lines.push_back(line);
-        }
-    }
+    rt::read_lines(ini_path, lines);
+    for (std::string &line : lines)
+        if (!line.empty() && line.back() == '\r') line.pop_back();
     auto lower = [](std::string v) { for (auto &c : v) c = static_cast<char>(tolower(c)); return v; };
     size_t sec_end = lines.size(), insert = lines.size();
     bool in_sec = false, found_sec = false, done = false;
@@ -156,10 +152,9 @@ void save(const std::string &key, const std::string &value) {
         lines.insert(lines.begin() + static_cast<long>(insert), key + "=" + value);
     }
     std::string tmp = ini_path + ".new";
-    {
-        std::ofstream out(tmp, std::ios::binary);
-        for (auto &l : lines) out << l << "\r\n";   // the GOG file uses CRLF
-    }
+    std::string out;
+    for (auto &l : lines) out += l + "\r\n";   // the GOG file uses CRLF
+    rt::write_file(tmp, out);
     if (!plat::host().fs.rename(tmp, ini_path)) rt::log("settings: cannot write %s\n", ini_path.c_str());
 }
 

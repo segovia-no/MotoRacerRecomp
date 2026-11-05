@@ -26,12 +26,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
 #include <string>
 #include <vector>
 
 #include "game_hooks.h"
 #include "platform/platform.h"
+#include "textio.h"
 #include "runtime.h"
 #include "settings.h"
 #include "user32.h"
@@ -119,9 +119,10 @@ bool active() {
 void load_state() {
     if (state_loaded) return;
     state_loaded = true;
-    std::ifstream in(kStateFile);
-    std::string line;
-    while (std::getline(in, line)) {
+    std::vector<std::string> lines;
+    rt::read_lines(kStateFile, lines);
+    for (std::string &line : lines) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
         Mode m{};
         if (sscanf(line.c_str(), "ScreenMode43=%ux%u", &m.w, &m.h) == 2) remembered[0] = m;
         if (sscanf(line.c_str(), "ScreenMode169=%ux%u", &m.w, &m.h) == 2) remembered[1] = m;
@@ -131,10 +132,11 @@ void load_state() {
 
 void save_state() {
     if (psp_profile()) return;
-    std::ofstream out(kStateFile);
-    if (remembered[0].w) out << "ScreenMode43=" << remembered[0].w << 'x' << remembered[0].h << '\n';
-    if (remembered[1].w) out << "ScreenMode169=" << remembered[1].w << 'x' << remembered[1].h << '\n';
-    if (defaults_applied) out << "Defaults=1\n";
+    std::string out;
+    if (remembered[0].w) out += "ScreenMode43=" + std::to_string(remembered[0].w) + "x" + std::to_string(remembered[0].h) + "\n";
+    if (remembered[1].w) out += "ScreenMode169=" + std::to_string(remembered[1].w) + "x" + std::to_string(remembered[1].h) + "\n";
+    if (defaults_applied) out += "Defaults=1\n";
+    rt::write_file(kStateFile, out);
 }
 
 // First run (no Defaults=1 in recomp_state.txt): a fresh GOG install starts at 640x480 4:3. Turn

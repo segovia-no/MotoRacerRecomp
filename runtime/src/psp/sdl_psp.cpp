@@ -360,7 +360,7 @@ bool SDL_BindAudioStream(SDL_AudioDeviceID, SDL_AudioStream *s) {
     s->channel = sceAudioChReserve(PSP_AUDIO_NEXT_CHANNEL, kSamples, PSP_AUDIO_FORMAT_STEREO);
     if (s->channel < 0) return SDL_SetError("sceAudioChReserve failed: %x", s->channel);
     s->running = true;
-    s->thread = sceKernelCreateThread("audio", audio_thread, 0x12, 0x10000, THREAD_ATTR_USER, nullptr);
+    s->thread = sceKernelCreateThread("audio", audio_thread, 0x12, 0x8000, THREAD_ATTR_USER, nullptr);
     if (s->thread < 0) {
         sceAudioChRelease(s->channel);
         s->running = false;

@@ -48,7 +48,7 @@ constexpr uint32_t HEAP_LO = 0x00770000;
 constexpr uint32_t HEAP_HI = HEAP_LO + (RECOMP_GUEST_HEAP_MB << 20);
 constexpr uint32_t VALLOC_LO = HEAP_HI;
 constexpr uint32_t VALLOC_HI = VALLOC_LO + 0x01000000;
-constexpr uint32_t VALLOC_BACKED = 0x00080000;
+constexpr uint32_t VALLOC_BACKED = 0x00040000;   // the CRT commits 256 KB
 constexpr uint32_t GUEST_LO = IMAGE_BASE;
 constexpr uint64_t GUEST_HI = VALLOC_LO + VALLOC_BACKED;
 #endif
@@ -56,7 +56,7 @@ constexpr uint64_t GUEST_HI = VALLOC_LO + VALLOC_BACKED;
 #ifndef RECOMP_COMPACT_GUEST
 constexpr uint64_t HOST_STACK_BYTES = 512ull << 20;
 #else
-constexpr uint64_t HOST_STACK_BYTES = 128ull << 10;   // the recompiled code uses a few KB
+constexpr uint64_t HOST_STACK_BYTES = 64ull << 10;    // the recompiled code peaks around 17 KB
 #endif
 constexpr uint32_t THUNK_LO = 0xFFC00000;     // fake code addresses that map to host functions
 constexpr uint32_t THUNK_HI = 0xFFF00000;

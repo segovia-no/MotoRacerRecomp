@@ -141,7 +141,8 @@ elseif(PSP)
   list(REMOVE_ITEM RUNTIME_SOURCES ${CMAKE_SOURCE_DIR}/runtime/src/host_gpu.cpp
        ${CMAKE_SOURCE_DIR}/runtime/src/dx/d3d_gpu.cpp ${CMAKE_SOURCE_DIR}/runtime/src/gpu/shaders.cpp)
   list(APPEND RUNTIME_SOURCES ${PLAT}/psp.cpp ${PLAT}/stack_mips.S runtime/src/psp/ge.cpp
-       runtime/src/psp/gpu_psp.cpp runtime/src/psp/d3d_ge.cpp runtime/src/psp/sdl_psp.cpp)
+       runtime/src/psp/gpu_psp.cpp runtime/src/psp/d3d_ge.cpp runtime/src/psp/sdl_psp.cpp
+       runtime/src/psp/malloc_trace.cpp)
 elseif(UNIX)
   list(APPEND RUNTIME_SOURCES ${PLAT}/posix.cpp ${PLAT}/paths_xdg.cpp)
 else()
@@ -185,6 +186,12 @@ set_source_files_properties(runtime/src/native_geom.cpp runtime/src/native_rende
 target_link_libraries(motoracer PRIVATE ${SDL3_TARGET})
 if(PSP)
   target_link_libraries(motoracer PRIVATE pspgu pspge pspdisplay psppower pspaudio pspctrl pspvfpu)
+  # dev: live host heap blocks by call site in the MOTORACER_MEM_STATS log (runtime/src/psp/malloc_trace.cpp)
+  option(MOTORACER_MALLOC_TRACE "PSP: trace host malloc call sites (dev)" OFF)
+  if(MOTORACER_MALLOC_TRACE)
+    target_compile_definitions(motoracer PRIVATE RECOMP_MALLOC_TRACE)
+    target_link_options(motoracer PRIVATE -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=memalign,--wrap=free)
+  endif()
 endif()
 
 get_filename_component(GAME_DIR_FOR_ICON "${GAME_EXE}" DIRECTORY)
