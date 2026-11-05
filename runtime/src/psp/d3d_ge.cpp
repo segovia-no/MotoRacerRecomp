@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <set>
 #include <vector>
 
 #include "../dx/d3d_gpu.h"
@@ -53,6 +54,7 @@ struct Texture {
     int psm = GU_PSM_5650, tw = 0, th = 0, tbw = 0;
     bool alpha = false;
     bool shared = false;        // data points into guest memory (not owned)
+    bool in_place = false;      // 16-bit: guest pixels converted to the GE's order in place
     uint32_t *clut = nullptr;   // T8: 256 palette entries (GE 8888), 16-byte aligned
 };
 
@@ -87,6 +89,9 @@ uint32_t st_frames = 0;   // presented GPU frames (MOTORACER_GE_DUMP)
 std::map<Surface *, Texture> textures;
 Surface *last_tex_surface = nullptr;   // texture_for's last lookup (std::map nodes do not move)
 Texture *last_tex = nullptr;
+// Guest pixel memory converted in place to the GE's order (keyed by address: DuplicateSurface makes
+// several surfaces share one memory block). sync_to_cpu converts it back.
+std::set<uint32_t> in_place_mem;
 
 // Debug counters, logged every 5 s with MOTORACER_GE_STATS=1.
 struct Stats {
@@ -255,11 +260,40 @@ Texture *texture_for(Surface *s) {
             for (uint32_t x = 0; x < s->w; x++) out[y * t.tbw + x] = pal[RD8(s->mem + y * s->pitch + x)];
         return &t;
     }
-    t.data = memalign(16, static_cast<size_t>(t.tbw) * s->h * 2);
-    auto *out = static_cast<uint16_t *>(t.data);
     const bool is1555 = s->gmask == 0x03E0, is4444 = s->gmask == 0x00F0;
     t.psm = is4444 ? GU_PSM_4444 : (is1555 || keyed) ? GU_PSM_5551 : GU_PSM_5650;
     t.alpha = is4444 || keyed || (is1555 && s->amask);
+    // PSP-1000 memory: convert in place (exactly reversible; sync_to_cpu converts back before the game
+    // touches the pixels) instead of keeping a second copy. A colour-keyed 565 texture becomes 5551
+    // (green loses a bit): that one keeps a copy.
+    uint16_t *guest = reinterpret_cast<uint16_t *>(rt::host_ptr(s->mem));
+    if ((reinterpret_cast<uintptr_t>(guest) & 15) == 0 && (s->pitch & 15) == 0 && (is1555 || is4444 || !keyed)) {
+        if (!in_place_mem.count(s->mem)) {
+            for (uint32_t y = 0; y < s->h; y++) {
+                uint16_t *row = guest + y * (s->pitch / 2);
+                for (uint32_t x = 0; x < s->w; x++) {
+                    const uint16_t p = row[x];
+                    if (is4444) {
+                        row[x] = static_cast<uint16_t>(((p >> 8) & 15) | ((p >> 4) & 15) << 4 | (p & 15) << 8 | ((p >> 12) & 15) << 12);
+                    } else if (is1555) {
+                        uint16_t a = s->amask ? (p & 0x8000) : 0x8000;
+                        if (keyed && p >= s->ckey_lo && p <= s->ckey_hi) a = 0;
+                        row[x] = static_cast<uint16_t>(((p >> 10) & 31) | ((p >> 5) & 31) << 5 | (p & 31) << 10 | a);
+                    } else {
+                        row[x] = psp_ge::swap_rb565(p);
+                    }
+                }
+            }
+            in_place_mem.insert(s->mem);
+        }
+        t.tbw = static_cast<int>(s->pitch / 2);
+        t.data = guest;
+        t.shared = true;
+        t.in_place = true;
+        return &t;
+    }
+    t.data = memalign(16, static_cast<size_t>(t.tbw) * s->h * 2);
+    auto *out = static_cast<uint16_t *>(t.data);
     for (uint32_t y = 0; y < s->h; y++)
         for (uint32_t x = 0; x < s->w; x++) {
             uint16_t p = RD16(s->mem + y * s->pitch + 2 * x), o;
@@ -687,7 +721,34 @@ void clear(uint32_t flags, uint32_t argb, float depth) {
     }
 }
 
+// Undo an in-place texture conversion (see the texture cache) before the game reads or writes pixels.
+void revert_in_place(Surface *s) {
+    in_place_mem.erase(s->mem);
+    uint16_t *guest = reinterpret_cast<uint16_t *>(rt::host_ptr(s->mem));
+    const bool is1555 = s->gmask == 0x03E0, is4444 = s->gmask == 0x00F0;
+    for (uint32_t y = 0; y < s->h; y++) {
+        uint16_t *row = guest + y * (s->pitch / 2);
+        for (uint32_t x = 0; x < s->w; x++) {
+            const uint16_t o = row[x];
+            if (is4444)
+                row[x] = static_cast<uint16_t>((o & 15) << 8 | ((o >> 4) & 15) << 4 | ((o >> 8) & 15) | ((o >> 12) & 15) << 12);
+            else if (is1555)
+                row[x] = static_cast<uint16_t>((o & 31) << 10 | ((o >> 5) & 31) << 5 | ((o >> 10) & 31) | (s->amask ? (o & 0x8000) : 0));
+            else
+                row[x] = psp_ge::swap_rb565(o);
+        }
+    }
+    for (auto &[surf, t] : textures)   // every surface sharing this memory converts again at its next use
+        if (t.in_place && t.data == guest) {
+            if (gs.tdata == t.data) gs.tdata = nullptr;
+            t.data = nullptr;
+            t.shared = t.in_place = false;
+            t.version = ~0u;
+        }
+}
+
 void sync_to_cpu(Surface *s) {
+    if (s && !in_place_mem.empty() && in_place_mem.count(s->mem)) revert_in_place(s);
     if (!s || s != target || !usable()) return;
     if (frame_used) {
         download_target();
@@ -704,6 +765,11 @@ void cpu_wrote(Surface *s) {
 
 void surface_destroyed(Surface *s) {
     auto it = textures.find(s);
+    if (in_place_mem.count(s->mem)) {   // a later surface may get this memory: forget the mark (unless shared)
+        bool shared_mem = false;
+        for (auto &[surf, t] : textures) shared_mem |= surf != s && surf->mem == s->mem;
+        if (!shared_mem) in_place_mem.erase(s->mem);
+    }
     if (it != textures.end()) {
         if (!it->second.shared) free(it->second.data);
         free(it->second.clut);

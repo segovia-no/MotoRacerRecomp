@@ -251,8 +251,14 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   (205–247 before; runs vary).
 - Mute fix: `MOTORACER_MUTE` is read when audio starts (the PSP's environment comes from
   psp_env.txt in main(), after static initialisers); the log says "audio: muted".
-- Next: 16-bit textures converted in place in guest memory (converted back in `sync_to_cpu`, which
-  Lock / Blt / GetDC call), the remaining ~1.4 MB of host allocations, libstdc++ (0.84 MB).
+- Step 4, in-place 16-bit textures: the texture cache converts the guest pixels to the GE's order in
+  place (565 R/B swap, 4444 nibble order, 1555 swap + alpha / colour key) and `sync_to_cpu` (Lock,
+  Blt, GetDC) converts them back before the game touches them; marks are kept by memory address
+  (`DuplicateSurface` shares pixel memory) and dropped when a surface is destroyed. Only a colour-keyed
+  565 texture (lossy as 5551) keeps a copy. Host allocations in a race 24.85 → 23.49 MB, no texture
+  copies left; picture and race speed unchanged.
+- Tally for the PSP-1000: guest block 17.94 + other host allocations 1.55 = 19.49 MB vs 16.44 MB
+  room → ~3 MB to go. Next: what the 1.55 MB is, libstdc++ (0.84 MB of code).
 - Test runs are muted (`tools/psp/e2e_psp.sh`, `tools/e2e.sh`; `WITH_SOUND=1` for sound).
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
