@@ -1,5 +1,12 @@
 # Moto Racer Recomp
 
+[![Download](https://img.shields.io/github/v/release/segovia-no/MotoRacerRecomp?include_prereleases&label=download)](https://github.com/segovia-no/MotoRacerRecomp/releases)
+![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Steam%20Deck-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Website](https://img.shields.io/badge/website-segovia--no.github.io-orange)](https://segovia-no.github.io/MotoRacerRecomp/)
+
+![Moto Racer Recomp: a race on Speed Bay in widescreen at 2560x1600](site/img/race.jpg)
+
 Play **Moto Racer** (Delphine Software, 1997) natively on modern Macs, Windows and Linux PCs and the **Steam Deck**: in widescreen, at up to 4K, with a gamepad.
 
 This is a *static recompilation*: the original Windows game executable from your GOG copy is translated to C and compiled into a native program on your own computer, linked against a small runtime that re-implements the Windows, DirectDraw/Direct3D, DirectSound and CD-audio parts the game needs. No emulator, no Wine: the game runs as a native Apple Silicon, Windows x64 or x86-64 Linux program.
@@ -54,6 +61,8 @@ Keep `motoracer` next to its `kit` folder.
 Download the new package and replace the old one (the app, or the MotoRacer folder). On the next start it rebuilds the game code once ("UPDATING"); your saves, best times and settings stay where they are (see [Settings](#settings)).
 
 ## Features
+<p><img src="site/img/race2.jpg" width="56%" alt="A bike leaning into a corner past a castle, widescreen"> <img src="site/img/menu.jpg" width="42%" alt="The Choose Bike menu"></p>
+
 - Native macOS app (Apple Silicon), Windows program or Linux / Steam Deck program, made from your GOG installer on the first start.
 - The game's Direct3D renderer on the GPU (SDL_GPU: Metal, Vulkan or Direct3D 12) — or its original software renderer (Options › D3D: OFF).
 - **True widescreen**: the game's own 16/9 mode at native 1280×720, 1920×1080, 2560×1440 or 3840×2160, or 16:10 at 1280×800 (Steam Deck), 1920×1200 or 2560×1600, chosen in the game's Options › SCREEN MODE.

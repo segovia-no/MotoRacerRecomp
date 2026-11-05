@@ -13,7 +13,9 @@
 set -euo pipefail
 name=$1 presses=$2 secs=${3:-50}
 shift $(( $# < 3 ? $# : 3 ))
-k="4000 ESC 1500 ESC 1500 ENTER 1500 ENTER 2000"            # intro, title, name entry -> main menu
+# the mouse is parked in a corner first: the host cursor over the window would highlight menu items
+# (mouse messages are in client coordinates since issue #2) and steer the arrow-key navigation
+k="MOUSE:0.01,0.01 4000 ESC 1500 ESC 1500 ENTER 1500 ENTER 2000"   # intro, title, name entry -> main menu
 detail=${DETAIL_PRESSES:-0}
 if [ "$presses" -gt 0 ] || [ -n "${TOGGLE_169:-}" ] || [ "$detail" -gt 0 ]; then
     k="$k LEFT 300 DOWN 500 ENTER 2500"                      # main menu (any cursor) -> Options
