@@ -198,7 +198,11 @@ bool stick_dir[4];   // left, up, right, down
 bool game_reads_pad() { return SDL_GetTicks() - last_poll_ms < 300; }
 
 void nav(uint32_t vk, bool down, bool always = false) {
-    if (down && !always && game_reads_pad()) return;
+    if (down && !always && game_reads_pad()) {
+        static uint64_t last = 0;   // dev: the game polls the pad itself, so menu keys are not sent
+        if (getenv("MOTORACER_AUTOKEYS") && SDL_GetTicks() - last > 1000) { last = SDL_GetTicks(); log("nav: key %x skipped (game reads the pad)\n", vk); }
+        return;
+    }
     if (down == nav_down[vk]) return;
     nav_down[vk] = down;
     inject_key(vk, nav_scancode(vk), down);
@@ -312,11 +316,19 @@ void autokeys_tick() {
     static size_t pos = 0;
     static uint64_t next = 0;
     static uint32_t tapped = 0;
+    static int tapped_pad = -1;
     if (!spec || !main_window) return;
     uint64_t now = SDL_GetTicks();
     if (!next) next = now;
     if (now < next) return;
     if (tapped) { inject_key(tapped, nav_scancode(tapped), false); tapped = 0; }
+    if (tapped_pad >= 0) {   // release of a PAD: tap
+        SDL_Event ev{};
+        ev.gbutton.type = SDL_EVENT_GAMEPAD_BUTTON_UP;
+        ev.gbutton.button = static_cast<Uint8>(tapped_pad);
+        SDL_PushEvent(&ev);
+        tapped_pad = -1;
+    }
     while (spec[pos] == ' ') pos++;
     if (!spec[pos]) return;
     size_t end = pos;
@@ -324,6 +336,28 @@ void autokeys_tick() {
     std::string tok(spec + pos, end - pos);
     pos = end;
     if (isdigit(static_cast<unsigned char>(tok[0]))) { next = now + strtoull(tok.c_str(), nullptr, 10); return; }
+    // PAD:A / B / X / Y / UP / DOWN / LEFT / RIGHT / START / BACK / LB / RB taps a gamepad button as an
+    // event (the runtime's menu mapping; the game's own joystick polling reads the device state)
+    if (tok.rfind("PAD:", 0) == 0) {
+        static const std::pair<const char *, SDL_GamepadButton> pads[] = {
+            {"A", SDL_GAMEPAD_BUTTON_SOUTH}, {"B", SDL_GAMEPAD_BUTTON_EAST}, {"X", SDL_GAMEPAD_BUTTON_WEST},
+            {"Y", SDL_GAMEPAD_BUTTON_NORTH}, {"UP", SDL_GAMEPAD_BUTTON_DPAD_UP}, {"DOWN", SDL_GAMEPAD_BUTTON_DPAD_DOWN},
+            {"LEFT", SDL_GAMEPAD_BUTTON_DPAD_LEFT}, {"RIGHT", SDL_GAMEPAD_BUTTON_DPAD_RIGHT},
+            {"START", SDL_GAMEPAD_BUTTON_START}, {"BACK", SDL_GAMEPAD_BUTTON_BACK},
+            {"LB", SDL_GAMEPAD_BUTTON_LEFT_SHOULDER}, {"RB", SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER}};
+        for (auto &[n, b] : pads)
+            if (tok.substr(4) == n) {
+                SDL_Event ev{};
+                ev.gbutton.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+                ev.gbutton.button = static_cast<Uint8>(b);
+                ev.gbutton.down = true;
+                SDL_PushEvent(&ev);
+                tapped_pad = b;
+                log("autokeys: %s\n", tok.c_str());
+            }
+        next = now + 80;
+        return;
+    }
     // MOUSE:fx,fy moves the mouse to a fraction of the window's client area (points)
     if (tok.rfind("MOUSE:", 0) == 0) {
         float fx = 0, fy = 0;

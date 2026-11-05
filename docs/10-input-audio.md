@@ -140,6 +140,15 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
   Page 9 test (temporary harness: jump to page 9, mark row 1 as a new record after the page's init):
   typing "mac" took the count from 0 to 3; owner confirmed typing initials works. The gamepad path is not
   E2E-tested (no joystick injection in tests).
+- **Bug (owner, PSP, 2026-11-05): no way to press Continue on TOP 5 after a race with the pad.** TOP 5 is
+  page 9 too, and "page 9 in a solo race" was the whole test, so the pad stayed in initials mode on every
+  TOP 5 (Cross typed Enter as a character, the D-pad cycled letters). Now initials mode needs a row being
+  entered (`0x5401c4` ≠ 0) and fewer than 3 initials (`0x540070` < 3); otherwise the normal menu mapping
+  applies (D-pad to Continue, Cross). Affected desktop gamepads the same way.
+- `MOTORACER_AUTOKEYS` `PAD:A|B|X|Y|UP|DOWN|LEFT|RIGHT|START|BACK|LB|RB` taps a gamepad button as an
+  event (the runtime's menu mapping; the game's own joystick polling still reads the device), and a
+  `nav: key … skipped (game reads the pad)` line shows when the menu mapping holds back. PSP E2E with pad
+  events only: quit race → TOP 5 → D-pad Down, Cross → race selection.
 
 ## Mouse offset in the menus — GitHub issue #2 (2026-11-04)
 - Report (Linux player), confirmed by the owner on macOS: the pointer had to be above a menu item

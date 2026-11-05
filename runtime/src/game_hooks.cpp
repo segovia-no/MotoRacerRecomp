@@ -412,11 +412,13 @@ bool first_run() {
     return !defaults_applied;
 }
 
-// Record page: page 9 (per frame 0x44d540) takes up to 3 initials from WM_CHAR in solo races
-// (0x4dbffc), count at 0x540070. The page manager [0x4dc0c4] keeps the current page at +0x3c.
+// Record page: page 9 (TOP 5, per frame 0x44d540) takes up to 3 initials from WM_CHAR in solo races
+// (0x4dbffc) for the rows marked in 0x5401c4; count at 0x540070 (3 = nothing left to enter). The page
+// manager [0x4dc0c4] keeps the current page at +0x3c. Only while initials are wanted: with no new record,
+// or once they are entered, TOP 5 needs the normal menu keys for Continue (owner, PSP: stuck there).
 bool initials_entry_active() {
     uint32_t pages = RD32(0x4dc0c4);
-    return pages && RD32(pages + 0x3c) == 9 && RD32(0x4dbffc);
+    return pages && RD32(pages + 0x3c) == 9 && RD32(0x4dbffc) && RD32(0x5401c4) && RD32(0x540070) < 3;
 }
 
 int initials_count() { return static_cast<int>(RD32(0x540070)); }
