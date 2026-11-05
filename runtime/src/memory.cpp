@@ -10,6 +10,7 @@
 #ifdef __PSP__
 #include <malloc.h>
 #include <pspsysmem.h>
+#include <unistd.h>
 size_t psp_host_stack_used();
 #endif
 #include <string>
@@ -114,8 +115,33 @@ void check_guest_range(uint32_t va, uint32_t size) {
 
 
 
+#ifdef __PSP__
+// Room left in the C heap's block (pspsdk reserves it at start, so kernel "free" says little): the
+// largest sbrk that succeeds, probed in 64 KB steps and given back at once. (Probing with malloc does
+// not work: newlib's malloc does not check the block's end.)
+size_t psp_heap_room() {
+    size_t lo = 0, hi = 64u << 20;
+    while (hi - lo > (64u << 10)) {
+        size_t mid = (lo + hi) / 2;
+        void *p = sbrk(static_cast<ptrdiff_t>(mid));
+        if (p == reinterpret_cast<void *>(-1)) { hi = mid; continue; }
+        sbrk(-static_cast<ptrdiff_t>(mid));
+        lo = mid;
+    }
+    return lo;
+}
+#endif
+
 void memory_init() {
     auto &vm = plat::host().memory;
+#ifdef __PSP__
+    {
+        struct mallinfo mi = mallinfo();
+        log("memory: guest block %.2f MB; C heap in use %.2f MB, room left %.2f MB; kernel free %.2f MB\n",
+            (GUEST_HI - GUEST_LO) / 1048576.0, mi.uordblks / 1048576.0, psp_heap_room() / 1048576.0,
+            sceKernelTotalFreeMemSize() / 1048576.0);
+    }
+#endif
     uint8_t *block = vm.reserve(GUEST_HI - GUEST_LO);
     if (!block) fatal("cannot reserve the guest address space (%llu MB)", (unsigned long long)((GUEST_HI - GUEST_LO) >> 20));
     M = block - GUEST_LO;

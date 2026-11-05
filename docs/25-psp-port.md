@@ -215,6 +215,26 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   range whether a pointer is its own — free() broke at the title screen. Reservations must be
   distinct address space.
 
+### PSP-1000 again (2026-11-05, owner: "optimize the game to fit in its memory")
+- `MOTORACER_PSP_1000=ON` (CMake): EBOOT without `MEMSIZE 1`, so the program gets the 24 MB user
+  partition on every model — PPSSPP enforces it — and a 14 MB guest heap (`RECOMP_GUEST_HEAP_MB`).
+- Budget, measured at start in that mode: the C heap's block has **13.88 MB** of room (`memory:` log
+  line: an `sbrk` probe in 64 KB steps, given back at once; newlib's malloc cannot be probed). The
+  program image (9.1 MB: text 7.19, bss 1.69) is loaded below it, so every byte cut from the image is
+  heap room. Start: guest block 22.81 MB + ~1.5 MB other host allocations → ~10.4 MB over.
+- Step 1, layout: the relocated engine tables moved from 0x800010 to 0x760010 (same address on
+  desktop, where [0x740000, 0x800000) is free too), the guest stack (128 KB; uses 29 KB) moved into
+  the former gap above the PEB, nothing below the image any more (`GUEST_LO` = 0x400000), host stack
+  128 KB. Guest block 22.81 → 17.94 MB with the 14 MB heap (18.0 → 13.94 in the 64 MB build's
+  terms: −0.87 MB layout, −4 MB heap). PPSSPP race (64 MB build) and desktop race OK.
+- Image breakdown: game code 3.95 MB, runtime + newlib + pspsdk ~3.0, SDL3 1.05, libstdc++ 0.84;
+  bss: SDL's PSP renderer `DisplayList` 1 MB (unused: the GE backend draws), our GE list 512 KB.
+- Next: no SDL on the PSP (a small SDL-subset on sce APIs: ticks, delays, events, buttons, audio,
+  no-op window, BMP snapshots: ~2.2 MB), cold game code compiled for size, libstdc++, one texture
+  copy instead of two.
+- Test runs are muted (`MOTORACER_NO_AUDIO=1` from `tools/psp/e2e_psp.sh` and `tools/e2e.sh`;
+  `WITH_SOUND=1` for sound).
+
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).
 - Time per 5 s in the race: Direct3D Execute (parsing + GE backend) 400–660 ms (8–13%), of which the

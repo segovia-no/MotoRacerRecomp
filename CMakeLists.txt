@@ -194,9 +194,18 @@ if(WIN32)
 endif()
 
 # PSP: EBOOT.PBP next to the build (copy it to ms0:/PSP/GAME/MOTORACER/ with the game files in game/).
-# MEMSIZE 1: the extended memory of PSP-2000/3000 (64 MB).
+# MEMSIZE 1: the extended memory of PSP-2000/3000 (64 MB). MOTORACER_PSP_1000: without it, so the
+# program gets the PSP-1000's ~24 MB user partition on every model (PPSSPP enforces it too).
+option(MOTORACER_PSP_1000 "PSP: fit the PSP-1000 (no extended memory)" OFF)
+if(PSP AND MOTORACER_PSP_1000)
+  add_compile_definitions(RECOMP_GUEST_HEAP_MB=14)   # races peak at 12.8 MB (Dirt Arena, 23 bikes)
+endif()
 if(PSP)
-  create_pbp_file(TARGET motoracer TITLE "Moto Racer" MEMSIZE 1)
+  if(MOTORACER_PSP_1000)
+    create_pbp_file(TARGET motoracer TITLE "Moto Racer")
+  else()
+    create_pbp_file(TARGET motoracer TITLE "Moto Racer" MEMSIZE 1)
+  endif()
 endif()
 
 # `cmake --build build/cmake --target app` -> build/cmake/MotoRacer.app

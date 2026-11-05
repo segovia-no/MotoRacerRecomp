@@ -48,9 +48,9 @@ NONLOCAL_JUMPS = {0x4B283C, 0x4B2AFF}
 MAX_ROWS = 4096
 RELOCATED_TABLES = [
     # per-row span-list heads: 480 dwords at 0x623bd8 (0x624358 is the next global)
-    (0x623BD8, 0x624358, 0x00800010, 4),
+    (0x623BD8, 0x624358, 0x00760010, 4),
     # per-row framebuffer offsets (y * pitch): 480 dwords at 0x62e468 (0x62ebe8 is the next global)
-    (0x62E468, 0x62EBE8, 0x00800010 + 4 * MAX_ROWS + 16, 8),
+    (0x62E468, 0x62EBE8, 0x00760010 + 4 * MAX_ROWS + 16, 8),
 ]
 
 

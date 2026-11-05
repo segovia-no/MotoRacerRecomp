@@ -16,8 +16,8 @@ constexpr uint32_t NULL_GUARD = 0x00010000;   // [0, 64K) inaccessible: catches 
 constexpr uint32_t STACK_LO = 0x00100000;     // main thread stack [1 MB, 3 MB)
 constexpr uint32_t STACK_HI = 0x00300000;
 constexpr uint32_t IMAGE_BASE = 0x00400000;
-constexpr uint32_t EXT_LO = 0x00800000;       // [8 MB, 16 MB): engine tables relocated by the
-constexpr uint32_t EXT_HI = 0x01000000;       // translator (RELOCATED_TABLES in translate.py)
+constexpr uint32_t EXT_LO = 0x00760000;       // [7.4 MB, 16 MB): engine tables relocated by the
+constexpr uint32_t EXT_HI = 0x01000000;       // translator (RELOCATED_TABLES in translate.py: 0x760010)
 constexpr uint32_t HEAP_LO = 0x01000000;      // HeapAlloc/GlobalAlloc/LocalAlloc arena
 constexpr uint32_t HEAP_HI = 0x40000000;
 constexpr uint32_t VALLOC_LO = 0x40000000;    // VirtualAlloc arena
@@ -33,15 +33,15 @@ constexpr uint64_t GUEST_HI = 1ull << 32;
 // ends VALLOC_BACKED bytes into it and commits past that fail loudly. (Its reservations must not
 // overlap other guest memory: the CRT's small-block heap decides by address range whether a pointer
 // is its own — an arena placed in the gap below the engine tables broke free().)
-constexpr uint32_t NULL_GUARD = 0x003C0000;   // nothing below the block (no MMU: not enforced)
-constexpr uint32_t STACK_LO = 0x003C0000;     // main thread stack, 256 KB (uses ~30 KB; PE reserve: 1 MB)
-constexpr uint32_t STACK_HI = 0x00400000;
+constexpr uint32_t NULL_GUARD = 0x00400000;   // nothing below the block (no MMU: not enforced)
 constexpr uint32_t IMAGE_BASE = 0x00400000;   // image [0x400000, 0x72f000)
 constexpr uint32_t TEB_VA = 0x0072F000;
 constexpr uint32_t PEB_VA = 0x00730000;
-constexpr uint32_t EXT_LO = 0x00800000;       // relocated engine tables (2 x 16 KB from 0x800010)
-constexpr uint32_t EXT_HI = 0x00810000;
-constexpr uint32_t HEAP_LO = 0x00810000;
+constexpr uint32_t STACK_LO = 0x00740000;     // main thread stack, 128 KB (uses ~30 KB; PE reserve: 1 MB)
+constexpr uint32_t STACK_HI = 0x00760000;
+constexpr uint32_t EXT_LO = 0x00760000;       // relocated engine tables (2 x 16 KB from 0x760010)
+constexpr uint32_t EXT_HI = 0x00770000;
+constexpr uint32_t HEAP_LO = 0x00770000;
 #ifndef RECOMP_GUEST_HEAP_MB
 #define RECOMP_GUEST_HEAP_MB 18
 #endif
@@ -49,14 +49,14 @@ constexpr uint32_t HEAP_HI = HEAP_LO + (RECOMP_GUEST_HEAP_MB << 20);
 constexpr uint32_t VALLOC_LO = HEAP_HI;
 constexpr uint32_t VALLOC_HI = VALLOC_LO + 0x01000000;
 constexpr uint32_t VALLOC_BACKED = 0x00080000;
-constexpr uint32_t GUEST_LO = STACK_LO;
+constexpr uint32_t GUEST_LO = IMAGE_BASE;
 constexpr uint64_t GUEST_HI = VALLOC_LO + VALLOC_BACKED;
 #endif
 // Host stack for the recompiled code (one host frame per guest call).
 #ifndef RECOMP_COMPACT_GUEST
 constexpr uint64_t HOST_STACK_BYTES = 512ull << 20;
 #else
-constexpr uint64_t HOST_STACK_BYTES = 256ull << 10;   // the recompiled code uses a few KB
+constexpr uint64_t HOST_STACK_BYTES = 128ull << 10;   // the recompiled code uses a few KB
 #endif
 constexpr uint32_t THUNK_LO = 0xFFC00000;     // fake code addresses that map to host functions
 constexpr uint32_t THUNK_HI = 0xFFF00000;
