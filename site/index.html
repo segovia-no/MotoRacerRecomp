@@ -64,109 +64,211 @@
   ]
 }
 </script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,600;0,700;1,700&family=Racing+Sans+One&display=swap">
 <style>
+/* Direction A, "menu screen": the game's own 1997 menus. Blue checkerboard ground, black title bar,
+   yellow slanted page tab, navy mode-card panels with hard black shadows. One fixed dark look. */
 :root {
-  --bg: #0d0f14; --panel: #161a22; --text: #e8eaf0; --muted: #a3a9b8; --accent: #ffb000; --accent2: #2bc0ff; --line: #262c38;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) { --bg: #f6f7fa; --panel: #ffffff; --text: #151821; --muted: #4f5666; --accent: #c77800; --accent2: #006fa8; --line: #dde1ea; }
+  --blue: #3d36c4; --blue-2: #4c46d6; --yellow: #ffd60a; --navy: #0e0d3a; --navy-2: #17165a;
+  --white: #f4f3ff; --dim: #c9c7f2; --black: #000;
+  --f-display: "Racing Sans One", "Arial Black", Impact, sans-serif;
+  --f-body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-a { color: var(--accent2); }
-main, header, footer { max-width: 980px; margin: 0 auto; padding: 0 16px; }
-header { padding-top: 48px; }
-h1 { font-size: clamp(2rem, 6vw, 3.2rem); line-height: 1.1; margin: 0 0 12px; }
-h1 span { color: var(--accent); }
-h2 { margin: 56px 0 12px; font-size: 1.6rem; }
-h3 { margin: 24px 0 6px; font-size: 1.1rem; }
-.lead { font-size: 1.2rem; color: var(--muted); margin: 0 0 24px; }
-.cta { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 32px; }
-.btn { display: inline-block; padding: 12px 20px; border-radius: 8px; font-weight: 600; text-decoration: none; }
-.btn.primary { background: var(--accent); color: #111; }
-.btn.secondary { border: 1px solid var(--line); color: var(--text); background: var(--panel); }
-img { max-width: 100%; height: auto; display: block; border-radius: 8px; }
+html { background: var(--blue); }
+body {
+  margin: 0; color: var(--white); font: 17px/1.6 var(--f-body);
+  background-color: var(--blue);
+  background-image: conic-gradient(var(--blue-2) 25%, transparent 0 50%, var(--blue-2) 0 75%, transparent 0);
+  background-size: 72px 72px;
+}
+a { color: var(--yellow); }
+a:focus-visible, summary:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+img { max-width: 100%; height: auto; display: block; }
+.inner { max-width: 1100px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+/* title bar */
+.bar { background: var(--black); }
+.bar .inner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 12px; }
+.logo { font: 400 clamp(1.5rem, 4vw, 2.3rem)/1 var(--f-display); color: var(--white); text-decoration: none; }
+.tab { background: var(--yellow); color: var(--black); font: italic 700 .9rem/1 var(--f-body); letter-spacing: .08em; text-transform: uppercase; padding: 9px 30px 9px 18px; clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%); white-space: nowrap; }
+.bar nav { display: flex; gap: 18px; flex-wrap: wrap; }
+.bar nav a { color: var(--dim); text-decoration: none; font-weight: 600; }
+.bar nav a:hover { color: var(--yellow); }
+
+/* hero */
+.hero .inner { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 32px; align-items: center; padding-block: 40px 48px; }
+.shot { border: 4px solid var(--black); box-shadow: 10px 10px 0 var(--black); }
+h1 { font: 400 clamp(2.1rem, 5vw, 3.4rem)/1.02 var(--f-display); margin: 0 0 14px; text-wrap: balance; text-shadow: 3px 3px 0 var(--black); }
+h1 em { font-style: normal; color: var(--yellow); }
+.lead { margin: 0 0 22px; max-width: 46ch; font-size: 1.1rem; text-shadow: 1px 1px 0 var(--black); }
+.btns { display: flex; flex-wrap: wrap; gap: 12px; }
+.pill { display: inline-block; text-decoration: none; background: linear-gradient(#ecebff, #a9a6d8); color: var(--navy); border: 2px solid var(--black); border-radius: 999px; padding: 10px 24px; font: italic 700 1.05rem/1 var(--f-body); box-shadow: 0 4px 0 var(--black); transition: transform .08s; }
+.pill:hover { transform: translateY(-2px); }
+.pill:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--black); }
+.pill.go { background: linear-gradient(#fff36a, var(--yellow)); }
+.note-own { margin: 16px 0 0; font-size: .95rem; color: var(--dim); text-shadow: 1px 1px 0 var(--black); }
+.note-own a { color: var(--white); }
+
+/* sections: a black strip carrying the yellow page tab, like the game's page headers */
+section { padding-block: 0 48px; }
+.sec-head { display: flex; align-items: center; gap: 0; margin-bottom: 22px; }
+.sec-head h2 { margin: 0; background: var(--yellow); color: var(--black); font: italic 700 1rem/1 var(--f-body); letter-spacing: .1em; text-transform: uppercase; padding: 10px 34px 10px 18px; clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%); }
+.sec-head::after { content: ""; flex: 1; height: 6px; background: var(--black); }
+
+/* mode cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 22px; }
+.card { background: var(--navy); border: 3px solid var(--black); box-shadow: 7px 7px 0 var(--black); display: flex; flex-direction: column; }
+.card h3 { margin: 0; background: var(--black); font: italic 700 1.12rem/1.1 var(--f-body); padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.card p { margin: 0; padding: 14px 14px 16px; color: var(--dim); }
+.card b { color: var(--yellow); font-weight: 600; }
+.ico { width: 28px; height: 28px; flex: none; color: var(--yellow); }
+.ico * { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.gallery { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 22px; margin-top: 30px; align-items: start; }
 figure { margin: 0; }
-figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 6px; }
-.hero img { border: 1px solid var(--line); }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
-.card h3 { margin-top: 0; }
-table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-size: 0.9em; overflow-wrap: anywhere; }
-ol li, ul li { margin: 4px 0; }
-.note { border-left: 3px solid var(--accent); padding: 8px 14px; background: var(--panel); border-radius: 0 8px 8px 0; }
-.table-wrap { overflow-x: auto; }
-details { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 8px 0; }
-summary { cursor: pointer; font-weight: 600; }
-footer { color: var(--muted); font-size: 0.9rem; padding-top: 48px; padding-bottom: 48px; }
+figure img { border: 4px solid var(--black); box-shadow: 7px 7px 0 var(--black); }
+figcaption { margin-top: 12px; font-size: .95rem; color: var(--white); text-shadow: 1px 1px 0 var(--black); }
+
+/* panels for running text */
+.panel { background: var(--navy); border: 3px solid var(--black); box-shadow: 7px 7px 0 var(--black); padding: 20px 22px; }
+.panel p { max-width: 70ch; }
+.warn { background: var(--navy-2); border-left: 6px solid var(--yellow); padding: 12px 16px; margin: 0 0 20px; }
+code { font: 600 .92em/1.3 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--black); color: var(--yellow); padding: 2px 6px; overflow-wrap: anywhere; }
+
+.steps { list-style: none; margin: 0 0 20px; padding: 0; display: grid; gap: 14px; counter-reset: step; }
+.steps li { counter-increment: step; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; }
+.steps li::before { content: counter(step); font: 400 2rem/1 var(--f-display); color: var(--black); background: var(--yellow); width: 46px; height: 46px; display: grid; place-items: center; border: 3px solid var(--black); }
+.steps strong { color: var(--white); }
+
+.table-wrap { overflow-x: auto; margin: 0 0 20px; }
+table { width: 100%; border-collapse: collapse; min-width: 480px; }
+th { text-align: left; background: var(--black); color: var(--yellow); font: italic 700 .85rem/1 var(--f-body); letter-spacing: .06em; text-transform: uppercase; padding: 10px 12px; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--navy-2); color: var(--dim); }
+td:first-child { color: var(--white); font-weight: 600; }
+
+.install-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 26px; align-items: start; }
+
+details { background: var(--navy); border: 3px solid var(--black); box-shadow: 5px 5px 0 var(--black); }
+details + details { margin-top: 14px; }
+summary { cursor: pointer; background: var(--black); padding: 11px 14px; font: italic 700 1.05rem/1.25 var(--f-body); list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--yellow); font-style: normal; }
+details[open] summary::after { content: "−"; }
+details p { margin: 0; padding: 14px; color: var(--dim); }
+
+footer { background: var(--black); color: var(--dim); font-size: .9rem; }
+footer .inner { padding-block: 28px; display: grid; gap: 10px; }
+footer p { margin: 0; max-width: 80ch; }
+
+@media (max-width: 800px) {
+  .hero .inner, .gallery, .install-grid { grid-template-columns: minmax(0, 1fr); }
+  .bar nav { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .pill { transition: none; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>Moto Racer <span>Recomp</span></h1>
-  <p class="lead">Play <strong>Moto Racer</strong> (Delphine Software, 1997) natively on <strong>Mac</strong>, <strong>Windows 10/11</strong>, <strong>Linux</strong> and the <strong>Steam Deck</strong>: true widescreen up to 4K, gamepads with analog triggers, high frame rates. Made from your own GOG copy. No emulator, no Wine.</p>
-  <div class="cta">
-    <a class="btn primary" href="https://github.com/segovia-no/MotoRacerRecomp/releases">Download</a>
-    <a class="btn secondary" href="https://github.com/segovia-no/MotoRacerRecomp">Source code on GitHub</a>
-    <a class="btn secondary" href="https://www.gog.com/game/moto_racer">Get the game on GOG</a>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-native" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M10 7V4M14 7V4M10 20v-3M14 20v-3M7 10H4M7 14H4M20 10h-3M20 14h-3"/></symbol>
+  <symbol id="i-wide" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 12h12M6 12l3-3M6 12l3 3M18 12l-3-3M18 12l-3 3"/></symbol>
+  <symbol id="i-pad" viewBox="0 0 24 24"><path d="M7.5 8h9A4.5 4.5 0 0 1 21 12.5v1.8a2.7 2.7 0 0 1-4.9 1.6L14.6 14H9.4l-1.5 1.9A2.7 2.7 0 0 1 3 14.3v-1.8A4.5 4.5 0 0 1 7.5 8z"/><path d="M8 10.2v3.2M6.4 11.8h3.2"/><circle cx="15.6" cy="11" r=".6"/><circle cx="17.4" cy="12.8" r=".6"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M3.5 17a8.5 8.5 0 1 1 17 0"/><path d="M12 17l4.2-5.2"/><path d="M6.2 13.4l1.2.7M12 8.5v1.4M17.8 13.4l-1.2.7"/></symbol>
+  <symbol id="i-cd" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/></symbol>
+  <symbol id="i-pixels" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><rect x="14" y="14" width="6" height="6"/></symbol>
+</svg>
+
+<header class="bar">
+  <div class="inner">
+    <a class="logo" href="./">Moto Racer Recomp</a>
+    <nav aria-label="Sections"><a href="#features">Features</a><a href="#install">Install</a><a href="#faq">FAQ</a><a href="https://github.com/segovia-no/MotoRacerRecomp">GitHub</a></nav>
+    <span class="tab">Native port</span>
   </div>
-  <figure class="hero">
-    <img src="img/race.jpg" width="1600" height="1000" alt="Moto Racer Recomp: the start of a race on Speed Bay in widescreen at 2560x1600">
-    <figcaption>Speed Bay in widescreen, rendered natively at 2560×1600 (16:10) on a Mac.</figcaption>
-  </figure>
 </header>
+
 <main>
-  <h2 id="features">Features</h2>
-  <div class="grid">
-    <div class="card"><h3>Native everywhere</h3>A real macOS app for Apple Silicon, a 64-bit Windows program and a Linux / Steam Deck program. The game's Direct3D renderer runs on the GPU (Metal, Vulkan or Direct3D 12).</div>
-    <div class="card"><h3>True widescreen up to 4K</h3>The game's own 16/9 mode at native 1280×720, 1920×1080, 2560×1440 or 3840×2160, or 16:10 at 1280×800 (Steam Deck), 1920×1200 and 2560×1600.</div>
-    <div class="card"><h3>Gamepads</h3>Xbox, PlayStation, Switch Pro, 8BitDo: analog throttle and brake on the triggers, menu navigation with the d-pad, a ready-made layout.</div>
-    <div class="card"><h3>Smoother and further</h3>Frame rates above 60 (120 or 144 Hz displays) at the original game speed, a longer draw distance and a race HUD scaled to the resolution.</div>
-    <div class="card"><h3>CD music and sound</h3>The GOG audio tracks play as the original CD music; sound effects and volume sliders work.</div>
-    <div class="card"><h3>Original renderer too</h3>Prefer the 1997 look? The game's software renderer is still there (Options › D3D: OFF).</div>
+  <div class="hero">
+    <div class="inner">
+      <img class="shot" src="img/race.jpg" width="1600" height="1000" alt="Moto Racer Recomp: the start of a race on Speed Bay in widescreen at 2560x1600">
+      <div>
+        <h1>Moto Racer, <em>native</em> on Mac, Windows, Linux and Steam Deck</h1>
+        <p class="lead">The 1997 Delphine classic in widescreen up to 4K, with gamepads and 120 Hz. Built from your own GOG copy on the first start. No emulator, no Wine.</p>
+        <div class="btns">
+          <a class="pill go" href="https://github.com/segovia-no/MotoRacerRecomp/releases">Download</a>
+          <a class="pill" href="https://github.com/segovia-no/MotoRacerRecomp">Source code</a>
+        </div>
+        <p class="note-own">Needs your own copy: <a href="https://www.gog.com/game/moto_racer">Moto Racer on GOG</a>.</p>
+      </div>
+    </div>
   </div>
 
-  <div class="grid" style="margin-top:16px">
-    <figure><img src="img/race2.jpg" width="1600" height="1000" loading="lazy" alt="Moto Racer: a bike leaning into a corner past a castle, widescreen"><figcaption>Longer draw distance and a HUD scaled to the resolution.</figcaption></figure>
-    <figure><img src="img/menu.jpg" width="1600" height="1200" loading="lazy" alt="Moto Racer main menu"><figcaption>The original menus, with mouse, keyboard or gamepad.</figcaption></figure>
-  </div>
+  <section id="features"><div class="inner">
+    <div class="sec-head"><h2>Features</h2></div>
+    <div class="cards">
+      <article class="card"><h3>Native everywhere <svg class="ico" aria-hidden="true"><use href="#i-native"/></svg></h3><p>A real Apple Silicon app, a 64-bit Windows program and a Linux / SteamOS program. The Direct3D renderer runs on <b>Metal, Vulkan or Direct3D 12</b>.</p></article>
+      <article class="card"><h3>True widescreen <svg class="ico" aria-hidden="true"><use href="#i-wide"/></svg></h3><p>The game's own 16/9 mode at native <b>1280×720 to 3840×2160</b>, or 16:10 at 1280×800 (Steam Deck), 1920×1200 and 2560×1600.</p></article>
+      <article class="card"><h3>Gamepads <svg class="ico" aria-hidden="true"><use href="#i-pad"/></svg></h3><p>Xbox, PlayStation, Switch Pro, 8BitDo: <b>analog throttle and brake</b> on the triggers, d-pad menus, a ready-made layout.</p></article>
+      <article class="card"><h3>Smoother, further <svg class="ico" aria-hidden="true"><use href="#i-gauge"/></svg></h3><p>Frame rates above 60 (<b>120 or 144 Hz</b>) at the original game speed, a longer draw distance and a HUD scaled to the resolution.</p></article>
+      <article class="card"><h3>CD music <svg class="ico" aria-hidden="true"><use href="#i-cd"/></svg></h3><p>The GOG audio tracks play as the <b>original CD soundtrack</b>; sound effects and volume sliders work.</p></article>
+      <article class="card"><h3>Original renderer too <svg class="ico" aria-hidden="true"><use href="#i-pixels"/></svg></h3><p>Prefer the 1997 look? The game's <b>software renderer</b> is still there: Options › D3D: OFF.</p></article>
+    </div>
+    <div class="gallery">
+      <figure><img src="img/race2.jpg" width="1600" height="1000" loading="lazy" alt="A bike leaning into a corner past a castle, widescreen"><figcaption>Longer draw distance and a HUD scaled to the resolution.</figcaption></figure>
+      <figure><img src="img/menu.jpg" width="1600" height="1200" loading="lazy" alt="The Choose Bike menu"><figcaption>The original menus, with mouse, keyboard or gamepad.</figcaption></figure>
+    </div>
+  </div></section>
 
-  <h2 id="install">Install</h2>
-  <p class="note">You need your own copy of the game: buy <a href="https://www.gog.com/game/moto_racer">Moto Racer on GOG</a> and download its offline installer <code>setup_moto_racer_2.1.0.11.exe</code>. The downloads here contain no game code or assets.</p>
-  <ol>
-    <li><strong>Download</strong> the package for your system from the <a href="https://github.com/segovia-no/MotoRacerRecomp/releases">releases page</a>.</li>
-    <li><strong>Put the GOG installer in your Downloads folder.</strong></li>
-    <li><strong>Unpack the download and start Moto Racer.</strong> On the first start a setup screen finds the installer, unpacks the game and builds it on your computer: a minute or two, once. Then the game starts.</li>
-  </ol>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th>System</th><th>Download</th><th>Needs</th></tr></thead>
-    <tbody>
-      <tr><td>Mac (Apple Silicon)</td><td><code>MotoRacer-macos-arm64.zip</code></td><td>macOS 12 or later</td></tr>
-      <tr><td>Windows</td><td><code>MotoRacer-windows-x86_64.zip</code></td><td>Windows 10 or 11, 64-bit</td></tr>
-      <tr><td>Steam Deck / Linux</td><td><code>MotoRacer-linux-x86_64.tar.xz</code></td><td>x86-64, glibc 2.29 or later</td></tr>
-    </tbody>
-  </table>
-  </div>
-  <figure style="margin-top:16px"><img src="img/setup.png" width="1280" height="720" loading="lazy" alt="Moto Racer Recomp first-start setup screen"><figcaption>The first-start setup screen.</figcaption></figure>
-  <p>Step-by-step notes for macOS (Gatekeeper), Windows (SmartScreen) and the Steam Deck (adding it to Steam, controller layout) are in the <a href="https://github.com/segovia-no/MotoRacerRecomp#install">README</a>.</p>
+  <section id="install"><div class="inner">
+    <div class="sec-head"><h2>Install</h2></div>
+    <div class="install-grid">
+      <div class="panel">
+        <p class="warn">You need your own copy of the game: buy <a href="https://www.gog.com/game/moto_racer">Moto Racer on GOG</a> and download its offline installer <code>setup_moto_racer_2.1.0.11.exe</code>. The downloads here contain no game code or assets.</p>
+        <ol class="steps">
+          <li><div><strong>Download</strong> the package for your system from the <a href="https://github.com/segovia-no/MotoRacerRecomp/releases">releases page</a>.</div></li>
+          <li><div><strong>Put the GOG installer in your Downloads folder.</strong></div></li>
+          <li><div><strong>Unpack the download and start Moto Racer.</strong> The setup screen finds the installer, unpacks the game and builds it on your computer: a minute or two, once. Then the game starts.</div></li>
+        </ol>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>System</th><th>Download</th><th>Needs</th></tr></thead>
+            <tbody>
+              <tr><td>Mac (Apple Silicon)</td><td><code>MotoRacer-macos-arm64.zip</code></td><td>macOS 12 or later</td></tr>
+              <tr><td>Windows</td><td><code>MotoRacer-windows-x86_64.zip</code></td><td>Windows 10 or 11, 64-bit</td></tr>
+              <tr><td>Steam Deck / Linux</td><td><code>MotoRacer-linux-x86_64.tar.xz</code></td><td>x86-64, glibc 2.29 or later</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin:0">Step-by-step notes for macOS (Gatekeeper), Windows (SmartScreen) and the Steam Deck (adding it to Steam, controller layout) are in the <a href="https://github.com/segovia-no/MotoRacerRecomp#install">README</a>.</p>
+      </div>
+      <figure><img src="img/setup.png" width="1280" height="720" loading="lazy" alt="Moto Racer Recomp first-start setup screen"><figcaption>The first-start setup screen.</figcaption></figure>
+    </div>
+  </div></section>
 
-  <h2 id="faq">FAQ</h2>
-  <details><summary>How do I play Moto Racer on a Mac?</summary><p>Download <code>MotoRacer-macos-arm64.zip</code>, put the GOG installer in Downloads and open <strong>MotoRacer.app</strong>. It runs natively on Apple Silicon (macOS 12 or later). The app is not notarized, so the first time use System Settings › Privacy &amp; Security › Open Anyway.</p></details>
-  <details><summary>How do I play Moto Racer on the Steam Deck?</summary><p>In Desktop Mode, download the GOG installer and <code>MotoRacer-linux-x86_64.tar.xz</code>, extract it, add <code>MotoRacer/motoracer</code> to Steam as a non-Steam game and start it once. Then play from Game Mode at the native 1280×800; pick the Steam controller layout "Gamepad with Joystick Trackpad".</p></details>
-  <details><summary>Does Moto Racer work on Windows 10 and 11?</summary><p>Yes: Moto Racer Recomp is a native 64-bit Windows program. Extract the zip and run <code>motoracer.exe</code>; no DirectX 5, no compatibility modes.</p></details>
-  <details><summary>Can Moto Racer run in widescreen or 4K?</summary><p>Yes: the game's own 16/9 mode becomes a true 16:9 picture at up to 3840×2160, and 16:10 modes up to 2560×1600.</p></details>
-  <details><summary>Do I need to own the game?</summary><p>Yes. The game is made from your GOG installer on your computer; nothing from the game is distributed here.</p></details>
-  <details><summary>Is it an emulator?</summary><p>No. It is a <em>static recompilation</em>: the original <code>game.EXE</code> is translated to C and compiled into a native program, linked with a runtime that re-implements the Windows, DirectDraw, Direct3D, DirectSound and CD-audio parts the game uses.</p></details>
-  <details><summary>Something went wrong. Where do I report it?</summary><p>Open an <a href="https://github.com/segovia-no/MotoRacerRecomp/issues">issue on GitHub</a> and attach the log file (its location is in the <a href="https://github.com/segovia-no/MotoRacerRecomp#troubleshooting">README</a>).</p></details>
+  <section id="faq"><div class="inner">
+    <div class="sec-head"><h2>FAQ</h2></div>
+    <details><summary>How do I play Moto Racer on a Mac?</summary><p>Download <code>MotoRacer-macos-arm64.zip</code>, put the GOG installer in Downloads and open <strong>MotoRacer.app</strong>. It runs natively on Apple Silicon (macOS 12 or later). The app is not notarized, so the first time use System Settings › Privacy &amp; Security › Open Anyway.</p></details>
+    <details><summary>How do I play Moto Racer on the Steam Deck?</summary><p>In Desktop Mode, download the GOG installer and <code>MotoRacer-linux-x86_64.tar.xz</code>, extract it, add <code>MotoRacer/motoracer</code> to Steam as a non-Steam game and start it once. Then play from Game Mode at the native 1280×800; pick the Steam controller layout "Gamepad with Joystick Trackpad".</p></details>
+    <details><summary>Does Moto Racer work on Windows 10 and 11?</summary><p>Yes: Moto Racer Recomp is a native 64-bit Windows program. Extract the zip and run <code>motoracer.exe</code>; no DirectX 5, no compatibility modes.</p></details>
+    <details><summary>Can Moto Racer run in widescreen or 4K?</summary><p>Yes: the game's own 16/9 mode becomes a true 16:9 picture at up to 3840×2160, and 16:10 modes up to 2560×1600.</p></details>
+    <details><summary>Do I need to own the game?</summary><p>Yes. The game is made from your GOG installer on your computer; nothing from the game is distributed here.</p></details>
+    <details><summary>Is it an emulator?</summary><p>No. It is a static recompilation: the original <code>game.EXE</code> is translated to C and compiled into a native program, linked with a runtime that re-implements the Windows, DirectDraw, Direct3D, DirectSound and CD-audio parts the game uses.</p></details>
+    <details><summary>Something went wrong. Where do I report it?</summary><p>Open an <a href="https://github.com/segovia-no/MotoRacerRecomp/issues">issue on GitHub</a> and attach the log file (its location is in the <a href="https://github.com/segovia-no/MotoRacerRecomp#troubleshooting">README</a>).</p></details>
+  </div></section>
 
-  <h2 id="how">How it works</h2>
-  <p>A recompiler finds every function in the GOG <code>game.EXE</code> and translates each x86 instruction to C: integer operations with exact flags, the x87 FPU, MMX and the software rasterizer's self-modifying code. A runtime provides Win32, DirectDraw, Direct3D execute buffers on SDL_GPU, DirectSound, an emulated CD-audio drive and gamepads. The release packages carry the recompiler and a C compiler, so the game code is built on your own computer from your own copy. The reverse-engineering notes are in the <a href="https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/00-overview.md">technical docs</a>.</p>
+  <section id="how"><div class="inner">
+    <div class="sec-head"><h2>How it works</h2></div>
+    <div class="panel"><p style="margin:0">A recompiler finds every function in the GOG <code>game.EXE</code> and translates each x86 instruction to C: integer operations with exact flags, the x87 FPU, MMX and the software rasterizer's self-modifying code. A runtime provides Win32, DirectDraw, Direct3D execute buffers on SDL_GPU, DirectSound, an emulated CD-audio drive and gamepads. The release packages carry the recompiler and a C compiler, so the game code is built on your own computer from your own copy. The reverse-engineering notes are in the <a href="https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/00-overview.md">technical docs</a>.</p></div>
+  </div></section>
 </main>
+
 <footer>
-  <p>Moto Racer Recomp is an unofficial fan project for preservation and interoperability, released under the MIT License. It is not affiliated with or endorsed by Delphine Software, the current rights holders of Moto Racer, or GOG. "Moto Racer" and related names are trademarks of their respective owners.</p>
+  <div class="inner">
+    <p>Moto Racer Recomp is an unofficial fan project for preservation and interoperability, released under the MIT License. It is not affiliated with or endorsed by Delphine Software, the current rights holders of Moto Racer, or GOG. "Moto Racer" and related names are trademarks of their respective owners.</p>
+    <p><a href="https://github.com/segovia-no/MotoRacerRecomp">GitHub</a> · <a href="https://github.com/segovia-no/MotoRacerRecomp/releases">Releases</a> · <a href="llms.txt">llms.txt</a></p>
+  </div>
 </footer>
 </body>
 </html>

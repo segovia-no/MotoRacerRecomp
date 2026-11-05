@@ -40,3 +40,10 @@ gauges are fine) — the open speedometer-needle report; the site uses chase-cam
 - Repo: new description, homepage = the site, Discussions on, topics added (recompilation,
   retro-gaming, pc-port, gog, sdl3, steam-deck, racing-game).
 - Owner to do: social preview upload (Settings › General), Google Search Console + sitemap.
+
+## Site style: direction A "menu screen" (owner pick, 2026-11-05)
+Three directions were mocked up (menu screen, timing screen, Speed Bay); the owner chose A: the
+game's own 1997 menus — blue checkerboard ground, black title bar, yellow slanted page tabs as
+section headers, navy "mode card" panels with hard black shadows, Racing Sans One + Barlow, pill
+buttons, line icons per feature card (chip, widescreen, gamepad, gauge, CD, pixels). One fixed dark
+look; content, FAQ and JSON-LD unchanged.
