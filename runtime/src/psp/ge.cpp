@@ -54,6 +54,7 @@ uint32_t early_flush_count = 0, list_peak = 0;
 alignas(64) unsigned int list[LIST_BYTES / 4];   // commands and vertices; flushed early when half full
 size_t list_used = 0;                            // vertex bytes taken from the open list
 bool inited = false, open = false;
+uint32_t generation = 0;   // display lists started
 uint64_t wait_ns = 0;
 int cur = 0;                                     // buffer being drawn (0/1); the other one is shown
 
@@ -96,6 +97,7 @@ void init() {
 void begin() {
     init();
     if (open) return;
+    generation++;
     sceGuStart(GU_DIRECT, list);
     sceGuDrawBufferList(GU_PSM_5650, reinterpret_cast<void *>(fb_offset(cur)), FB_STRIDE);
     full_region();
@@ -216,8 +218,6 @@ static void send_projection(float w0) {
     id.x.x = id.y.y = id.z.z = id.w.w = 1.f;
     sceGuSetMatrix(GU_VIEW, &id);
     sceGuSetMatrix(GU_MODEL, &id);
-    sceGuTexScale(1.f, 1.f);
-    sceGuTexOffset(0.f, 0.f);
     cur_w0 = w0;
 }
 void set_near_w(float w0) {
@@ -247,6 +247,14 @@ uint32_t take_list_stats(uint32_t *peak) {
     early_flush_count = 0;
     list_peak = 0;
     return n;
+}
+
+uint32_t list_generation() { return generation; }
+
+void reserve(size_t n) {
+    n = (n + 15) & ~size_t{15};
+    if (open && list_used + n > LIST_BYTES / 2) { finish(); early_flush_count++; }
+    begin();
 }
 
 void *list_memory(size_t n) {

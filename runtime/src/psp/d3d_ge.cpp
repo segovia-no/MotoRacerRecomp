@@ -69,6 +69,8 @@ struct GeState {
     const void *clut = nullptr;
     int fmin = -1, fmag = -1, wrap = -1;
     const void *tdata = nullptr;
+    float ts_u = -1.f, ts_v = -1.f, to_u = -1.f, to_v = -1.f;   // 3D mode texture scale / offset
+    int cull = -1;                                               // hardware culling: 0 off, D3D mode 2 / 3
 } gs;
 
 Surface *target = nullptr;
@@ -95,7 +97,7 @@ std::set<uint32_t> in_place_mem;
 
 // Debug counters, logged every 5 s with MOTORACER_GE_STATS=1.
 struct Stats {
-    uint32_t draws, tris, clears, flips_gpu, flips_cpu, blts_gpu, blts_cpu, downloads, uploads, tex_converts, subdivided;
+    uint32_t draws, tris, clears, flips_gpu, flips_cpu, blts_gpu, blts_cpu, downloads, uploads, tex_converts, subdivided, indexed;
     uint64_t ns_draw, ns_tex;
 } st{};
 bool stats_on() {
@@ -119,9 +121,9 @@ void stats_tick() {
     uint32_t list_peak = 0, early = psp_ge::take_list_stats(&list_peak);
     log("ge: %zu textures %.2f MB (from 8-bit %.2f MB), list peak %u KB, early flushes %u | ", textures.size(),
         tex_bytes / 1048576.0, tex8 / 1048576.0, list_peak >> 10, early);
-    log("ge: draws %u tris %u (+%u split) clears %u flip gpu/cpu %u/%u blt gpu/cpu %u/%u downloads %u uploads %u texconv %u | "
+    log("ge: draws %u (indexed %u) tris %u (+%u split) clears %u flip gpu/cpu %u/%u blt gpu/cpu %u/%u downloads %u uploads %u texconv %u | "
         "ms in 5 s: execute %llu, draw %llu (textures %llu), GE wait %llu\n",
-        st.draws, st.tris, st.subdivided, st.clears, st.flips_gpu, st.flips_cpu, st.blts_gpu, st.blts_cpu, st.downloads, st.uploads,
+        st.draws, st.indexed, st.tris, st.subdivided, st.clears, st.flips_gpu, st.flips_cpu, st.blts_gpu, st.blts_cpu, st.downloads, st.uploads,
         st.tex_converts, (unsigned long long)(execute_ns / 1000000), (unsigned long long)(st.ns_draw / 1000000), (unsigned long long)(st.ns_tex / 1000000),
         (unsigned long long)(ns_ge / 1000000));
     st = {};
@@ -403,6 +405,62 @@ void apply_states(const uint32_t *rs, Texture *tex) {
     if (wrap != gs.wrap) { sceGuTexWrap(wrap, wrap); gs.wrap = wrap; }
 }
 
+// 3D-mode texture coordinates: u' = u * scale + offset (through-mode draws ignore these)
+void set_tex_transform(float su, float sv, float ou, float ov) {
+    if (su != gs.ts_u || sv != gs.ts_v) { sceGuTexScale(su, sv); gs.ts_u = su; gs.ts_v = sv; }
+    if (ou != gs.to_u || ov != gs.to_v) { sceGuTexOffset(ou, ov); gs.to_u = ou; gs.to_v = ov; }
+}
+
+// Direct3D culling (D3DCULL_CW 2 culls triangles clockwise on screen, D3DCULL_CCW 3 counter-
+// clockwise) by the GE in 3D mode; other paths cull in software and pass 0.
+// MOTORACER_GE_CULL_FLIP=1 swaps the GE's front face (dev).
+void set_cull(uint32_t mode) {
+    const int c = (mode == 2 || mode == 3) ? static_cast<int>(mode) : 0;
+    if (c == gs.cull) return;
+    static const bool flip = getenv("MOTORACER_GE_CULL_FLIP") && strcmp(getenv("MOTORACER_GE_CULL_FLIP"), "0");
+    if (!c) {
+        sceGuDisable(GU_CULL_FACE);
+    } else {
+        const bool front_ccw = (c == 2) != flip;   // the kept faces
+        sceGuFrontFace(front_ccw ? GU_CCW : GU_CW);
+        if (gs.cull <= 0) sceGuEnable(GU_CULL_FACE);
+    }
+    gs.cull = c;
+}
+
+// ---------- indexed 3D draws ----------
+// The textured 3D-mode draws of one PROCESSVERTICES batch share its vertices: they are converted once
+// (w = 1 / rhw, position x*w, y*w, w) into display-list memory, and each draw adds only 16-bit
+// indices; texture size and the 1/16-texel nudge go in the GE's texture scale / offset, culling to the
+// GE. Before, every triangle wrote its three vertices (24 bytes each, a division per vertex use).
+// MOTORACER_GE_INDEXED=0: the per-triangle path.
+bool indexed_on() {
+    static const bool on = !getenv("MOTORACER_GE_INDEXED") || strcmp(getenv("MOTORACER_GE_INDEXED"), "0");
+    return on;
+}
+uint32_t batch_id = 0;                // add_vertices calls
+GeVertex *batch_ge = nullptr;         // the batch's 3D vertices in list memory
+uint32_t batch_ge_id = ~0u, batch_ge_gen = ~0u;
+
+bool batch_ge_valid() {
+    return batch_ge && batch_ge_id == batch_id && batch_ge_gen == psp_ge::list_generation();
+}
+
+GeVertex *batch_vertices_3d() {   // after psp_ge::reserve covering its size when not valid
+    if (batch_ge_valid()) return batch_ge;
+    const size_t n = frame_vertices.size();
+    auto *out = static_cast<GeVertex *>(psp_ge::list_memory(n * sizeof(GeVertex)));
+    for (size_t i = 0; i < n; i++) {
+        const FrameVertex &v = frame_vertices[i];
+        const float w = 1.f / v.rhw;
+        out[i] = GeVertex{v.g.u, v.g.v, v.g.color, v.g.x * w, v.g.y * w, w};
+    }
+    batch_ge = out;
+    batch_ge_id = batch_id;
+    batch_ge_gen = psp_ge::list_generation();
+    return out;
+}
+
 // ---------- perspective-correct texturing by subdivision ----------
 // The GE's through mode interpolates texture coordinates linearly on screen (affine); Direct3D
 // interpolates them perspective-correctly. Textured triangles that are large on screen and span a
@@ -522,6 +580,7 @@ uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
     // the list restarts here instead of growing over the whole frame: PSP-1000 memory (a race frame
     // reached ~10,000 vertices, and the vector's doubling briefly needed twice that).
     frame_vertices.clear();
+    batch_id++;
     uint32_t base = 0;
     if (ge3d()) psp_ge::set_near_w(near_w());
     for (uint32_t i = 0; i < n; i++) {
@@ -580,8 +639,24 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             const FrameVertex &fv = frame_vertices[base + (indices[0] < nverts ? indices[0] : 0)];
             if (fv.sz > 0.f && fv.sz < 1.f) frame_k_sample = fv.sz * fv.rhw;
         }
+        if (rmax > rmin * 1.0001f && szmin >= frame_s0 && szmin < 1.f && !force_alpha && indexed_on()) {
+            const float iu = 1.f / static_cast<float>(tex->tw), iv = 1.f / static_cast<float>(tex->th);
+            set_tex_transform(su * iu, sv * iv, 0.0625f * iu, 0.0625f * iv);
+            set_cull(cull);
+            const size_t ibytes = (6u * ntri + 15) & ~size_t{15};
+            psp_ge::reserve(ibytes + (batch_ge_valid() ? 0 : frame_vertices.size() * sizeof(GeVertex)));
+            auto *idx = static_cast<uint16_t *>(psp_ge::list_memory(ibytes));
+            for (uint32_t t = 0; t < 3 * ntri; t++) idx[t] = static_cast<uint16_t>(base + (indices[t] < nverts ? indices[t] : 0));
+            GeVertex *verts = batch_vertices_3d();
+            sceGuDrawArray(GU_TRIANGLES, GU_INDEX_16BIT | GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D,
+                           static_cast<int>(3 * ntri), idx, verts);
+            st.indexed++;
+            return;
+        }
         if (rmax > rmin * 1.0001f && szmin >= frame_s0 && szmin < 1.f) {
             const float iu = 1.f / static_cast<float>(tex->tw), iv = 1.f / static_cast<float>(tex->th);
+            set_tex_transform(1.f, 1.f, 0.f, 0.f);
+            set_cull(0);
             auto *out = static_cast<GeVertex *>(psp_ge::list_memory(3u * ntri * sizeof(GeVertex)));
             uint32_t k = 0;
             for (uint32_t t = 0; t < ntri; t++) {
@@ -612,6 +687,7 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             return;
         }
     }
+    set_cull(0);
     if (!(tex && perspective()) && dump_frame < 0) {
         // no subdivision: straight into the display list (at most 3 vertices per triangle)
         auto *out = static_cast<GeVertex *>(psp_ge::list_memory(3u * ntri * sizeof(GeVertex)));

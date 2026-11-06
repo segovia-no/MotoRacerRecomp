@@ -440,6 +440,25 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   `PSP/GAME/MOTORACER_PROF/` with that EBOOT, the profiler on and `MOTORACER_GAME_DIR` pointing at
   `MOTORACER/game` (configured with `MOTORACER_PSP_HEAP_KB=13056`: the EBOOT grows 5.1 → 5.3 MB).
 
+### Hardware profile with guest functions, and what followed (2026-11-06)
+- Race (~60 ms per frame on a PSP-1000): game code ~25 ms, of which the top 24 guest functions ~15 ms
+  (bike AI / physics `0x46b120`, `0x469c60`, `0x46bf80`, `0x461aa0`, `0x46cd20`, the render-list flush's
+  translated part `0x4af570`, matrix multiply `0x403a80`, ...); after the finish line (AI stopped)
+  game code drops to ~10 ms. Render path ~29 ms (flush 7.5, GE draw 5.3, faces 5, Execute 3.2, vertex
+  conversion 2.3, state 1.7, transform / clip / setup ~3).
+- Menus (~60 ms): the sprite blitter `0x43ede0` 25% and the tiled background `0x43f0f0` 12% of the
+  frame; the CPU downscale of the 640x480 frame ~16 ms. Both functions are native now
+  (`native_menu.cpp`, check mode: 0 mismatches).
+- GE: textured 3D-mode draws are indexed (`MOTORACER_GE_INDEXED`, default on): each PROCESSVERTICES
+  batch is converted once into display-list memory (w = 1/rhw, x*w, y*w, w), each draw adds 16-bit
+  indices; texture size and the 1/16-texel nudge go to `sceGuTexScale` / `sceGuTexOffset`, Direct3D
+  culling to the GE (`sceGuFrontFace` + `GU_CULL_FACE`). ~65% of the race's draws; same pictures as
+  the per-triangle path; PPSSPP draw time −20%. The batch arrays fill the 128 KB list sooner: about
+  one early flush per frame (harmless: the GE runs a list only after it is closed anyway).
+  `psp_ge::reserve` keeps a draw's index and vertex memory in one list.
+- Hot race functions: being rewritten natively in `native_race_a..d.cpp` (check mode against the
+  translated code before they are switched on).
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and

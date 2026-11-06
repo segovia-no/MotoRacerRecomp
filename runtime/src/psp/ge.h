@@ -21,6 +21,11 @@ void finish();                 // close it, write back the data cache, let the G
 void show();                   // finish, display the drawn buffer, swap
 uint16_t *draw_buffer();       // CPU (uncached) pointer to the buffer being drawn (RGB565, R low)
 void *list_memory(size_t n);   // memory inside the open display list (vertices)
+// Room for n more bytes of list memory without an early flush in between (allocations made after
+// this stay in one list); list_generation() changes whenever a new list starts, which ends the life
+// of everything allocated in the previous one.
+void reserve(size_t n);
+uint32_t list_generation();
 uint32_t take_list_stats(uint32_t *peak);   // early list flushes and peak vertex bytes since the last call
 // 64-byte aligned memory from a kernel block outside the C heap (the user partition keeps a ~0.5 MB
 // piece the heap cannot grow into); nullptr when it is used up. Never freed.
