@@ -65,9 +65,14 @@ uint32_t early_flush_count = 0, list_peak = 0;
 alignas(64) unsigned int list[LIST_BYTES / 4];   // commands and vertices; flushed early when half full
 size_t list_used = 0;                            // vertex bytes taken from the open list
 // In a direct list the GE runs up to the stall address. pspgu moves it (a kernel call) after every
-// sceGuDrawArray and sceGuGetMemory: ~1,200 times per race frame. Moved here every STALL_STEP bytes
-// of list instead (and by sceGuFinish at the end), which still lets the GE draw while the CPU works.
-constexpr ptrdiff_t STALL_STEP = 4096;
+// sceGuDrawArray and sceGuGetMemory: ~1,200 times per race frame. Here: after a draw once the list has
+// grown by MOTORACER_GE_STALL_STEP bytes since the last move (default 0: every draw; list memory never).
+// A 4 KB step (2026-11-06) made a real PSP wait ~20 ms per race frame for the GE at the frame's end
+// ("present" + "wait"): the GE has to run alongside the CPU.
+ptrdiff_t stall_step_words() {
+    static const ptrdiff_t w = getenv("MOTORACER_GE_STALL_STEP") ? atoi(getenv("MOTORACER_GE_STALL_STEP")) / 4 : 0;
+    return w;
+}
 unsigned int *stall_at = nullptr;
 bool inited = false, open = false;
 uint32_t generation = 0;   // display lists started
@@ -387,7 +392,7 @@ void draw_array(int prim, int vtype, int count, const void *indices, const void 
     }
     *c++ = (0x04u << 24) | ((static_cast<unsigned int>(prim) << 16 | static_cast<unsigned int>(count)) & 0xffffffu);
     gu_list->current = c;
-    if (c - stall_at >= STALL_STEP / 4) {
+    if (c - stall_at >= stall_step_words()) {
         sceGeListUpdateStallAddr(ge_list_executed[0], c);
         stall_at = c;
     }
