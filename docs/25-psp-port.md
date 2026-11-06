@@ -544,6 +544,15 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   (`RECOMP_FPU_FLOAT`) converts with integer operations instead, bit-identical (tested on every float
   and 400 M doubles incl. ties and carries); zero, subnormals, inf, NaN outside the fast path.
   `-fno-math-errno` on the PSP: `sqrtf` is the `sqrt.s` instruction.
+- Owner: the profiling app crashed at West Way's first frame (normal app fine). PPSSPP, West Way
+  (`ile02`): `FATAL: out of host memory (operator new)` in the execute buffer's vertex copy growing to
+  1,601 vertices; the normal build had ~50 KB of C heap left there too (by luck). Both builds keep only
+  ~0.5 MB of C heap beside the guest block (`memstats: host malloc ... room to grow`, new: the sbrk room).
+  The guest heap goes 13,312 → 13,056 KB (`MOTORACER_PSP_HEAP_KB`; capacity ~13.65 MB with the donated
+  .text vs the 12.8 MB peak seen, Dirt Arena); the profiling build (`build/psp-pf`, ~300 KB more code)
+  12,800 KB. The vertex arrays are reserved once (2,048) instead of growing. Now ~0.19 MB left on
+  West Way in both. The rest of the C heap: ~5,000 small blocks (~320 KB) — the guest allocator's
+  maps, surface / COM objects, strings (`MOTORACER_MALLOC_TRACE`).
 - Audio: at most the 10 loudest voices are mixed on the PSP (`MOTORACER_MIX_VOICES`, 0 = all; desktop
   all); a race plays ~24 engine voices, most distant.
 

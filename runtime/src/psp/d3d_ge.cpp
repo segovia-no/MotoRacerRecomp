@@ -625,6 +625,7 @@ uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
     // the list restarts here instead of growing over the whole frame: PSP-1000 memory (a race frame
     // reached ~10,000 vertices, and the vector's doubling briefly needed twice that).
     frame_vertices.clear();
+    if (frame_vertices.capacity() < 2048) frame_vertices.reserve(2048);   // once, early (as d3d.cpp's copy)
     batch_id++;
     uint32_t base = 0;
     if (ge3d()) psp_ge::set_near_w(near_w());

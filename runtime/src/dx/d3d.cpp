@@ -213,6 +213,9 @@ void parse_execute(ExecuteBuffer *eb, Device *dev) {
                     if (!warned) { warned = true; log("D3D: PROCESSVERTICES flags %x not supported\n", flags); }
                     continue;
                 }
+                // reserved once, early (a growing vector needs its old and new copies at once: on the
+                // PSP-1000 a West Way frame's 1,601 vertices found no 51 KB block left in the C heap)
+                if (dev->processed.capacity() < 2048) dev->processed.reserve(2048);
                 if (dev->processed.size() < dest + n) dev->processed.resize(dest + n);
                 memcpy(&dev->processed[dest], M + eb->mem + vtx_off + 32 * start, 32ull * n);
             }

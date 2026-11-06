@@ -385,9 +385,10 @@ void memory_stats_log() {
     // host side: newlib malloc (runtime, SDL, converted textures, the guest block) and the kernel's
     // free user memory
     struct mallinfo mi = mallinfo();
-    log("memstats: host malloc in use %.2f MB (arena %.2f MB), kernel free %.2f MB (largest block %.2f MB)\n",
-        mi.uordblks / 1048576.0, mi.arena / 1048576.0, sceKernelTotalFreeMemSize() / 1048576.0,
-        sceKernelMaxFreeMemSize() / 1048576.0);
+    log("memstats: host malloc in use %.2f MB (arena %.2f MB, free in it %.2f MB, room to grow %.2f MB), kernel free "
+        "%.2f MB (largest block %.2f MB)\n",
+        mi.uordblks / 1048576.0, mi.arena / 1048576.0, mi.fordblks / 1048576.0, psp_heap_room() / 1048576.0,
+        sceKernelTotalFreeMemSize() / 1048576.0, sceKernelMaxFreeMemSize() / 1048576.0);
 #ifdef RECOMP_MALLOC_TRACE
     malloc_trace_log();
 #endif

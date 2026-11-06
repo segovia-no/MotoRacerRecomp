@@ -232,8 +232,9 @@ endif()
 option(MOTORACER_PSP_1000 "PSP: fit the PSP-1000 (no extended memory)" OFF)
 if(PSP AND MOTORACER_PSP_1000)
   # races peak at 12.8 MB (Dirt Arena, 23 bikes); the unused x86 .text adds ~0.75 MB (donate_text_to_heap)
-  # quitting a race to the menus peaks at 12.8 MB
-  set(MOTORACER_PSP_HEAP_KB 13312 CACHE STRING "PSP-1000: guest heap size in KB")
+  # quitting a race to the menus peaks at 12.8 MB. 12.75 MB + ~0.9 MB of .text: the C heap needs the
+  # rest (13 MB left it ~50 KB free on West Way: out of host memory at the first race frame)
+  set(MOTORACER_PSP_HEAP_KB 13056 CACHE STRING "PSP-1000: guest heap size in KB")
   add_compile_definitions(RECOMP_GUEST_HEAP_KB=${MOTORACER_PSP_HEAP_KB})
 endif()
 if(PSP)
