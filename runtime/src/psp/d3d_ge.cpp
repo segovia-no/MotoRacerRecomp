@@ -494,19 +494,30 @@ bool batch_ge_valid() {
     return batch_ge && batch_ge_id == batch_id && batch_ge_gen == psp_ge::list_generation();
 }
 
-GeVertex *batch_vertices_3d() {   // after psp_ge::reserve covering its size when not valid
+// The batch's 3D vertex array (list memory for all of its vertices, after psp_ge::reserve covering
+// it when not valid); each vertex is converted when a draw first uses it (ensure_3d): the 3D-mode
+// draws use only the textured ones, and the conversion (a division, 24 bytes to uncached list memory)
+// was done for the whole batch (~1,400 vertices) before.
+std::vector<uint32_t> v3d_stamp;   // per frame vertex: the batch_stamp it was converted for
+uint32_t batch_stamp = 0;
+
+GeVertex *batch_vertices_3d() {
     if (batch_ge_valid()) return batch_ge;
     const size_t n = frame_vertices.size();
-    auto *out = static_cast<GeVertex *>(psp_ge::list_memory(n * sizeof(GeVertex)));
-    for (size_t i = 0; i < n; i++) {
-        const FrameVertex &v = frame_vertices[i];
-        const float w = 1.f / v.rhw;
-        out[i] = GeVertex{v.g.u, v.g.v, v.g.color, v.g.x * w, v.g.y * w, w};
-    }
-    batch_ge = out;
+    batch_ge = static_cast<GeVertex *>(psp_ge::list_memory(n * sizeof(GeVertex)));
     batch_ge_id = batch_id;
     batch_ge_gen = psp_ge::list_generation();
-    return out;
+    if (v3d_stamp.size() < n) v3d_stamp.resize(std::max<size_t>(n, 1536));
+    batch_stamp++;
+    return batch_ge;
+}
+
+inline void ensure_3d(uint32_t i) {
+    if (v3d_stamp[i] == batch_stamp) return;
+    v3d_stamp[i] = batch_stamp;
+    const FrameVertex &v = frame_vertices[i];
+    const float w = 1.f / v.rhw;
+    batch_ge[i] = GeVertex{v.g.u, v.g.v, v.g.color, v.g.x * w, v.g.y * w, w};
 }
 
 // ---------- perspective-correct texturing by subdivision ----------
@@ -802,8 +813,12 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             const size_t ibytes = (6u * ntri + 15) & ~size_t{15};
             psp_ge::reserve(ibytes + (batch_ge_valid() ? 0 : frame_vertices.size() * sizeof(GeVertex)));
             auto *idx = static_cast<uint16_t *>(psp_ge::list_memory(ibytes));
-            for (uint32_t t = 0; t < 3 * ntri; t++) idx[t] = static_cast<uint16_t>(base + (indices[t] < nverts ? indices[t] : 0));
             GeVertex *verts = batch_vertices_3d();
+            for (uint32_t t = 0; t < 3 * ntri; t++) {
+                const uint32_t i = base + (indices[t] < nverts ? indices[t] : 0);
+                ensure_3d(i);
+                idx[t] = static_cast<uint16_t>(i);
+            }
             psp_ge::draw_array(GU_TRIANGLES, GU_INDEX_16BIT | GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D,
                            static_cast<int>(3 * ntri), idx, verts);
             st.indexed++;

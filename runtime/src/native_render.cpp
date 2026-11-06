@@ -546,7 +546,14 @@ void zfunc_state(uint32_t eb, uint32_t func) {   // a one-state STATERENDER bloc
     WR32(0x4e4f3c, 0xffffff9cu);   // the next triangle opens a new header
 }
 
-int flush_polygon(bool direct = false) {
+int flush_polygon_body(bool direct);
+int flush_polygon(bool direct = false) {   // the profiler region as it was on entry, whichever exit
+    const uint8_t region_in = prof_region;
+    const int r = flush_polygon_body(direct);
+    prof_region = region_in;
+    return r;
+}
+int flush_polygon_body(bool direct) {
     MEM_LOCAL();
     const uint32_t sp = R.esp, node = R.ebx, eb = RD32(EB_OBJ);
     WR32(0x624370, RD32(0x624370) + 1);
@@ -598,6 +605,10 @@ int flush_polygon(bool direct = false) {
     if (line) { WR32(sp + 0x38, 0); n = 2; }
     else if (RD16(poly + 0x34) == 0xffff) { WR32(sp + 0x38, 0); n = 3; }
     else { WR32(sp + 0x38, 2); n = 4; }
+    // profiler sub-regions (MOTORACER_PROF): the vertex loops, then states and primitives; the record
+    // checks above stay "native_flush_polygon"
+    static const uint8_t region_loops = prof_register("flush: vertex loops"), region_emit = prof_register("flush: states + primitives");
+    prof_region = region_loops;
     if (n) {
         WR32(sp + 0x20, n);   // the untextured loop's counter (the textured loop leaves it at n too)
         const LoopOut o = untex ? flat_vertices(poly, n, node, direct) : tex_vertices(poly, n, node, R.ebp, sp, direct);
@@ -607,6 +618,7 @@ int flush_polygon(bool direct = false) {
         WR32(sp + 0x20, o.s20);
     }
     // 0x4af9fe
+    prof_region = region_emit;
     WR32(ROOM_VERTS, RD32(ROOM_VERTS) + RD32(sp + 0x20));
     const uint32_t lflags = RD32(RD32(sp + 0x18) + 0xc);
     poly = RD32(node);

@@ -577,6 +577,13 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
 - PPSSPP: neutral (the conversion moved into the loops; PPSSPP has no cache costs). On the PSP it saves
   writing, copying and re-reading ~77 KB of records per frame: to be measured on hardware.
 
+- Owner, hardware: works, "barely any noticeable performance improvements". Step 2 (per-draw cost):
+  the indexed 3D draws converted every vertex of the batch (~1,400: a division and 24 bytes of
+  uncached list memory each, untextured ones included) when the batch's first 3D draw came; now each
+  vertex is converted when a draw first uses it (`ensure_3d`, a stamp per vertex). PPSSPP: draw
+  1.27 → 1.16 ms. Profiler sub-regions in the polygon flush: "flush: vertex loops" (now including the
+  conversion) and "flush: states + primitives"; the rest stays `native_flush_polygon`.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and
