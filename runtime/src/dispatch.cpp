@@ -32,6 +32,17 @@ void vout(const char *fmt, va_list ap) {
     if (log_file) {
         vfprintf(log_file, fmt, ap2);
         fflush(log_file);   // the Windows CRT treats _IOLBF as full buffering: a crash would lose the log
+#ifdef __PSP__
+        // Real PSP: the memory stick's file size is only updated when the file is closed, so a hang or
+        // power-off loses what was written since. The first 300 lines (startup) close and reopen it.
+        static int synced = 0;
+        if (synced < 300) {
+            synced++;
+            fclose(log_file);
+            log_file = fopen(log_path.c_str(), "a");
+            if (log_file) setvbuf(log_file, nullptr, _IOLBF, 4096);
+        }
+#endif
     }
     va_end(ap2);
 }

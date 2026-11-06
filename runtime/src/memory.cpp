@@ -173,6 +173,9 @@ void memory_init() {
     }
 #endif
     uint8_t *block = vm.reserve(GUEST_HI - GUEST_LO);
+#ifdef __PSP__
+    log("memory: guest block at %p\n", static_cast<void *>(block));
+#endif
     if (!block) fatal("cannot reserve the guest address space (%llu MB)", (unsigned long long)((GUEST_HI - GUEST_LO) >> 20));
     M = block - GUEST_LO;
     commit(NULL_GUARD, HEAP_LO - NULL_GUARD);   // stack, image, relocated engine tables

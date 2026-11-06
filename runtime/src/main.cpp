@@ -132,6 +132,7 @@ int main(int argc, char **argv) {
     log("game dir: %s\nargs: %s\n", game_dir.c_str(), game_args.c_str());
 
     memory_init();
+    log("loading %s/game.EXE\n", game_dir.c_str());
     load_image(game_dir + "/game.EXE");
     donate_text_to_heap();
     if (!plat::host().fs.set_current_dir(game_dir)) fatal("cannot chdir to %s", game_dir.c_str());
