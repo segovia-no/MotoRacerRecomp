@@ -340,6 +340,15 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   `ms0:/PSP/GAME/MOTORACER/motoracer.log`. Checked in PPSSPP from a plain folder (PPSSPP treats a path
   with `PSP/GAME/` as its own memory stick).
 
+### First real PSP-1000 (ARK CFW) test (2026-11-06)
+- Black screen, then the PSP switched itself off. The log (closed and reopened per line for the first
+  300 lines: the memory stick only updates a file's size when it is closed) stopped after the `.text`
+  donation, before "entering the game": in `run_on_large_stack`, which moved `$sp` into a malloc'd
+  block (`call_on_stack`) — fine in PPSSPP, fatal on hardware. Same free memory as PPSSPP (17.69 MB).
+- Fix: the PSP runs the game on its own thread (`sceKernelCreateThread`, 40 KB kernel stack, VFPU);
+  the main thread waits. The frame-buffer block is reserved before that thread takes kernel memory.
+  `MOTORACER_TRACE=1` (psp_env.txt) logs every API call, like `--trace`.
+
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).
 - Time per 5 s in the race: Direct3D Execute (parsing + GE backend) 400–660 ms (8–13%), of which the

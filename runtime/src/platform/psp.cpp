@@ -39,15 +39,33 @@ public:
     bool make_inaccessible(void *, uint64_t) override { return true; }
 };
 
+int game_thread(SceSize, void *argp) {
+    void (*fn)() = *static_cast<void (**)()>(argp);
+    // high-water mark (MOTORACER_MEM_STATS): fill the unused part of this stack below the current frame
+    SceKernelThreadInfo info{};
+    info.size = sizeof info;
+    if (sceKernelReferThreadStatus(sceKernelGetThreadId(), &info) >= 0 && info.stack) {
+        host_stack = static_cast<uint8_t *>(info.stack);
+        host_stack_bytes = static_cast<size_t>(info.stackSize);
+        uint8_t here = 0;
+        const size_t below = static_cast<size_t>(&here - host_stack);
+        if (below > 512 && below < host_stack_bytes) memset(host_stack, 0xA5, below - 512);
+    }
+    fn();
+    return 0;
+}
+
 class PspExecution final : public Execution {
 public:
+    // A thread with its own kernel-allocated stack. (Moving $sp into a malloc'd block, as the other
+    // platforms do, ran in PPSSPP but shut a real PSP-1000 down at the first system call.)
     bool run_on_large_stack(uint64_t bytes, void (*fn)()) override {
-        void *stack = malloc(static_cast<size_t>(bytes));
-        if (!stack) return false;
-        memset(stack, 0xA5, static_cast<size_t>(bytes));   // high-water mark (MOTORACER_MEM_STATS)
-        host_stack = static_cast<uint8_t *>(stack);
+        SceUID th = sceKernelCreateThread("game", game_thread, 0x20, static_cast<SceSize>(bytes),
+                                          THREAD_ATTR_USER | THREAD_ATTR_VFPU, nullptr);
+        if (th < 0) return false;
         host_stack_bytes = static_cast<size_t>(bytes);
-        call_on_stack(static_cast<char *>(stack) + (bytes & ~15ull), fn);
+        sceKernelStartThread(th, sizeof fn, &fn);
+        sceKernelWaitThreadEnd(th, nullptr);
         return true;
     }
     // a kernel alarm: its handler runs in interrupt context, on top of whatever thread was running

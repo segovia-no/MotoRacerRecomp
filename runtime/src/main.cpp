@@ -65,6 +65,7 @@ std::string find_game_dir(const std::string &explicit_dir) {
 
 #ifdef __PSP__
 #include <psppower.h>
+#include "psp/ge.h"
 // No environment on the PSP: dev settings (MOTORACER_AUTOKEYS, MOTORACER_SNAPSHOT_DIR, ...) come
 // from psp_env.txt next to the EBOOT, one KEY=VALUE per line (tools/psp/e2e_psp.sh writes it).
 void load_psp_env() {
@@ -144,6 +145,9 @@ int main(int argc, char **argv) {
     // Recompiled code nests one host frame per guest call; give it a deep stack, but stay
     // on the main thread because Cocoa (and so SDL video/events) requires it.
     prof::start();
+#ifdef __PSP__
+    psp_ge::outside_heap(0);   // reserve the frame-buffer block before the game thread's stack takes kernel memory
+#endif
     if (!plat::host().execution.run_on_large_stack(HOST_STACK_BYTES, run_game)) fatal("cannot allocate host stack");
     return 0;
 }
