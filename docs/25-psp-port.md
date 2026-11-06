@@ -604,6 +604,21 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   Back to a move after every draw (list memory still never: half pspgu's kernel calls);
   `MOTORACER_GE_STALL_STEP=<bytes>` keeps the step for an A/B (package: `MOTORACER_PROF_4K`).
 
+- Hardware log with the stall fix: "present" back to ~0.6 ms, race 54–63 ms per frame, but "wait" ~8 ms
+  remains (none in the older 55–60 ms log): the GE is now the bottleneck — the CPU feeds it faster
+  (draw + Execute + conversion ~11 → ~5 ms) and waits for it instead. Batch for the GE (2026-11-07):
+  - Swizzled textures (`MOTORACER_GE_SWIZZLE=0`: off): in place for guest-memory textures (T8 now in
+    `in_place_mem` too; `revert_in_place` unswizzles, then reverts colours), once for own copies.
+  - Display list in two 64 KB halves: a full half is finished and queued without waiting
+    (`flush_early`), drawing continues in the other half after `sceGeListSync` on the list last built
+    there; fill measured from pspgu's list pointer (commands included; was vertex bytes vs half the
+    buffer). PPSSPP race: 0 early flushes (peak 43–57 KB), before ~2 per frame each waiting for the GE.
+  - Textures with the same palette share one CLUT (no reload between them; up to 64 palettes).
+  - Texture cache flush only when a texture's pixels changed (`MOTORACER_GE_TEXFLUSH=1`: every switch).
+  - CPU: the native flush also walks the depth buckets (exits 4 / 5 = abort or resume / end of the
+    buckets): PPSSPP translated game code 1.94 → 1.65 ms; AI level of detail: beyond 80,000 (twice
+    the drawing range) one update per 20 hundredths; mixer: 16-bit samples by halfword loads.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and

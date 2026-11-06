@@ -587,7 +587,7 @@ namespace {
 constexpr uint32_t FRAME_DT = 0x4e9808, BIKE_POS = 0x3c;
 constexpr uint32_t WARM_UP = 60;   // the grid / first seconds: skipping an opponent's first updates broke the race
 struct AiLod {
-    float r1 = 40000.f, r2 = 1e9f, p_mid = 10.f, p_far = 10.f;
+    float r1 = 40000.f, r2 = 80000.f, p_mid = 10.f, p_far = 20.f;   // beyond twice the drawing range: 5 updates a second
     uint32_t player = 0x584421;   // the player's bike, as seen in the loop (previous frame until then)
     float acc[32] = {};
     uint32_t warm[32] = {};   // normal updates since the race was set up: none skipped before WARM_UP

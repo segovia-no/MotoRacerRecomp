@@ -95,7 +95,12 @@ void mix_voice(Buffer *b, int32_t *acc, int frames, int32_t gl, int32_t gr) {
     const uint32_t rate = b->freq ? b->freq : b->fmt.rate;
     const uint32_t step = static_cast<uint32_t>((static_cast<uint64_t>(rate) << 16) / mix_rate);
     const uint8_t *base = M + b->mem;
+    // 16-bit samples at an even address (the guest heap's buffers): plain halfword loads (memcpy of
+    // unknown alignment is two byte loads on the PSP)
+    const int16_t *s16 = (BITS == 16 && !(reinterpret_cast<uintptr_t>(base) & 1) && !(bs & 1))
+                             ? reinterpret_cast<const int16_t *>(base) : nullptr;
     auto sample = [&](uint32_t i, int c) -> int32_t {
+        if (BITS == 16 && s16) return s16[i * (bs / 2) + c];
         const uint8_t *s = base + i * bs;
         if (BITS == 8) return (static_cast<int32_t>(s[c]) - 128) << 8;
         int16_t v;
