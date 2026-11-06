@@ -725,7 +725,7 @@ void set_target(Surface *s) {
 }
 
 void execute_buffer_locked(uint32_t, uint32_t) {}
-bool direct_vertex(uint32_t, float, float, float, float, const uint32_t *, float, float) { return false; }
+bool direct_span(uint32_t, uint32_t, DirectSpan *) { return false; }
 bool direct_process(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t *) { return false; }
 void execute_done(uint32_t) {}
 

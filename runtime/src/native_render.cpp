@@ -83,7 +83,7 @@ inline float bits_float(uint32_t b) {
     return f;
 }
 
-// direct: the vertices go to the GE backend (dx::gpu::direct_vertex) instead of the TLVERTEX records
+// direct: the vertices go to the GE backend (dx::gpu::direct_span / direct_put) instead of the TLVERTEX records
 // (normal mode on the PSP; check mode compares the records, so not there)
 LoopOut flat_vertices(uint32_t esi, uint32_t n, uint32_t ebx, bool direct = false) {
     MEM_LOCAL();
@@ -91,18 +91,21 @@ LoopOut flat_vertices(uint32_t esi, uint32_t n, uint32_t ebx, bool direct = fals
     const uint32_t alpha = col & 0xff000000u, ri = (col >> 16) & 0xff, gi = (col >> 8) & 0xff, bi = col & 0xff;
     const ZMode z = z_mode();
     uint32_t idx = esi + 0x2c, v = 0, row = 0, rgb = 0, ecx = 0, out = RD32(eb + 4);
-    if (direct) {
+    dx::gpu::DirectSpan ds;
+    if (direct && dx::gpu::direct_span(out, n, &ds)) {
         // the untextured records get no rhw / uv (the GE path does not use them there)
+        const bool records = direct_check();
         for (uint32_t i = 0; i < n; i++, out += 0x20, idx += 2) {
             v = verts + RD16(idx) * 28u;
             row = SHADE_TABLE + ((RD32(v + 0xc) & 0x3e000u) >> 5);
             rgb = static_cast<uint32_t>(RD8(row + ri)) << 16 | static_cast<uint32_t>(RD8(row + gi)) << 8 | RD8(row + bi);
             const uint32_t zb = sz_bits(z, v), argb = alpha | rgb;
+            const float x = int_to_float(RD32(v + 0x10)), y = int_to_float(RD32(v + 0x14));
             ecx = z.on && z.raw ? zb : rgb;
-            if (!dx::gpu::direct_vertex(out, int_to_float(RD32(v + 0x10)), int_to_float(RD32(v + 0x14)), bits_float(zb),
-                                        1.f, &argb, 0.f, 0.f) || direct_check()) {
-                WRF32(out, int_to_float(RD32(v + 0x10)));
-                WRF32(out + 4, int_to_float(RD32(v + 0x14)));
+            dx::gpu::direct_put(ds, i, x, y, bits_float(zb), 1.f, &argb, 0.f, 0.f);
+            if (records) {
+                WRF32(out, x);
+                WRF32(out + 4, y);
                 WR32(out + 0x14, rgb | 0xff000000u);
                 WR32(out + 0x10, argb);
                 WR32(out + 8, zb);
@@ -148,14 +151,16 @@ LoopOut tex_vertices(uint32_t esi, uint32_t n, uint32_t ebx, uint32_t ebp, uint3
     const bool white = RD32(WHITE_A) || RD32(WHITE_B);
     const ZMode z = z_mode();
     uint32_t uv = esi + 4, idx = esi + 0x2c, v = 0, out = RD32(eb + 4);
-    if (direct) {
+    dx::gpu::DirectSpan ds;
+    if (direct && dx::gpu::direct_span(out, n, &ds)) {
+        const bool records = direct_check();
         for (uint32_t i = 0; i < n; i++, uv += 8, idx += 2, out += 0x20) {
             v = verts + RD16(idx) * 28u;
             const uint32_t zb = sz_bits(z, v);
-            uint32_t argb = 0;
+            uint32_t argb = 0, c = 0;
             bool has_colour = false;
             if (i == 0 || every) {   // else the record keeps its colour (the backend keeps the slot's)
-                const uint32_t c = RD32(v + 0xc);
+                c = RD32(v + 0xc);
                 has_colour = true;
                 if (c & 0x80000000u) {
                     argb = c & 0xffffff;
@@ -167,8 +172,9 @@ LoopOut tex_vertices(uint32_t esi, uint32_t n, uint32_t ebx, uint32_t ebp, uint3
                     argb = alpha | e << 16 | e << 8 | e;
                 }
             }
-            if (!dx::gpu::direct_vertex(out, int_to_float(RD32(v + 0x10)), int_to_float(RD32(v + 0x14)), bits_float(zb),
-                                        RDF32(v + 0x18), has_colour ? &argb : nullptr, RDF32(uv), RDF32(uv + 4)) || direct_check()) {
+            dx::gpu::direct_put(ds, i, int_to_float(RD32(v + 0x10)), int_to_float(RD32(v + 0x14)), bits_float(zb),
+                                RDF32(v + 0x18), has_colour ? &argb : nullptr, RDF32(uv), RDF32(uv + 4));
+            if (records) {
                 WRF32(out + 4, int_to_float(RD32(v + 0x14)));
                 WRF32(out, int_to_float(RD32(v + 0x10)));
                 WR32(out + 0xc, RD32(v + 0x18));
@@ -176,7 +182,6 @@ LoopOut tex_vertices(uint32_t esi, uint32_t n, uint32_t ebx, uint32_t ebp, uint3
                 WR32(out + 0x1c, RD32(uv + 4));
                 WR32(out + 8, zb);
                 if (has_colour) {
-                    const uint32_t c = RD32(v + 0xc);
                     if (c & 0x80000000u) WR32(out + 0x14, 0xffffffffu);
                     else if (!(c & 0x40000000u)) WR32(out + 0x14, (argb & 0xffffff) | 0xff000000u);
                     WR32(out + 0x10, argb);

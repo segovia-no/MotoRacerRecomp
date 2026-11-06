@@ -135,9 +135,17 @@ bool collect_stats() {
     return on;
 }
 
+// One entry remembered (consecutive draws mostly repeat a handle; ~600 draws per race frame each
+// walked the map); forgotten whenever the handle table changes.
+uint32_t last_handle = 0;
+Surface *last_handle_surface = nullptr;
+
 Surface *texture_from_handle(uint32_t h) {
+    if (h == last_handle && last_handle) return last_handle_surface;
     auto it = texture_handles.find(h);
-    return it == texture_handles.end() ? nullptr : it->second;
+    last_handle = h;
+    last_handle_surface = it == texture_handles.end() ? nullptr : it->second;
+    return last_handle_surface;
 }
 
 void parse_execute(ExecuteBuffer *eb, Device *dev) {
@@ -147,7 +155,7 @@ void parse_execute(ExecuteBuffer *eb, Device *dev) {
     uint32_t vtx_off;
     memcpy(&vtx_off, eb->exec_data + 4, 4);
     uint32_t base = 0, nverts = 0;
-    std::vector<uint16_t> idx;
+    static std::vector<uint16_t> idx;   // kept between Executes (no allocation per call)
     uint32_t ed = 0;
     memcpy(&ed, eb->exec_data + 8, 4);   // dwVertexCount
     stats.vertices += ed;
@@ -180,12 +188,11 @@ void parse_execute(ExecuteBuffer *eb, Device *dev) {
         switch (op) {
         case 3: {                                 // D3DOP_TRIANGLE: D3DTRIANGLE {v1, v2, v3, flags}
             stats.triangles += count;
-            idx.resize(3u * count);
-            for (uint16_t i = 0; i < count; i++) {
-                uint32_t t = data + static_cast<uint32_t>(sz) * i;
-                idx[3 * i] = RD16(t);
-                idx[3 * i + 1] = RD16(t + 2);
-                idx[3 * i + 2] = RD16(t + 4);
+            if (idx.size() < 3u * count) idx.resize(3u * count);
+            {
+                const uint8_t *t = M + data;
+                uint16_t *o = idx.data();
+                for (uint16_t i = 0; i < count; i++, t += sz, o += 3) memcpy(o, t, 6);   // v1, v2, v3
             }
             gpu::draw(dev->rs, dev->rs[1] ? texture_from_handle(dev->rs[1]) : nullptr, base, nverts, idx.data(), count);
             break;
@@ -294,6 +301,7 @@ uint32_t ensure_texture_handle(Surface *s) {
     uint32_t h = next_handle++;
     surface_texture_handle[s] = h;
     texture_handles[h] = s;
+    last_handle = 0;
     return h;
 }
 
@@ -661,6 +669,7 @@ bool d3d_query_surface(Surface *s, const Guid &g, uint32_t *out, uint32_t *hr) {
             gpu::surface_destroyed(gone);
             for (auto it = texture_handles.begin(); it != texture_handles.end();)
                 it = it->second == gone ? texture_handles.erase(it) : std::next(it);
+            last_handle = 0;
             surface_texture_handle.erase(gone);
         };
         gpu::set_target(s);

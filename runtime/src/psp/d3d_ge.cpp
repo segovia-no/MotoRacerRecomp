@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <map>
 #include <set>
@@ -674,18 +675,27 @@ void execute_buffer_locked(uint32_t mem, uint32_t size) {
     direct_count = 0;
 }
 
-bool direct_vertex(uint32_t va, float sx, float sy, float sz, float rhw, const uint32_t *argb, float tu, float tv) {
+bool direct_span(uint32_t va, uint32_t n, DirectSpan *out) {
+    static_assert(sizeof(DirectVertex) == sizeof(FrameVertex) && offsetof(FrameVertex, rhw) == offsetof(DirectVertex, rhw) &&
+                      offsetof(FrameVertex, sz) == offsetof(DirectVertex, sz),
+                  "direct_put writes FrameVertex records");
     const uint32_t off = va - direct_mem;
-    if (!direct_on() || off >= direct_size || (off & 31)) return false;
+    if (!direct_on() || off >= direct_size || off + 32 * n > direct_size || (off & 31)) return false;
     const uint32_t slot = off >> 5;
-    if (frame_vertices.size() <= slot) {
+    if (frame_vertices.size() < slot + n) {
         if (frame_vertices.capacity() < DIRECT_SLOTS) frame_vertices.reserve(DIRECT_SLOTS);
-        frame_vertices.resize(slot + 1);
+        frame_vertices.resize(slot + n);
     }
-    if (argb) direct_argb[slot] = *argb;
-    frame_vertices[slot] = frame_vertex(sx, sy, sz, rhw, direct_argb[slot], tu, tv);
-    direct_has[slot] = 1;
-    direct_count++;
+    memset(direct_has + slot, 1, n);
+    direct_count += n;
+    out->v = reinterpret_cast<DirectVertex *>(&frame_vertices[slot]);
+    out->argb = direct_argb + slot;
+    out->scale = scale;
+    out->off_x = static_cast<float>(off_x);
+    out->off_y = static_cast<float>(off_y);
+    out->s0 = frame_s0;
+    out->min_sz = &frame_min_sz;
+    out->ge3d = ge3d();
     return true;
 }
 
