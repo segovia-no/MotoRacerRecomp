@@ -66,15 +66,20 @@ void draw_frame(const uint16_t *img, uint32_t w, uint32_t h, uint32_t stride) {
     sceGuTexWrap(GU_CLAMP, GU_CLAMP);
     uint32_t th = 1;
     while (th < h) th <<= 1;
-    for (uint32_t sx = 0; sx < w; sx += 512) {
-        uint32_t sw = w - sx < 512 ? w - sx : 512, tw = 1;
-        while (tw < sw) tw <<= 1;
-        sceGuTexImage(0, static_cast<int>(tw), static_cast<int>(th), static_cast<int>(stride), img + sx);
+    for (uint32_t base = 0; base < w; base += 512) {   // strips of 32 texels: the GE's texture cache
+        uint32_t bw = w - base < 512 ? w - base : 512, tw = 1;
+        while (tw < bw) tw <<= 1;
+        sceGuTexImage(0, static_cast<int>(tw), static_cast<int>(th), static_cast<int>(stride), img + base);
         sceGuTexFlush();
-        auto *v = static_cast<SpriteVertex *>(list_memory(2 * sizeof(SpriteVertex)));
-        v[0] = {0.f, 0.f, x0 + sx * scale, y0, 0.f};
-        v[1] = {static_cast<float>(sw), static_cast<float>(h), x0 + (sx + sw) * scale, y0 + dh, 0.f};
-        sceGuDrawArray(GU_SPRITES, GU_TEXTURE_32BITF | GU_VERTEX_32BITF | GU_TRANSFORM_2D, 2, nullptr, v);
+        constexpr uint32_t STRIP = 32;
+        const uint32_t n = (bw + STRIP - 1) / STRIP;
+        auto *v = static_cast<SpriteVertex *>(list_memory(2 * n * sizeof(SpriteVertex)));
+        for (uint32_t i = 0; i < n; i++) {
+            const uint32_t u0 = i * STRIP, u1 = std::min(bw, u0 + STRIP);
+            v[2 * i] = {static_cast<float>(u0), 0.f, x0 + (base + u0) * scale, y0, 0.f};
+            v[2 * i + 1] = {static_cast<float>(u1), static_cast<float>(h), x0 + (base + u1) * scale, y0 + dh, 0.f};
+        }
+        sceGuDrawArray(GU_SPRITES, GU_TEXTURE_32BITF | GU_VERTEX_32BITF | GU_TRANSFORM_2D, static_cast<int>(2 * n), nullptr, v);
     }
     sceGuDisable(GU_TEXTURE_2D);
     touch_state();   // the Direct3D backend's state cache is stale now

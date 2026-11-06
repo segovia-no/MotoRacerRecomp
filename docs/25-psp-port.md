@@ -486,6 +486,18 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   - Parallel desktop test runs share the game folder (best scores, settings); `MOTORACER_LOG_DIR`
     (macOS) keeps their logs apart.
 
+- Hardware run with all of the above (owner): races ~55–65 ms (was 60–68): translated game code
+  25 → ~9 ms, but the new natives take ~13 ms (inclusive of their translated callees) — the bike code
+  went 25 → ~22 ms only. It is bound by data memory (24 bike records of 0x3209 bytes, ~300 KB, against a
+  16 KB data cache), not by instruction count. Menus got slower (GE wait ~37 ms) and showed a black
+  bar: the halving left a 320x240 scissor in place for pass 2 (fixed); the GE's tiny texture cache
+  made wide sprites over unswizzled RAM textures slow — the old menu path's ~17 ms "wait" too: sprites
+  are now drawn in 32-texel strips. The native menu copies used newlib memmove, which copies byte by
+  byte when source and destination are 2 bytes out of word phase: `copy_px` copies words, or funnels
+  aligned word loads.
+- `PROFILE_ENV="MOTORACER_OPPONENTS=7"` (package_hw.sh) runs the profiling app with 7 opponents: the
+  hardware cost of the bike AI per opponent.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and

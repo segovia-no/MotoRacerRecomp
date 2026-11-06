@@ -10,6 +10,7 @@
 # PROF=1: psp_env.txt turns the sampling profiler on (docs/26-psp-profile.md).
 # PROFILE_BUILD=<build dir>: also PSP/GAME/MOTORACER_PROF/ with that build's EBOOT (e.g. one configured
 # with MOTORACER_PROF_FUNCS=ON), the profiler on, and the game files of MOTORACER/ (no second copy).
+# PROFILE_ENV="KEY=VALUE ...": more settings for that one (e.g. MOTORACER_OPPONENTS=7 for an A/B).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PSPDEV="${PSPDEV:-$HOME/pspdev}" PATH="$HOME/pspdev/bin:$PATH"
@@ -39,5 +40,6 @@ if [ -n "${PROFILE_BUILD:-}" ]; then
     mkdir -p "$pout"
     eboot "$PROFILE_BUILD" "$pout" "Moto Racer (profiling)"
     printf 'MOTORACER_PROF=1\nMOTORACER_GAME_DIR=ms0:/PSP/GAME/MOTORACER/game\n' > "$pout/psp_env.txt"
+    for kv in ${PROFILE_ENV:-}; do echo "$kv" >> "$pout/psp_env.txt"; done
     echo "$pout: EBOOT $(du -h "$pout/EBOOT.PBP" | cut -f1), game files from MOTORACER/"
 fi

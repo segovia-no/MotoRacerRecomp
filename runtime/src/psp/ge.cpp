@@ -204,7 +204,8 @@ namespace {
 struct SpriteVertex { float u, v, x, y, z; };
 
 // Through-mode textured sprites copying a w x h 5650 image (stride in pixels) to (x0, y0) scaled to
-// dw x dh, in strips of at most 512 texels (the GE's texture width limit); bilinear filtered.
+// dw x dh, bilinear filtered. In vertical strips of 32 source texels: the GE's texture cache is tiny,
+// and wide sprites over an unswizzled texture in RAM made a real PSP wait ~17 ms per menu frame.
 void draw_image(const uint16_t *img, uint32_t w, uint32_t h, uint32_t stride, float x0, float y0, float dw, float dh) {
     sceGuDisable(GU_DEPTH_TEST);
     sceGuDisable(GU_BLEND);
@@ -219,16 +220,22 @@ void draw_image(const uint16_t *img, uint32_t w, uint32_t h, uint32_t stride, fl
     uint32_t th = 1;
     while (th < h) th <<= 1;
     const float sx_scale = dw / static_cast<float>(w);
-    for (uint32_t sx = 0; sx < w; sx += 512) {
-        const uint32_t sw = w - sx < 512 ? w - sx : 512;
+    // the texture: up to 512 texels from `base`; strips address it by u (no per-strip TexImage)
+    for (uint32_t base = 0; base < w; base += 512) {
+        const uint32_t bw = w - base < 512 ? w - base : 512;
         uint32_t tw = 1;
-        while (tw < sw) tw <<= 1;
-        sceGuTexImage(0, static_cast<int>(tw), static_cast<int>(th), static_cast<int>(stride), img + sx);
+        while (tw < bw) tw <<= 1;
+        sceGuTexImage(0, static_cast<int>(tw), static_cast<int>(th), static_cast<int>(stride), img + base);
         sceGuTexFlush();
-        auto *v = static_cast<SpriteVertex *>(list_memory(2 * sizeof(SpriteVertex)));
-        v[0] = {0.f, 0.f, x0 + sx * sx_scale, y0, 0.f};
-        v[1] = {static_cast<float>(sw), static_cast<float>(h), x0 + (sx + sw) * sx_scale, y0 + dh, 0.f};
-        sceGuDrawArray(GU_SPRITES, GU_TEXTURE_32BITF | GU_VERTEX_32BITF | GU_TRANSFORM_2D, 2, nullptr, v);
+        constexpr uint32_t STRIP = 32;
+        const uint32_t n = (bw + STRIP - 1) / STRIP;
+        auto *v = static_cast<SpriteVertex *>(list_memory(2 * n * sizeof(SpriteVertex)));
+        for (uint32_t i = 0; i < n; i++) {
+            const uint32_t u0 = i * STRIP, u1 = std::min(bw, u0 + STRIP);
+            v[2 * i] = {static_cast<float>(u0), 0.f, x0 + (base + u0) * sx_scale, y0, 0.f};
+            v[2 * i + 1] = {static_cast<float>(u1), static_cast<float>(h), x0 + (base + u1) * sx_scale, y0 + dh, 0.f};
+        }
+        sceGuDrawArray(GU_SPRITES, GU_TEXTURE_32BITF | GU_VERTEX_32BITF | GU_TRANSFORM_2D, static_cast<int>(2 * n), nullptr, v);
     }
     sceGuDisable(GU_TEXTURE_2D);
 }
@@ -259,10 +266,10 @@ bool draw_halved_565(const uint8_t *src, uint32_t pitch, uint32_t w, uint32_t h,
         pairs[i] = ((p >> 11) & 0x001F001Fu) | (p & 0x07E007E0u) | ((p << 11) & 0xF800F800u);
     }
     // pass 2: scaled into the draw buffer
-    begin();   // a new list: the draw buffer is the current one again
+    begin();      // a new list: the draw buffer is the current one again
+    full_region();   // pass 1 left a 320x240 scissor (the GE keeps it across lists): a black bar below
     draw_image(half, hw, hh, static_cast<uint32_t>(hstride), static_cast<float>(dx), static_cast<float>(dy),
                static_cast<float>(dw), static_cast<float>(dh));
-    full_region();
     touch_state();
     return true;
 }

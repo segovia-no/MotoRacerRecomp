@@ -21,6 +21,33 @@ constexpr uint32_t SCREEN_W = 0x655d10, SCREEN_H = 0x624b18;
 constexpr uint32_t BACK_PIXELS = 0x624f5c;  // back buffer pixels (16 bit)
 constexpr uint32_t BACK_PITCH = 0x62ebec;   // in pixels
 
+// n 16-bit pixels from src to dst (guest addresses, both even). newlib's memmove copies byte by byte
+// when the two are not equally word-aligned (sprite and tile rows often are 2 bytes apart): ~2x
+// slower than the translated code on a real PSP. Here: words when the phases match, else a funnel
+// of aligned word loads (one word read past the source span, still guest memory).
+void copy_px(uint8_t *mb, uint32_t dst, uint32_t src, uint32_t n) {
+    if ((dst | src) & 1) { memmove(mb + dst, mb + src, static_cast<size_t>(n) * 2); return; }
+    if (n && (dst & 2)) {   // a halfword first: dst word-aligned
+        memcpy(mb + dst, mb + src, 2);
+        dst += 2, src += 2, n--;
+    }
+    uint32_t *d = reinterpret_cast<uint32_t *>(mb + dst);
+    const uint32_t words = n / 2;
+    if (!(src & 2)) {
+        const uint32_t *s = reinterpret_cast<const uint32_t *>(mb + src);
+        for (uint32_t i = 0; i < words; i++) d[i] = s[i];
+    } else {
+        const uint32_t *s = reinterpret_cast<const uint32_t *>(mb + src - 2);
+        uint32_t prev = s[0];
+        for (uint32_t i = 0; i < words; i++) {
+            const uint32_t next = s[i + 1];
+            d[i] = (prev >> 16) | (next << 16);   // little-endian: pixels src+0, src+2
+            prev = next;
+        }
+    }
+    if (n & 1) memcpy(mb + dst + 4 * words, mb + src + 4 * words, 2);
+}
+
 // ---- 0x43ede0: sprite blit (thiscall, 4 stack args, ret 0x10) ----
 // ecx = sprite {x, y, w, h at +0..+0xc, mode +0x14, pixels +0x2c}; arg1 = mode (5: the sprite's),
 // arg2 / arg3 = percentages 0..100 that crop the sprite from the top / right. Clipped to the screen,
@@ -91,7 +118,7 @@ void run(const Blit &b) {
     switch (b.mode) {
     case 0:   // plain rows
         for (uint32_t r = b.rows; r; r--) {
-            memmove(mb + dst, mb + src, static_cast<size_t>(n) * 2);
+            copy_px(mb, dst, src, n);
             dst += b.dst_pitch * 2;
             src += b.src_pitch * 2;
         }
@@ -178,7 +205,7 @@ void tile_fill() {
     for (uint32_t r = 0; r < 480; r++) {
         const uint32_t row = tile + (((yoff & 0x7f) + r) & 0x7f) * 512 + x;
         const uint32_t d = dst + r * pitch * 2;
-        for (uint32_t k = 0; k < 5; k++) memmove(mb + d + k * 256, mb + row, 256);
+        for (uint32_t k = 0; k < 5; k++) copy_px(mb, d + k * 256, row, 128);
     }
     R.esp = sp + 4;
 }
