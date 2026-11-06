@@ -26,6 +26,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <malloc.h>
 #include <cstring>
 #include <deque>
 #include <mutex>
@@ -160,11 +161,18 @@ int bytes_per_frame(const SDL_AudioSpec &s) { return SDL_AUDIO_BYTESIZE(s.format
 int audio_thread(SceSize, void *argp) {
     SDL_AudioStream *s = *static_cast<SDL_AudioStream **>(argp);
     psp_fpu::quiet();   // the mixer's float code
-    std::vector<int16_t> out(kSamples * 2);
+    // Two output blocks, alternating: the blocking output returns once the block is queued, and the
+    // hardware reads it from memory (DMA) while it plays — writing the next block into the same
+    // memory replaced samples still playing (a steady crackle on a real PSP; PPSSPP copies at once).
+    int16_t *bufs = static_cast<int16_t *>(memalign(64, sizeof(int16_t) * kSamples * 2 * 2));
+    if (!bufs) return 0;
+    int cur = 0;
     const int need = kSamples * bytes_per_frame(s->src);
     const uint32_t budget_us = static_cast<uint32_t>(kSamples * 1000000ull / 44100);
     uint32_t t_ready = sceKernelGetSystemTimeLow();
     while (s->running) {
+        int16_t *out = bufs + cur * kSamples * 2;
+        cur ^= 1;
         const int have = static_cast<int>(s->data.size());
         if (have < need && s->get) s->get(s->user, s, need - have, need);
         const int n = std::min(need, static_cast<int>(s->data.size()));
@@ -174,18 +182,20 @@ int audio_thread(SceSize, void *argp) {
             for (int i = 0; i < kSamples * 2; i++)
                 out[i] = i < vals ? static_cast<int16_t>(std::clamp(f[i] * 32767.f, -32768.f, 32767.f)) : 0;
         } else {
-            std::memcpy(out.data(), s->data.data(), static_cast<size_t>(n));
-            std::memset(reinterpret_cast<uint8_t *>(out.data()) + n, 0, static_cast<size_t>(kSamples * 4 - n));
+            std::memcpy(out, s->data.data(), static_cast<size_t>(n));
+            std::memset(reinterpret_cast<uint8_t *>(out) + n, 0, static_cast<size_t>(kSamples * 4 - n));
         }
         s->data.erase(s->data.begin(), s->data.begin() + n);
         if (postmix) postmix(postmix_user, &device_spec, nullptr, 0);
         const int vol = static_cast<int>(PSP_AUDIO_VOLUME_MAX * std::clamp(device_gain, 0.f, 1.f));
+        sceKernelDcacheWritebackRange(out, kSamples * 4);   // the DMA reads memory, not the cache
         const uint32_t t_made = sceKernelGetSystemTimeLow();
-        sceAudioOutputPannedBlocking(s->channel, vol, vol, out.data());
+        sceAudioOutputPannedBlocking(s->channel, vol, vol, out);
         const uint32_t t_out = sceKernelGetSystemTimeLow();
         prof::audio_block(t_made - t_ready, t_out - t_made, budget_us);
         t_ready = t_out;
     }
+    free(bufs);
     return 0;
 }
 

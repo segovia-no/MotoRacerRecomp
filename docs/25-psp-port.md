@@ -404,6 +404,12 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   present ~22%, waiting for the GE ~24%, audio mixing ~10%. Bike / track select 77–80 ms (game code
   55%, D3D Execute 22%). PPSSPP is ~3x faster on the same screens.
 
+- Next hardware run: the race loads and plays; the crackle stayed, at a very steady rate. Cause: one
+  output buffer per channel — `sceAudioOutputPannedBlocking` returns once the block is queued and the
+  hardware reads it by DMA while it plays, so mixing the next block into the same memory overwrote
+  samples still playing (PPSSPP copies them at submit). Now two 64-byte aligned blocks alternate,
+  with a data-cache writeback before each output.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and
