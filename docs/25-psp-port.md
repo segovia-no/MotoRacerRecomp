@@ -438,7 +438,7 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   lists the top 24 every 5 s. Render sub-regions: `ge: vertex conversion`, `ge: draw (vertices out)`,
   `ge: texture + state`. `PROFILE_BUILD=build/psp-pf tools/psp/package_hw.sh` adds
   `PSP/GAME/MOTORACER_PROF/` with that EBOOT, the profiler on and `MOTORACER_GAME_DIR` pointing at
-  `MOTORACER/game` (configured with `MOTORACER_PSP_HEAP_KB=13056`: the stores take ~0.9 MB of code).
+  `MOTORACER/game` (configured with `MOTORACER_PSP_HEAP_KB=13056`: the EBOOT grows 5.1 → 5.3 MB).
 
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
