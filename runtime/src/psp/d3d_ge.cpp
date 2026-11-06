@@ -295,6 +295,8 @@ Texture *texture_for(Surface *s) {
             t.tbw = static_cast<int>(s->pitch);
             t.data = src;
             t.shared = true;
+            psp_ge::writeback(t.clut, 256 * 4);
+            psp_ge::writeback(src, static_cast<size_t>(s->pitch) * s->h);
             return &t;
         }
         t.psm = GU_PSM_8888;
@@ -302,6 +304,7 @@ Texture *texture_for(Surface *s) {
         auto *out = static_cast<uint32_t *>(t.data);
         for (uint32_t y = 0; y < s->h; y++)
             for (uint32_t x = 0; x < s->w; x++) out[y * t.tbw + x] = pal[RD8(s->mem + y * s->pitch + x)];
+        psp_ge::writeback(t.data, static_cast<size_t>(t.tbw) * s->h * 4);
         return &t;
     }
     const bool is1555 = s->gmask == 0x03E0, is4444 = s->gmask == 0x00F0;
@@ -334,6 +337,7 @@ Texture *texture_for(Surface *s) {
         t.data = guest;
         t.shared = true;
         t.in_place = true;
+        psp_ge::writeback(guest, static_cast<size_t>(s->pitch) * s->h);
         return &t;
     }
     t.data = memalign(16, static_cast<size_t>(t.tbw) * s->h * 2);
@@ -355,6 +359,7 @@ Texture *texture_for(Surface *s) {
             }
             out[y * t.tbw + x] = o;
         }
+    psp_ge::writeback(t.data, static_cast<size_t>(t.tbw) * s->h * 2);
     return &t;
 }
 
@@ -688,7 +693,7 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             auto *idx = static_cast<uint16_t *>(psp_ge::list_memory(ibytes));
             for (uint32_t t = 0; t < 3 * ntri; t++) idx[t] = static_cast<uint16_t>(base + (indices[t] < nverts ? indices[t] : 0));
             GeVertex *verts = batch_vertices_3d();
-            sceGuDrawArray(GU_TRIANGLES, GU_INDEX_16BIT | GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D,
+            psp_ge::draw_array(GU_TRIANGLES, GU_INDEX_16BIT | GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D,
                            static_cast<int>(3 * ntri), idx, verts);
             st.indexed++;
             return;
@@ -722,7 +727,7 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
                 }
             }
             if (k)
-                sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D,
+                psp_ge::draw_array(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D,
                                static_cast<int>(k), nullptr, out);
             return;
         }
@@ -751,7 +756,7 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             }
         }
         if (k)
-            sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_2D,
+            psp_ge::draw_array(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_2D,
                            static_cast<int>(k), nullptr, out);
         return;
     }
@@ -831,7 +836,7 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
         out[i] = g;
     }
     st.subdivided += static_cast<uint32_t>(tri_out.size() / 3 - ntri);
-    sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_2D,
+    psp_ge::draw_array(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_2D,
                    static_cast<int>(tri_out.size()), nullptr, out);
 }
 

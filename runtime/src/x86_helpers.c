@@ -39,6 +39,20 @@ void WRF80(uint32_t a, fpu_t v) {
 }
 
 /* ---------- rounding per control word ---------- */
+#ifdef RECOMP_FPU_FLOAT
+float recomp_d2f_slow(uint64_t b) {
+    double d;
+    memcpy(&d, &b, 8);
+    return (float)d;
+}
+uint64_t recomp_f2d_slow(float f) {
+    const double d = f;
+    uint64_t b;
+    memcpy(&b, &d, 8);
+    return b;
+}
+#endif
+
 fpu_t F_ROUND(fpu_t v) {
     switch ((F.cw >> 10) & 3) {
     case 0: return FM(nearbyint)(v); /* host default mode is round-to-nearest-even */

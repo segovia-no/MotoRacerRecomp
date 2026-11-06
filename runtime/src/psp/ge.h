@@ -22,11 +22,18 @@ void finish();                 // close it, write back the data cache, let the G
 void show();                   // finish, display the drawn buffer, swap
 uint16_t *draw_buffer();       // CPU (uncached) pointer to the buffer being drawn (RGB565, R low)
 void *list_memory(size_t n);   // memory inside the open display list (vertices)
+// sceGuDrawArray without its kernel call per draw (the GE's stall address moves every few KB)
+void draw_array(int prim, int vtype, int count, const void *indices, const void *vertices);
 // Room for n more bytes of list memory without an early flush in between (allocations made after
 // this stay in one list); list_generation() changes whenever a new list starts, which ends the life
 // of everything allocated in the previous one.
 void reserve(size_t n);
 uint32_t list_generation();
+// Write CPU-written memory the GE will read (textures, CLUTs, CPU frames) out of the data cache. Needed
+// before the draw that reads it is queued: the list's stall address moves while it is built (pspgu
+// calls, draw_array), so the GE may run that draw before finish() writes back the whole cache (stale
+// cache lines on a real PSP: short wrong-coloured lines in the menus; PPSSPP has no cache).
+void writeback(const void *p, size_t n);
 uint32_t take_list_stats(uint32_t *peak);   // early list flushes and peak vertex bytes since the last call
 // 64-byte aligned memory from a kernel block outside the C heap (the user partition keeps a ~0.5 MB
 // piece the heap cannot grow into); nullptr when it is used up. Never freed.

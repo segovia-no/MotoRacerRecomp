@@ -101,9 +101,49 @@ static inline void WR16(uint32_t a, uint16_t v) { memcpy(M + a, &v, 2); }
 static inline void WR32(uint32_t a, uint32_t v) { memcpy(M + a, &v, 4); }
 static inline void WR64(uint32_t a, uint64_t v) { memcpy(M + a, &v, 8); }
 static inline float RDF32(uint32_t a) { float v; memcpy(&v, M + a, 4); return v; }
+#ifdef RECOMP_FPU_FLOAT
+/* Guest doubles <-> the float x87 emulation by integer bit operations: on the PSP's single-precision
+ * FPU the compiler's conversions are libgcc calls (__truncdfsf2 / __extendsfdf2, soft-float), which
+ * the translated code made at every fld / fstp qword. Exactly the same results (round to nearest
+ * even, as the libgcc routines in the default mode); zero, subnormal, infinite and NaN values outside
+ * the fast paths still take the library conversion. */
+float recomp_d2f_slow(uint64_t b);     /* x86_helpers.c: the library conversions, out of line */
+uint64_t recomp_f2d_slow(float f);
+static inline float recomp_d2f(uint64_t b) {
+    const uint32_t hi = (uint32_t)(b >> 32), lo = (uint32_t)b, e = (hi >> 20) & 0x7ffu;
+    uint32_t r;
+    float f;
+    if (__builtin_expect(e - 897u < 254u, 1)) {   /* a normal float exponent (1..254) */
+        const uint32_t m = ((hi & 0xfffffu) << 3) | (lo >> 29), rest = lo & 0x1fffffffu;
+        r = ((hi & 0x80000000u) | ((e - 896u) << 23)) + m;
+        if (rest > 0x10000000u || (rest == 0x10000000u && (m & 1u))) r++;   /* a carry may reach infinity: correct */
+        memcpy(&f, &r, 4);
+        return f;
+    }
+    if (!(hi & 0x7fffffffu) && !lo) {   /* +-0 */
+        r = hi;
+        memcpy(&f, &r, 4);
+        return f;
+    }
+    return recomp_d2f_slow(b);
+}
+static inline uint64_t recomp_f2d(float f) {
+    uint32_t u;
+    memcpy(&u, &f, 4);
+    const uint32_t e = (u >> 23) & 0xffu;
+    if (__builtin_expect(e - 1u < 254u, 1))
+        return (uint64_t)((u & 0x80000000u) | ((e + 896u) << 20) | ((u & 0x7fffffu) >> 3)) << 32 | (uint32_t)(u << 29);
+    if (!(u & 0x7fffffffu)) return (uint64_t)u << 32;
+    return recomp_f2d_slow(f);
+}
+static inline fpu_t RDF64(uint32_t a) { uint64_t v; memcpy(&v, M + a, 8); return recomp_d2f(v); }
+static inline void WRF32(uint32_t a, float v) { memcpy(M + a, &v, 4); }
+static inline void WRF64(uint32_t a, fpu_t v) { const uint64_t b = recomp_f2d(v); memcpy(M + a, &b, 8); }
+#else
 static inline double RDF64(uint32_t a) { double v; memcpy(&v, M + a, 8); return v; }
 static inline void WRF32(uint32_t a, float v) { memcpy(M + a, &v, 4); }
 static inline void WRF64(uint32_t a, double v) { memcpy(M + a, &v, 8); }
+#endif
 fpu_t RDF80(uint32_t a);
 void WRF80(uint32_t a, fpu_t v);
 

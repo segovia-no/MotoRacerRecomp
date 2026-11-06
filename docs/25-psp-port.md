@@ -526,6 +526,27 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   runs left Time Attack on (no opponents). `package_hw.sh` ships the original file; desktop checks of
   AI code should use a private game copy (`MOTORACER_GAME_DIR`).
 
+### Third hardware profile and what followed (2026-11-06)
+- Owner: black band gone, menus much faster, race physics fine, still slow; red lines remain bottom
+  left during the menus' "window break" transition (not in PPSSPP). Race ~55–60 ms per frame: game code
+  (translated) ~9.5 ms, `native_flush_polygon` ~8, GE draw ~6, `native_hot_46bf80` ~5.5, faces ~3.7,
+  D3D Execute ~2.8, audio mixing ~2.6, vertex conversion ~2.3, texture + state ~1.8. AI level of detail
+  skipped 10–30% of opponent updates. PPSSPP race: ~600 GE draws (~1,460 triangles) per frame.
+- Red lines: the CPU-drawn menu frame (and converted textures, CLUTs) went to the GE from cached RAM
+  with the data cache written back only in `finish()`, but the GE runs a direct list while it is built
+  (the stall address moves), so it could read stale lines. `psp_ge::writeback` now writes the range back
+  before the draw that reads it (`draw_image`, `draw_frame`, every texture conversion).
+- pspgu's `sceGuDrawArray` / `sceGuGetMemory` move the stall address with a kernel call each time
+  (~1,200 per race frame). `psp_ge::draw_array` and `list_memory` write the same list words themselves
+  (pspgu's `gu_list`) and move the stall address every 4 KB of list.
+- Translated code converted guest doubles (`fld` / `fstp qword`) with libgcc's soft-float
+  `__truncdfsf2` / `__extendsfdf2` (no double FPU): ~430 call sites, many in the bike code. `recomp.h`
+  (`RECOMP_FPU_FLOAT`) converts with integer operations instead, bit-identical (tested on every float
+  and 400 M doubles incl. ties and carries); zero, subnormals, inf, NaN outside the fast path.
+  `-fno-math-errno` on the PSP: `sqrtf` is the `sqrt.s` instruction.
+- Audio: at most the 10 loudest voices are mixed on the PSP (`MOTORACER_MIX_VOICES`, 0 = all; desktop
+  all); a race plays ~24 engine voices, most distant.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and

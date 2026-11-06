@@ -64,6 +64,7 @@ void draw_frame(const uint16_t *img, uint32_t w, uint32_t h, uint32_t stride) {
     sceGuTexFunc(GU_TFX_REPLACE, GU_TCC_RGB);
     sceGuTexFilter(GU_LINEAR, GU_LINEAR);
     sceGuTexWrap(GU_CLAMP, GU_CLAMP);
+    writeback(img, static_cast<size_t>(stride) * h * 2);   // the CPU just drew it
     uint32_t th = 1;
     while (th < h) th <<= 1;
     for (uint32_t base = 0; base < w; base += 512) {   // strips of 32 texels: the GE's texture cache
@@ -79,7 +80,7 @@ void draw_frame(const uint16_t *img, uint32_t w, uint32_t h, uint32_t stride) {
             v[2 * i] = {static_cast<float>(u0), 0.f, x0 + (base + u0) * scale, y0, 0.f};
             v[2 * i + 1] = {static_cast<float>(u1), static_cast<float>(h), x0 + (base + u1) * scale, y0 + dh, 0.f};
         }
-        sceGuDrawArray(GU_SPRITES, GU_TEXTURE_32BITF | GU_VERTEX_32BITF | GU_TRANSFORM_2D, static_cast<int>(2 * n), nullptr, v);
+        draw_array(GU_SPRITES, GU_TEXTURE_32BITF | GU_VERTEX_32BITF | GU_TRANSFORM_2D, static_cast<int>(2 * n), nullptr, v);
     }
     sceGuDisable(GU_TEXTURE_2D);
     touch_state();   // the Direct3D backend's state cache is stale now

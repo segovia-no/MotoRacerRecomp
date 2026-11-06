@@ -46,6 +46,17 @@ void *outside_heap(size_t bytes) {
     return p;
 }
 
+// pspgu's own display list state (guInternal.h): draw_array / list_memory write the same words as
+// sceGuDrawArray / sceGuGetMemory, without their stall-address update.
+extern "C" {
+struct GuDisplayList {
+    unsigned int *start, *current;
+    int parent_context;
+};
+extern GuDisplayList *gu_list;
+extern int ge_list_executed[2];
+}
+
 namespace {
 
 constexpr uint32_t FB_BYTES = FB_STRIDE * FB_H * 2;
@@ -53,6 +64,11 @@ constexpr size_t LIST_BYTES = 128 * 1024;   // PSP-1000 memory: 512 KB before; a
 uint32_t early_flush_count = 0, list_peak = 0;
 alignas(64) unsigned int list[LIST_BYTES / 4];   // commands and vertices; flushed early when half full
 size_t list_used = 0;                            // vertex bytes taken from the open list
+// In a direct list the GE runs up to the stall address. pspgu moves it (a kernel call) after every
+// sceGuDrawArray and sceGuGetMemory: ~1,200 times per race frame. Moved here every STALL_STEP bytes
+// of list instead (and by sceGuFinish at the end), which still lets the GE draw while the CPU works.
+constexpr ptrdiff_t STALL_STEP = 4096;
+unsigned int *stall_at = nullptr;
 bool inited = false, open = false;
 uint32_t generation = 0;   // display lists started
 uint64_t wait_ns = 0;
@@ -81,6 +97,7 @@ void init() {
     inited = true;
     sceGuInit();
     sceGuStart(GU_DIRECT, list);
+    stall_at = gu_list->current;
     sceGuDrawBuffer(GU_PSM_5650, reinterpret_cast<void *>(fb_offset(0)), FB_STRIDE);
     sceGuDispBuffer(SCREEN_W, SCREEN_H, reinterpret_cast<void *>(fb_offset(1) + VIEW_Y0 * FB_STRIDE * 2), FB_STRIDE);
     sceGuDepthBuffer(reinterpret_cast<void *>(fb_offset(DEPTH_BUFFER)), FB_STRIDE);
@@ -221,6 +238,7 @@ void draw_image(const uint16_t *img, uint32_t w, uint32_t h, uint32_t stride, fl
     sceGuTexFunc(GU_TFX_REPLACE, GU_TCC_RGB);
     sceGuTexFilter(GU_LINEAR, GU_LINEAR);
     sceGuTexWrap(GU_CLAMP, GU_CLAMP);
+    writeback(img, static_cast<size_t>(stride) * h * 2);   // the CPU just drew it
     uint32_t th = 1;
     while (th < h) th <<= 1;
     const float sx_scale = dw / static_cast<float>(w);
@@ -239,7 +257,7 @@ void draw_image(const uint16_t *img, uint32_t w, uint32_t h, uint32_t stride, fl
             v[2 * i] = {static_cast<float>(u0), 0.f, x0 + (base + u0) * sx_scale, y0, 0.f};
             v[2 * i + 1] = {static_cast<float>(u1), static_cast<float>(h), x0 + (base + u1) * sx_scale, y0 + dh, 0.f};
         }
-        sceGuDrawArray(GU_SPRITES, GU_TEXTURE_32BITF | GU_VERTEX_32BITF | GU_TRANSFORM_2D, static_cast<int>(2 * n), nullptr, v);
+        draw_array(GU_SPRITES, GU_TEXTURE_32BITF | GU_VERTEX_32BITF | GU_TRANSFORM_2D, static_cast<int>(2 * n), nullptr, v);
     }
     sceGuDisable(GU_TEXTURE_2D);
 }
@@ -329,6 +347,8 @@ uint32_t take_list_stats(uint32_t *peak) {
 
 uint32_t list_generation() { return generation; }
 
+void writeback(const void *p, size_t n) { sceKernelDcacheWritebackRange(p, static_cast<unsigned int>(n)); }
+
 void reserve(size_t n) {
     n = (n + 15) & ~size_t{15};
     if (open && list_used + n > LIST_BYTES / 2) { finish(); early_flush_count++; }
@@ -341,7 +361,36 @@ void *list_memory(size_t n) {
     begin();
     list_used += n;
     list_peak = std::max(list_peak, static_cast<uint32_t>(list_used));
-    return sceGuGetMemory(static_cast<int>(n));
+    // sceGuGetMemory: a jump over the block (BASE + JUMP), the block after it
+    unsigned int *cur = gu_list->current, *data = cur + 2;
+    auto *next = reinterpret_cast<unsigned int *>(reinterpret_cast<uint8_t *>(data) + n);
+    const auto a = static_cast<unsigned int>(reinterpret_cast<uintptr_t>(next));
+    cur[0] = (0x10u << 24) | ((a >> 8) & 0xf0000u);
+    cur[1] = (0x08u << 24) | (a & 0xffffffu);
+    gu_list->current = next;
+    return data;
+}
+
+void draw_array(int prim, int vtype, int count, const void *indices, const void *vertices) {
+    begin();
+    unsigned int *c = gu_list->current;   // sceGuDrawArray's words
+    if (vtype) *c++ = (0x12u << 24) | (static_cast<unsigned int>(vtype) & 0xffffffu);
+    if (indices) {
+        const auto a = static_cast<unsigned int>(reinterpret_cast<uintptr_t>(indices));
+        *c++ = (0x10u << 24) | ((a >> 8) & 0xf0000u);
+        *c++ = (0x02u << 24) | (a & 0xffffffu);
+    }
+    if (vertices) {
+        const auto a = static_cast<unsigned int>(reinterpret_cast<uintptr_t>(vertices));
+        *c++ = (0x10u << 24) | ((a >> 8) & 0xf0000u);
+        *c++ = (0x01u << 24) | (a & 0xffffffu);
+    }
+    *c++ = (0x04u << 24) | ((static_cast<unsigned int>(prim) << 16 | static_cast<unsigned int>(count)) & 0xffffffu);
+    gu_list->current = c;
+    if (c - stall_at >= STALL_STEP / 4) {
+        sceGeListUpdateStallAddr(ge_list_executed[0], c);
+        stall_at = c;
+    }
 }
 
 }  // namespace psp_ge

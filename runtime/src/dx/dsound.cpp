@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -141,18 +142,46 @@ void mix_voice(Buffer *b, int32_t *acc, int frames, int32_t gl, int32_t gr) {
 
 int32_t q15(float g) { return static_cast<int32_t>(std::min(g, 1.f) * 32768.f + 0.5f); }
 
+// At most this many voices are mixed, the loudest (MOTORACER_MIX_VOICES; 0 = all): on the PSP a race
+// plays ~24 engine voices, most of them distant and faint, and every mixed voice costs the one CPU.
+// The others only move their position, as inaudible voices do.
+size_t voice_cap() {
+    static const size_t cap = [] {
+        if (const char *e = getenv("MOTORACER_MIX_VOICES")) return static_cast<size_t>(atoi(e));
+#ifdef __PSP__
+        return size_t{10};
+#else
+        return size_t{0};
+#endif
+    }();
+    return cap;
+}
+
 // Audio thread: all playing voices, 16-bit stereo at the mix rate. 0 when nothing plays.
 int mix(uint8_t *dst, int bytes) {
     std::lock_guard<std::mutex> lock(mu);
     const int frames = bytes / 4;
     static std::vector<int32_t> acc;
-    bool any = false;
+    struct Gains { Buffer *b; int32_t gl, gr; };
+    static std::vector<Gains> playing;
+    playing.clear();
     for (Buffer *b : voices) {
         if (!b->playing || !b->size) continue;
-        if (!any) { acc.assign(static_cast<size_t>(frames) * 2, 0); any = true; }
         const float vol = db_to_gain(b->volume) * host::sfx_gain();
-        const int32_t gl = q15(vol * (b->pan > 0 ? db_to_gain(-b->pan) : 1.f));
-        const int32_t gr = q15(vol * (b->pan < 0 ? db_to_gain(b->pan) : 1.f));
+        playing.push_back({b, q15(vol * (b->pan > 0 ? db_to_gain(-b->pan) : 1.f)),
+                           q15(vol * (b->pan < 0 ? db_to_gain(b->pan) : 1.f))});
+    }
+    if (const size_t cap = voice_cap(); cap && playing.size() > cap) {
+        auto loud = [](const Gains &g) { return std::max(g.gl, g.gr); };
+        std::nth_element(playing.begin(), playing.begin() + static_cast<std::ptrdiff_t>(cap), playing.end(),
+                         [&](const Gains &a, const Gains &b) { return loud(a) > loud(b); });
+        for (size_t i = cap; i < playing.size(); i++) playing[i].gl = playing[i].gr = 0;
+    }
+    bool any = false;
+    for (const Gains &v : playing) {
+        Buffer *b = v.b;
+        if (!any) { acc.assign(static_cast<size_t>(frames) * 2, 0); any = true; }
+        const int32_t gl = v.gl, gr = v.gr;
         const bool stereo = b->fmt.channels > 1;
         int32_t *a = acc.data();
         if (b->fmt.bits == 8) stereo ? mix_voice<8, 2>(b, a, frames, gl, gr) : mix_voice<8, 1>(b, a, frames, gl, gr);

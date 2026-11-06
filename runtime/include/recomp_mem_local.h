@@ -34,13 +34,21 @@
 #define RD32(a) ({ uint32_t r_; memcpy(&r_, mb + (uint32_t)(a), 4); r_; })
 #define RD64(a) ({ uint64_t r_; memcpy(&r_, mb + (uint32_t)(a), 8); r_; })
 #define RDF32(a) ({ float r_; memcpy(&r_, mb + (uint32_t)(a), 4); r_; })
+#ifdef RECOMP_FPU_FLOAT   /* recomp.h: integer conversions instead of libgcc soft-float calls */
+#define RDF64(a) ({ uint64_t r_; memcpy(&r_, mb + (uint32_t)(a), 8); recomp_d2f(r_); })
+#else
 #define RDF64(a) ({ double r_; memcpy(&r_, mb + (uint32_t)(a), 8); r_; })
+#endif
 #define WR8(a, v) (mb[(uint32_t)(a)] = (uint8_t)(v))
 #define WR16(a, v) do { uint16_t w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 2); } while (0)
 #define WR32(a, v) do { uint32_t w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 4); } while (0)
 #define WR64(a, v) do { uint64_t w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 8); } while (0)
 #define WRF32(a, v) do { float w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 4); } while (0)
+#ifdef RECOMP_FPU_FLOAT
+#define WRF64(a, v) do { uint64_t w_ = recomp_f2d((fpu_t)(v)); memcpy(mb + (uint32_t)(a), &w_, 8); } while (0)
+#else
 #define WRF64(a, v) do { double w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 8); } while (0)
+#endif
 /* proven-aligned accesses (align_accesses in translate.py): one load/store on strict-alignment CPUs */
 #ifdef RECOMP_CHECK_ALIGN
 #ifdef __cplusplus
@@ -57,9 +65,17 @@ void recomp_align_fault(uint32_t a, int n, const char *file, int line);
 #define RD32A(a) ({ uint32_t r_; memcpy(&r_, AL_(a, 4), 4); r_; })
 #define RD64A(a) ({ uint64_t r_; memcpy(&r_, AL_(a, 4), 8); r_; })
 #define RDF32A(a) ({ float r_; memcpy(&r_, AL_(a, 4), 4); r_; })
+#ifdef RECOMP_FPU_FLOAT
+#define RDF64A(a) ({ uint64_t r_; memcpy(&r_, AL_(a, 4), 8); recomp_d2f(r_); })
+#else
 #define RDF64A(a) ({ double r_; memcpy(&r_, AL_(a, 4), 8); r_; })
+#endif
 #define WR16A(a, v) do { uint16_t w_ = (v); memcpy(AL_(a, 2), &w_, 2); } while (0)
 #define WR32A(a, v) do { uint32_t w_ = (v); memcpy(AL_(a, 4), &w_, 4); } while (0)
 #define WR64A(a, v) do { uint64_t w_ = (v); memcpy(AL_(a, 4), &w_, 8); } while (0)
 #define WRF32A(a, v) do { float w_ = (v); memcpy(AL_(a, 4), &w_, 4); } while (0)
+#ifdef RECOMP_FPU_FLOAT
+#define WRF64A(a, v) do { uint64_t w_ = recomp_f2d((fpu_t)(v)); memcpy(AL_(a, 4), &w_, 8); } while (0)
+#else
 #define WRF64A(a, v) do { double w_ = (v); memcpy(AL_(a, 4), &w_, 8); } while (0)
+#endif
