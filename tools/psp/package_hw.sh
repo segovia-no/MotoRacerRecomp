@@ -18,4 +18,8 @@ pack-pbp "$out/EBOOT.PBP" build/psp-hw/PARAM.SFO NULL NULL NULL NULL NULL build/
 rm -f build/psp-hw/motoracer.elf build/psp-hw/PARAM.SFO
 rsync -a --exclude '__support' --exclude '*.log*' --exclude 'psp_env.txt' --exclude '*.wav' "$game/" "$out/game/"
 tools/psp/cd_mp3.sh "$game" "$out/game" >/dev/null
+# the desktop config's draw distance (often 2) costs the PSP ~35% per race frame: original distance
+sed -i '' -e 's/^DrawDistance=.*/DrawDistance=1/' "$out/game/motoracer.ini" 2>/dev/null || true
+# PROF=1: the sampling profiler logs where each 5 s of frame time goes (docs/26-psp-profile.md)
+if [ -n "${PROF:-}" ]; then echo "MOTORACER_PROF=1" > "$out/psp_env.txt"; fi
 echo "$out: $(du -sh "$out" | cut -f1) (EBOOT $(du -h "$out/EBOOT.PBP" | cut -f1))"

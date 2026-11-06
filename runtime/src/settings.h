@@ -60,7 +60,11 @@ struct Settings {
     bool widescreen = true;
     bool custom_modes = true;
     float hud_scale = 0;   // 0 = auto
+#ifdef __PSP__
+    float draw_distance = 1;   // the original game's: x2 costs ~35% more CPU per race frame (docs/25-psp-port.md)
+#else
     float draw_distance = 2;
+#endif
     bool controller_menus = true;
     bool controller_preset = true;
     TriggerMode trigger_mode = TriggerMode::Auto;
