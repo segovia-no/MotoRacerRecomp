@@ -1,7 +1,8 @@
 // PSP graphics engine (GE) context shared by the frame presenter and the Direct3D backend
 // (docs/25-psp-port.md).
 //
-// VRAM (2 MB): two 16-bit colour buffers and a 16-bit depth buffer of 480x272 (stride 512): 835 KB.
+// VRAM (2 MB): three 16-bit colour buffers (triple buffering), a 16-bit depth buffer and a scratch
+// buffer (the menu halving) of 480x272 (stride 512): 1.33 MB.
 // The game's 16:9 picture band (480x270 in the PSP-profile mode) is drawn 1:1, 4:3 screens scaled
 // to 363x272. (A taller buffer with a 272-row window into it lost depth below row 272 in PPSSPP,
 // which sizes emulated framebuffers from the display.)

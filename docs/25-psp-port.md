@@ -510,6 +510,16 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   updates after the race setup (`game_hook_opponents` resets the counters) before it can be skipped.
 - PPSSPP race (23 opponents): 85–92% of opponent updates skipped once the field spreads out; frame
   14.3 → 10.6 ms, `0x46bf80` 1.16 → 0.11 ms.
+- First hardware test (owner): bikes, the player's too, jumped "a lot of meters". The player was taken
+  to be slot 0, but the player's bike is the one with `+8` nonzero, in any slot: the player's own updates
+  were skipped and distances measured from an opponent. Now the flagged bike is never skipped and is the
+  reference; and only bikes beyond drawing range are thinned (R1 = 40000 > 2 x LenBPlane = 36000 at
+  detail 5; one update per 10 hundredths), so nothing you see or touch moves in larger steps.
+  PPSSPP race: 15–85% of opponent updates skipped (the field bunched / spread), frame 14.3 → 9.8 ms.
+- The menus' black band at the bottom (and stray lines) on hardware: two colour buffers, so the next
+  frame was drawn into the buffer still being scanned out until the vertical blank (the menus start a
+  frame with a clear). Now three colour buffers (`COLOR_BUFFERS`), depth and scratch after them (VRAM
+  1.33 MB).
 - `MOTORACER_BIKE_LOD_SCALE=<s>` (dev): the bike model / sprite thresholds × s (0.5: sprites from 1500).
 - `MOTORACER_LOG_SYNC=1` (dev): the PSP log is synced every line (crash hunting; slow).
 - The desktop tests' game folder: `data/bestscor.dat` also stores Time Attack and the lap count; test

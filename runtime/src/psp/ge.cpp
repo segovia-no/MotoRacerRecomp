@@ -56,7 +56,11 @@ size_t list_used = 0;                            // vertex bytes taken from the 
 bool inited = false, open = false;
 uint32_t generation = 0;   // display lists started
 uint64_t wait_ns = 0;
-int cur = 0;                                     // buffer being drawn (0/1); the other one is shown
+// Three colour buffers: one drawn, one waiting for the display to switch to it at the next vertical
+// blank, one shown. With two, the next frame started drawing into the buffer still being scanned out
+// until that blank: a cleared (black) band at the bottom of the screen in the menus on a real PSP.
+constexpr int COLOR_BUFFERS = 3, DEPTH_BUFFER = 3, SCRATCH_BUFFER = 4;
+int cur = 0;                                     // buffer being drawn
 
 uint32_t fb_offset(int i) { return FB_BYTES * static_cast<uint32_t>(i); }
 
@@ -79,7 +83,7 @@ void init() {
     sceGuStart(GU_DIRECT, list);
     sceGuDrawBuffer(GU_PSM_5650, reinterpret_cast<void *>(fb_offset(0)), FB_STRIDE);
     sceGuDispBuffer(SCREEN_W, SCREEN_H, reinterpret_cast<void *>(fb_offset(1) + VIEW_Y0 * FB_STRIDE * 2), FB_STRIDE);
-    sceGuDepthBuffer(reinterpret_cast<void *>(fb_offset(2)), FB_STRIDE);
+    sceGuDepthBuffer(reinterpret_cast<void *>(fb_offset(DEPTH_BUFFER)), FB_STRIDE);
     sceGuOffset(2048 - FB_W / 2, 2048 - FB_H / 2);
     sceGuViewport(2048, 2048, FB_W, FB_H);
     full_region();
@@ -169,7 +173,7 @@ void show() {
     maybe_snapshot(vram_cpu() + fb_offset(cur) + VIEW_Y0 * FB_STRIDE * 2);
     sceDisplaySetFrameBuf(vram_cpu() + fb_offset(cur) + VIEW_Y0 * FB_STRIDE * 2, FB_STRIDE,
                           PSP_DISPLAY_PIXEL_FORMAT_565, PSP_DISPLAY_SETBUF_NEXTFRAME);
-    cur ^= 1;
+    cur = (cur + 1) % COLOR_BUFFERS;   // the one shown two frames ago (a vertical blank has passed)
 }
 
 void downscale_565(const uint8_t *src, uint32_t pitch, uint32_t w, uint32_t h, uint16_t *dst, uint32_t dstride,
@@ -248,7 +252,7 @@ bool draw_halved_565(const uint8_t *src, uint32_t pitch, uint32_t w, uint32_t h,
         return false;
     // pass 1: the 2x2 box average into the scratch buffer behind the depth buffer (red / blue are
     // swapped all along: both 5-bit fields average the same way)
-    const uint32_t scratch = fb_offset(3);
+    const uint32_t scratch = fb_offset(SCRATCH_BUFFER);
     begin();
     sceGuDrawBufferList(GU_PSM_5650, reinterpret_cast<void *>(scratch), FB_STRIDE);
     sceGuScissor(0, 0, static_cast<int>(hw), static_cast<int>(hh));

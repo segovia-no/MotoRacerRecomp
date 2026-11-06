@@ -565,15 +565,19 @@ extern "C" void game_hook_bike_lod(void) {
 // often: the skipped frames' time accumulates and the next update gets all of it (the frame-time
 // global holds the sum for that one call, restored by game_hook_ai_lod_after), so they cover the same
 // ground in fewer, larger steps. Near the player (where you see and touch them) every frame, exact.
-//   near:  distance < R1 (3000, about where bikes turn into sprites): every frame
-//   mid:   R1..R2 (20000): an update per P_MID hundredths of a second (13: ~7.5 Hz)
-//   far:   beyond R2 (not drawn at all): an update per P_FAR (25: ~4 Hz)
+//   near:  distance < R1 (40000: opponents are drawn up to 2 x LenBPlane = 36000 at detail 5): every
+//          frame — every bike you can see or touch is simulated as before
+//   mid:   R1..R2: an update per P_MID hundredths of a second (10: ~10 Hz)
+//   far:   beyond R2: an update per P_FAR (10)
+// The player's bike (bike +8 nonzero, any slot: the first version assumed slot 0 and skipped the
+// player's own updates on a real PSP) is never skipped and is the reference for the distances.
 // MOTORACER_AI_LOD="R1,R2,P_MID,P_FAR" (dev) changes them; "0" turns it off.
 namespace {
-constexpr uint32_t FRAME_DT = 0x4e9808, PLAYER_BIKE = 0x584421, BIKE_POS = 0x3c;
+constexpr uint32_t FRAME_DT = 0x4e9808, BIKE_POS = 0x3c;
 constexpr uint32_t WARM_UP = 60;   // the grid / first seconds: skipping an opponent's first updates broke the race
 struct AiLod {
-    float r1 = 3000.f, r2 = 20000.f, p_mid = 13.f, p_far = 25.f;
+    float r1 = 40000.f, r2 = 1e9f, p_mid = 10.f, p_far = 10.f;
+    uint32_t player = 0x584421;   // the player's bike, as seen in the loop (previous frame until then)
     float acc[32] = {};
     uint32_t warm[32] = {};   // normal updates since the race was set up: none skipped before WARM_UP
     uint32_t saved_dt = 0;
@@ -603,12 +607,18 @@ extern "C" int game_hook_ai_lod(void) {
     AiLod &l = ai_lod();
     const uint32_t slot = R.ebx, bike = R.edi - 0x68;   // loop registers at 0x47e189
     if (slot >= 32 || !RD32(R.edi)) return 0;           // not active: the game skips it anyway
+    if (RD32(bike + 8)) {                               // the player: always, and the distance reference
+        l.player = bike;
+        l.acc[slot] = 0.f;
+        return 0;
+    }
     const float dt = RDF32(FRAME_DT);
     float &acc = l.acc[slot];
     if (acc > 4.f * l.p_far) acc = 0.f;                 // stale (previous race, menus)
-    const float dx = RDF32(bike + BIKE_POS) - RDF32(PLAYER_BIKE + BIKE_POS);
-    const float dy = RDF32(bike + BIKE_POS + 4) - RDF32(PLAYER_BIKE + BIKE_POS + 4);
-    const float dz = RDF32(bike + BIKE_POS + 8) - RDF32(PLAYER_BIKE + BIKE_POS + 8);
+    const uint32_t me = l.player;
+    const float dx = RDF32(bike + BIKE_POS) - RDF32(me + BIKE_POS);
+    const float dy = RDF32(bike + BIKE_POS + 4) - RDF32(me + BIKE_POS + 4);
+    const float dz = RDF32(bike + BIKE_POS + 8) - RDF32(me + BIKE_POS + 8);
     const float d2 = dx * dx + dy * dy + dz * dz;
     const float period = (d2 < l.r1 * l.r1 || l.warm[slot] < WARM_UP) ? 0.f : d2 < l.r2 * l.r2 ? l.p_mid : l.p_far;
     acc += dt;
