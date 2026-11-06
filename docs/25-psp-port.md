@@ -464,8 +464,27 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   to 363x272. PPSSPP: the menu's CPU-frame upload 5–6 ms → 0.6–1.3 ms per frame. The download of a
   GE frame for CPU drawing (mixed 3D / 2D menus) uses aligned stores and copies repeated rows; the
   colour clear stores two pixels per word.
-- Hot race functions: being rewritten natively in `native_race_a..d.cpp` (check mode against the
-  translated code before they are switched on).
+- Hot race functions, native in `native_race_a..d.cpp` (written in parallel in four worktrees, each
+  verified with `MOTORACER_NATIVE=check` in desktop races, double and single-precision x87 builds, then
+  all together: 21 natives, 0 mismatches; a `MOTORACER_CHECK_ALIGN` race with all of them on: no
+  unaligned access):
+  - A: `0x410010` matrix · vector + t, `0x40fd40` rotation matrix, `0x46c970` track window,
+    `0x46bdc0` look-at frame, `0x46cd20` AI target pick (check_abi: its caller reloads eax/ecx/edx);
+  - B: `0x48e180` gear ratio, `0x45b4e0` angle blend, `0x467930` bike speed (calls
+    `game_hook_ai_speed` at the same point; its check replays the hook), `0x466a80` bike lean;
+  - C: `0x403a80` matrix multiply, `0x490220` angle (fpatan), `0x4b0f60` segment / plane,
+    `0x40c960` point on a sector plane, `0x461aa0` bike contact points, `0x46bf80` bike movement step
+    (its check restores .data/.bss, the stack below the call and rand()'s seed; fields derived from
+    `0x467930`'s hook are masked);
+  - D: `0x4b3400` strncmp, `0x492b10` text size, `0x485e50` quad into the render list, `0x493490`
+    text draw.
+  - Left translated: `0x469c60` and `0x46b120` (bike physics, ~800–1,000 x86 instructions each, already
+    register-cached by the translator; little to gain for the risk), `0x493820` (SEH / COM plumbing
+    around the now-native text functions), `0x45f290` (2,400 instructions, 0.7%).
+  - Bike records are 0x3209 bytes, so they sit at odd addresses: native code reads their fields with
+    unaligned-safe loads (a plain `lw` there traps on the Allegrex).
+  - Parallel desktop test runs share the game folder (best scores, settings); `MOTORACER_LOG_DIR`
+    (macOS) keeps their logs apart.
 
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
