@@ -13,6 +13,7 @@
 #include <pspthreadman.h>
 
 #include "platform.h"
+#include "runtime.h"
 #include "buffered_file.h"
 
 extern "C" void call_on_stack(void *stack_top, void (*fn)(void));   // stack_mips.S
@@ -41,15 +42,15 @@ public:
 
 int game_thread(SceSize, void *argp) {
     void (*fn)() = *static_cast<void (**)()>(argp);
-    // high-water mark (MOTORACER_MEM_STATS): fill the unused part of this stack below the current frame
+    rt::log("game thread started\n");
+    // High-water mark (MOTORACER_MEM_STATS): the kernel fills a new thread's stack with 0xFF. Never
+    // write to it here: the kernel keeps a guard word at the stack's bottom, and a real PSP stops the
+    // program when it changes (PPSSPP does not check).
     SceKernelThreadInfo info{};
     info.size = sizeof info;
     if (sceKernelReferThreadStatus(sceKernelGetThreadId(), &info) >= 0 && info.stack) {
         host_stack = static_cast<uint8_t *>(info.stack);
         host_stack_bytes = static_cast<size_t>(info.stackSize);
-        uint8_t here = 0;
-        const size_t below = static_cast<size_t>(&here - host_stack);
-        if (below > 512 && below < host_stack_bytes) memset(host_stack, 0xA5, below - 512);
     }
     fn();
     return 0;
@@ -207,7 +208,8 @@ Host &host() {
 
 // bytes of the host stack ever used (memory stats)
 size_t psp_host_stack_used() {
-    size_t i = 0;
-    while (i < plat::host_stack_bytes && plat::host_stack[i] == 0xA5) i++;
+    if (!plat::host_stack) return 0;
+    size_t i = 64;   // past the kernel's guard area at the bottom
+    while (i < plat::host_stack_bytes && plat::host_stack[i] == 0xFF) i++;
     return plat::host_stack_bytes - i;
 }

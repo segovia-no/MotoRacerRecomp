@@ -348,6 +348,10 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
 - Fix: the PSP runs the game on its own thread (`sceKernelCreateThread`, 40 KB kernel stack, VFPU);
   the main thread waits. The frame-buffer block is reserved before that thread takes kernel memory.
   `MOTORACER_TRACE=1` (psp_env.txt) logs every API call, like `--trace`.
+- Second hardware run: stopped after the frame-buffer block, before the game thread's first line. The
+  thread filled the unused bottom of its stack with a marker byte for the high-water mark; the kernel
+  keeps a guard word there. Now nothing writes to the stack: the mark scans for the kernel's 0xFF fill
+  (from 64 bytes up); "game thread started" is logged first.
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).
