@@ -162,6 +162,8 @@ int audio_thread(SceSize, void *argp) {
     psp_fpu::quiet();   // the mixer's float code
     std::vector<int16_t> out(kSamples * 2);
     const int need = kSamples * bytes_per_frame(s->src);
+    const uint32_t budget_us = static_cast<uint32_t>(kSamples * 1000000ull / 44100);
+    uint32_t t_ready = sceKernelGetSystemTimeLow();
     while (s->running) {
         const int have = static_cast<int>(s->data.size());
         if (have < need && s->get) s->get(s->user, s, need - have, need);
@@ -178,7 +180,11 @@ int audio_thread(SceSize, void *argp) {
         s->data.erase(s->data.begin(), s->data.begin() + n);
         if (postmix) postmix(postmix_user, &device_spec, nullptr, 0);
         const int vol = static_cast<int>(PSP_AUDIO_VOLUME_MAX * std::clamp(device_gain, 0.f, 1.f));
+        const uint32_t t_made = sceKernelGetSystemTimeLow();
         sceAudioOutputPannedBlocking(s->channel, vol, vol, out.data());
+        const uint32_t t_out = sceKernelGetSystemTimeLow();
+        prof::audio_block(t_made - t_ready, t_out - t_made, budget_us);
+        t_ready = t_out;
     }
     return 0;
 }

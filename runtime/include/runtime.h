@@ -65,6 +65,10 @@ constexpr uint32_t RETURN_MAGIC = 0xFFFFFFF0; // return address pushed by guest_
 // ---------- logging ----------
 extern bool trace_imports;
 void log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+// Other threads (audio): the line is queued and written by the game thread at the next presented
+// frame (prof::frame) or fatal — no file I/O on a thread with a deadline. Long lines are cut.
+void log_queued(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void log_flush_queued();
 [[noreturn]] void fatal(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void dump_state();
 
@@ -155,6 +159,9 @@ struct Scope {   // marks a region for the sampler (one store each way)
 void start();   // at startup: starts the sampler when MOTORACER_PROF is set
 void frame();   // per presented frame: logs the shares every 5 s
 void audio_mixing(bool busy);   // audio thread: mixing a device buffer / done
+// PSP audio thread, per output block: microseconds spent producing it and waiting for the channel
+// (a wait near 0 means the block arrived late: the channel ran dry, a gap / crackle)
+void audio_block(uint32_t produce_us, uint32_t wait_us, uint32_t budget_us);
 }  // namespace prof
 
 // Defines the exported import shim `imp_<DLL>_<NAME>` with `NARGS` stdcall arguments.

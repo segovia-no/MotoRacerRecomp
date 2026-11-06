@@ -389,6 +389,21 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
 - A folder that still has NN.wav plays the WAVs (they are looked for first): replace the whole
   `PSP/GAME/MOTORACER` folder on the memory stick.
 
+- Hardware run with MP3 (owner): music worked but crackled more than the WAVs, and the PSP powered
+  off ~1 s into the race load — when the audio thread wrote its first log line for the new track
+  (the log is closed / reopened per line) while the game was loading files. Real decoder cost: the
+  same 16 KB as PPSSPP. Fixes: other threads never write the log file (`rt::log_queued`, written by
+  the game thread at the next presented frame or before a FATAL); the MP3 file is read ahead in two
+  16 KB chunks with `sceIoReadAsync` (sceMp3 takes its stream data by memcpy, so the audio thread
+  never waits for the memory stick; before, sceMp3 asked for small pieces and every block did a
+  seek + read); the buffers are allocated once.
+- Profiler: `prof: audio: N blocks, L late (channel ran dry), slowest X ms to produce (block 46.4
+  ms)` every 5 s (the wait in `sceAudioOutputPannedBlocking` under 1 ms = the block came late). PPSSPP
+  with MP3: 0 late after startup, at most 5 ms to produce a block.
+- Hardware profile (owner, menus, MOTORACER_PROF): 56–67 ms per frame (15–18 fps); game code ~40%,
+  present ~22%, waiting for the GE ~24%, audio mixing ~10%. Bike / track select 77–80 ms (game code
+  55%, D3D Execute 22%). PPSSPP is ~3x faster on the same screens.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and

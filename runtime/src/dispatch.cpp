@@ -52,6 +52,9 @@ void vout(const char *fmt, va_list ap) {
     va_end(ap2);
 }
 
+std::mutex queue_mu;   // held only to append / take: never during file I/O
+std::string queued;
+
 void out(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void out(const char *fmt, ...) {
     va_list ap;
@@ -99,6 +102,26 @@ void log(const char *fmt, ...) {
     va_end(ap);
 }
 
+void log_queued(const char *fmt, ...) {
+    char line[256];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    std::lock_guard<std::mutex> lock(queue_mu);
+    if (queued.size() < 8192) queued += line;
+}
+
+void log_flush_queued() {
+    std::string lines;
+    {
+        std::lock_guard<std::mutex> lock(queue_mu);
+        if (queued.empty()) return;
+        lines.swap(queued);
+    }
+    out("%s", lines.c_str());
+}
+
 void dump_state() {
     out("  eax=%08x ecx=%08x edx=%08x ebx=%08x\n  esp=%08x ebp=%08x esi=%08x edi=%08x\n",
         R.eax, R.ecx, R.edx, R.ebx, R.esp, R.ebp, R.esi, R.edi);
@@ -125,6 +148,7 @@ void fatal(const char *fmt, ...) {
     va_start(ap, fmt);
     vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
+    log_flush_queued();
     out("FATAL: %s\n", msg);
     dump_state();
     std::string box = std::string(msg) + "\n\nDetails were written to:\n" + log_path;

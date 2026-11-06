@@ -62,6 +62,15 @@ namespace prof {
 
 void audio_mixing(bool busy) { audio_busy = busy; }
 
+volatile uint32_t audio_blocks = 0, audio_late = 0, audio_worst_us = 0, audio_budget_us = 0;
+void audio_block(uint32_t produce_us, uint32_t wait_us, uint32_t budget_us) {
+    if (!on) return;
+    audio_blocks = audio_blocks + 1;
+    if (wait_us < 1000) audio_late = audio_late + 1;
+    if (produce_us > audio_worst_us) audio_worst_us = produce_us;
+    audio_budget_us = budget_us;
+}
+
 void start() {
     const char *e = getenv("MOTORACER_PROF");
     if (!e || !*e || *e == '0') return;
@@ -70,6 +79,7 @@ void start() {
 }
 
 void frame() {
+    rt::log_flush_queued();   // other threads' log lines (not profiling, just a regular game-thread point)
     if (!on) return;
     static uint32_t frames = 0;
     static uint64_t since = 0;
@@ -94,6 +104,11 @@ void frame() {
         const double share = static_cast<double>(snap[best]) / total;
         rt::log("prof:   %5.1f%%  %5.2f ms  %s\n", 100 * share, share * ms_per_frame, names[best] ? names[best] : "?");
         snap[best] = 0;
+    }
+    if (audio_blocks) {
+        rt::log("prof: audio: %u blocks, %u late (channel ran dry), slowest %.1f ms to produce (block %.1f ms)\n",
+                audio_blocks, audio_late, audio_worst_us / 1000.0, audio_budget_us / 1000.0);
+        audio_blocks = audio_late = audio_worst_us = 0;
     }
     frames = 0;
     since = now;
