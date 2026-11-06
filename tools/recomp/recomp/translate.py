@@ -157,6 +157,8 @@ NATIVE_FUNCS = {
     0x4B2BB0: "native_sprintf",     # CRT sprintf
     0x4B6350: "native_vsprintf",    # CRT vsprintf
     0x4B8800: "native_output",      # CRT _output (printf engine)
+    0x43EDE0: "native_sprite_blit", # menu sprite blitter (native_menu.cpp)
+    0x43F0F0: "native_tile_fill",   # menu tiled background
 }
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function); with a

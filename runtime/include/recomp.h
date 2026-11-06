@@ -301,6 +301,8 @@ int native_rgb_row(void);
 int native_sprintf(void);
 int native_vsprintf(void);
 int native_output(void);
+int native_sprite_blit(void);   /* runtime/src/native_menu.cpp */
+int native_tile_fill(void);
 void native_rgb_row_check(void);
 int native_formatv_len(void);
 void native_formatv_len_check(void);

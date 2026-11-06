@@ -97,4 +97,20 @@ void check(const char *name, Fn fn, void (*t)(void), const std::vector<Region> &
     compare(name, native, take(regions));
 }
 
+// The same for a function whose callers read none of eax / ecx / edx afterwards (they reload them):
+// those registers are not compared.
+template <typename Fn>
+void check_abi(const char *name, Fn fn, void (*t)(void), const std::vector<Region> &regions) {
+    Snapshot before = take(regions);
+    fn();
+    Snapshot native = take(regions);
+    restore(before);
+    t();
+    Snapshot translated = take(regions);
+    native.r.eax = translated.r.eax;
+    native.r.ecx = translated.r.ecx;
+    native.r.edx = translated.r.edx;
+    compare(name, native, translated);
+}
+
 }  // namespace native
