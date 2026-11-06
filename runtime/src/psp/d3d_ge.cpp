@@ -56,6 +56,7 @@ struct Texture {
     bool alpha = false;
     bool shared = false;        // data points into guest memory (not owned)
     bool in_place = false;      // 16-bit: guest pixels converted to the GE's order in place
+    bool swizzled = false;      // stored in the GE's swizzled layout (16-byte x 8-row blocks)
     uint32_t *clut = nullptr;   // T8: 256 palette entries (GE 8888), 16-byte aligned
 };
 
@@ -66,7 +67,7 @@ struct GeState {
     uint32_t epoch = ~0u;
     int depth_test = -1, depth_func = -1, depth_mask = -1, blend = -1, bsrc = -1, bdst = -1;
     unsigned bsfix = 0, bdfix = 0;
-    int alpha_test = -1, alpha_ref = -1, shade = -1, texturing = -1, psm = -1, tfx = -1, tcc = -1;
+    int alpha_test = -1, alpha_ref = -1, shade = -1, texturing = -1, psm = -1, tfx = -1, tcc = -1, swz = -1;
     const void *clut = nullptr;
     int fmin = -1, fmag = -1, wrap = -1;
     const void *tdata = nullptr;
@@ -95,6 +96,40 @@ Texture *last_tex = nullptr;
 // Guest pixel memory converted in place to the GE's order (keyed by address: DuplicateSurface makes
 // several surfaces share one memory block). sync_to_cpu converts it back.
 std::set<uint32_t> in_place_mem;
+
+// ---------- swizzled textures ----------
+// The GE reads textures in RAM much faster in its swizzled layout (blocks of 16 bytes x 8 rows, stored
+// one after the other): on a real PSP the race's texture reads kept the GE ~8 ms per frame behind the
+// CPU once the CPU-side drawing got faster. Done in place for textures that live in guest memory (and
+// undone with the in-place conversion, revert_in_place); for the backend's own copies once.
+// Needs a row of 16n bytes and 8n rows. MOTORACER_GE_SWIZZLE=0: off.
+bool swizzle_on() {
+    static const bool on = !getenv("MOTORACER_GE_SWIZZLE") || strcmp(getenv("MOTORACER_GE_SWIZZLE"), "0");
+    return on;
+}
+alignas(16) uint8_t swizzle_band[1024 * 8];   // one band of 8 rows (rows up to 1,024 bytes)
+bool can_swizzle(uint32_t row_bytes, uint32_t rows) {
+    return swizzle_on() && !(row_bytes & 15) && !(rows & 7) && row_bytes * 8 <= sizeof swizzle_band;
+}
+void swizzle(uint8_t *p, uint32_t row_bytes, uint32_t rows) {
+    const uint32_t blocks = row_bytes / 16;
+    for (uint32_t by = 0; by < rows / 8; by++) {
+        uint8_t *band = p + by * row_bytes * 8;
+        memcpy(swizzle_band, band, row_bytes * 8);
+        for (uint32_t bx = 0; bx < blocks; bx++)
+            for (uint32_t y = 0; y < 8; y++) memcpy(band + (bx * 8 + y) * 16, swizzle_band + y * row_bytes + bx * 16, 16);
+    }
+}
+void unswizzle(uint8_t *p, uint32_t row_bytes, uint32_t rows) {
+    const uint32_t blocks = row_bytes / 16;
+    for (uint32_t by = 0; by < rows / 8; by++) {
+        uint8_t *band = p + by * row_bytes * 8;
+        memcpy(swizzle_band, band, row_bytes * 8);
+        for (uint32_t bx = 0; bx < blocks; bx++)
+            for (uint32_t y = 0; y < 8; y++) memcpy(band + y * row_bytes + bx * 16, swizzle_band + (bx * 8 + y) * 16, 16);
+    }
+}
+std::set<uint32_t> swizzled_mem;   // guest memory (in in_place_mem too) stored swizzled
 
 // Debug counters, logged every 5 s with MOTORACER_GE_STATS=1.
 struct Stats {
@@ -277,6 +312,7 @@ Texture *texture_for(Surface *s) {
     if (!t.shared) free(t.data);
     t.data = nullptr;
     t.shared = false;
+    t.swizzled = t.in_place = false;
     if (s->bpp == 8) {
         t.alpha = keyed;
         uint32_t pal[256];
@@ -296,6 +332,14 @@ Texture *texture_for(Surface *s) {
             t.tbw = static_cast<int>(s->pitch);
             t.data = src;
             t.shared = true;
+            if (swizzled_mem.count(s->mem)) {   // already (another surface on this memory, or a palette change)
+                t.swizzled = t.in_place = true;
+            } else if (can_swizzle(s->pitch, s->h)) {
+                swizzle(src, s->pitch, s->h);
+                swizzled_mem.insert(s->mem);
+                in_place_mem.insert(s->mem);
+                t.swizzled = t.in_place = true;
+            }
             psp_ge::writeback(t.clut, 256 * 4);
             psp_ge::writeback(src, static_cast<size_t>(s->pitch) * s->h);
             return &t;
@@ -305,6 +349,10 @@ Texture *texture_for(Surface *s) {
         auto *out = static_cast<uint32_t *>(t.data);
         for (uint32_t y = 0; y < s->h; y++)
             for (uint32_t x = 0; x < s->w; x++) out[y * t.tbw + x] = pal[RD8(s->mem + y * s->pitch + x)];
+        if (can_swizzle(t.tbw * 4u, s->h)) {
+            swizzle(static_cast<uint8_t *>(t.data), t.tbw * 4u, s->h);
+            t.swizzled = true;
+        }
         psp_ge::writeback(t.data, static_cast<size_t>(t.tbw) * s->h * 4);
         return &t;
     }
@@ -333,11 +381,16 @@ Texture *texture_for(Surface *s) {
                 }
             }
             in_place_mem.insert(s->mem);
+            if (can_swizzle(s->pitch, s->h)) {
+                swizzle(reinterpret_cast<uint8_t *>(guest), s->pitch, s->h);
+                swizzled_mem.insert(s->mem);
+            }
         }
         t.tbw = static_cast<int>(s->pitch / 2);
         t.data = guest;
         t.shared = true;
         t.in_place = true;
+        t.swizzled = swizzled_mem.count(s->mem) != 0;
         psp_ge::writeback(guest, static_cast<size_t>(s->pitch) * s->h);
         return &t;
     }
@@ -360,6 +413,10 @@ Texture *texture_for(Surface *s) {
             }
             out[y * t.tbw + x] = o;
         }
+    if (can_swizzle(t.tbw * 2u, s->h)) {
+        swizzle(static_cast<uint8_t *>(t.data), t.tbw * 2u, s->h);
+        t.swizzled = true;
+    }
     psp_ge::writeback(t.data, static_cast<size_t>(t.tbw) * s->h * 2);
     return &t;
 }
@@ -432,8 +489,9 @@ void apply_states(const uint32_t *rs, Texture *tex) {
         sceGuClutLoad(256 / 8, tex->clut);
         gs.clut = tex->clut;
     }
-    if (tex->data != gs.tdata || tex->psm != gs.psm) {
-        sceGuTexMode(tex->psm, 0, 0, 0);
+    if (tex->data != gs.tdata || tex->psm != gs.psm || static_cast<int>(tex->swizzled) != gs.swz) {
+        sceGuTexMode(tex->psm, 0, 0, tex->swizzled ? 1 : 0);
+        gs.swz = tex->swizzled;
         sceGuTexImage(0, tex->tw, tex->th, tex->tbw, tex->data);
         sceGuTexFlush();
         gs.tdata = tex->data;
@@ -993,8 +1051,9 @@ void clear(uint32_t flags, uint32_t argb, float depth) {
 void revert_in_place(Surface *s) {
     in_place_mem.erase(s->mem);
     uint16_t *guest = reinterpret_cast<uint16_t *>(rt::host_ptr(s->mem));
+    if (swizzled_mem.erase(s->mem)) unswizzle(reinterpret_cast<uint8_t *>(guest), s->pitch, s->h);
     const bool is1555 = s->gmask == 0x03E0, is4444 = s->gmask == 0x00F0;
-    for (uint32_t y = 0; y < s->h; y++) {
+    for (uint32_t y = 0; s->bpp == 16 && y < s->h; y++) {
         uint16_t *row = guest + y * (s->pitch / 2);
         for (uint32_t x = 0; x < s->w; x++) {
             const uint16_t o = row[x];
@@ -1010,7 +1069,7 @@ void revert_in_place(Surface *s) {
         if (t.in_place && t.data == guest) {
             if (gs.tdata == t.data) gs.tdata = nullptr;
             t.data = nullptr;
-            t.shared = t.in_place = false;
+            t.shared = t.in_place = t.swizzled = false;
             t.version = ~0u;
         }
 }
@@ -1036,7 +1095,7 @@ void surface_destroyed(Surface *s) {
     if (in_place_mem.count(s->mem)) {   // a later surface may get this memory: forget the mark (unless shared)
         bool shared_mem = false;
         for (auto &[surf, t] : textures) shared_mem |= surf != s && surf->mem == s->mem;
-        if (!shared_mem) in_place_mem.erase(s->mem);
+        if (!shared_mem) in_place_mem.erase(s->mem), swizzled_mem.erase(s->mem);
     }
     if (it != textures.end()) {
         if (!it->second.shared) free(it->second.data);
