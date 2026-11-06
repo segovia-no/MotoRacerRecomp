@@ -15,7 +15,10 @@ std::string home() {
 class MacPaths final : public HostPaths {
 public:
     std::string data_dir() override { return home().empty() ? "" : home() + "/Library/Application Support/MotoRacerRecomp"; }
-    std::string log_dir() override { return home().empty() ? "" : home() + "/Library/Logs/MotoRacerRecomp"; }
+    std::string log_dir() override {
+        if (const char *e = getenv("MOTORACER_LOG_DIR")) return e;   // dev: parallel test runs
+        return home().empty() ? "" : home() + "/Library/Logs/MotoRacerRecomp";
+    }
 };
 
 }  // namespace

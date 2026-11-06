@@ -8,7 +8,8 @@
 # LEFT RIGHT SPACE F1..F12 or one letter/digit), +KEY / -KEY press / release.
 # Output: build/e2e/<name>/ (BMP snapshots: gpu_* every 120 GPU frames, frame_* every 60
 # software frames), build/e2e/<name>.png (contact sheet), build/e2e/<name>.log (game log).
-# MOTORACER_BIN=<path> runs another build (default build/cmake/motoracer).
+# MOTORACER_BIN=<path> runs another build (default build/cmake/motoracer). MOTORACER_LOG_DIR=<dir>
+# (macOS) keeps the game log of parallel runs apart.
 # Snapshots are full render-target BMPs (~20 MB each at 2560x1920), so they are deleted once the
 # contact sheet is made; KEEP_FRAMES=1 keeps them for closer inspection. Kept frames older than an
 # hour are removed at the start of every run. Runs are windowed (MOTORACER_FULLSCREEN=0), whatever
@@ -25,7 +26,8 @@ rm -rf "$out" && mkdir -p "$out"
 mute=(); [ -n "${WITH_SOUND:-}" ] || mute=(MOTORACER_MUTE=1)   # muted unless WITH_SOUND=1
 env MOTORACER_FULLSCREEN=0 MOTORACER_SNAPSHOT_DIR="$PWD/$out" MOTORACER_AUTOKEYS="$keys" "${mute[@]}" "$@" \
     perl -e 'alarm shift; exec { $ARGV[0] } @ARGV' "$secs" "${MOTORACER_BIN:-build/cmake/motoracer}" >/dev/null 2>&1 || true
-if [ "$(uname -s)" = Darwin ]; then logdir=$HOME/Library/Logs/MotoRacerRecomp
+if [ -n "${MOTORACER_LOG_DIR:-}" ]; then logdir=$MOTORACER_LOG_DIR
+elif [ "$(uname -s)" = Darwin ]; then logdir=$HOME/Library/Logs/MotoRacerRecomp
 else logdir=${XDG_STATE_HOME:-$HOME/.local/state}/MotoRacerRecomp; fi
 cp "$logdir/motoracer.log" "build/e2e/$name.log"
 py=python3
