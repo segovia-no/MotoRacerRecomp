@@ -597,6 +597,13 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
     ~1,090 polygons emitted; the rejected faces are mostly back faces (object culling would not save
     much).
 
+- Hardware log of that build: race 65–80 ms per frame (was 55–60): "present" 11–17 ms and "wait"
+  7–9 ms (both ~0 before) — the CPU waiting for the GE at the frame's end. The CPU-side work fell as
+  meant (GE draw 6 → 2.4 ms, D3D Execute 2.8 → 1.3, the vertex conversion gone). Suspect: the GE stall
+  address moved only every 4 KB of list (`draw_array`), leaving the GE idle until late in the frame.
+  Back to a move after every draw (list memory still never: half pspgu's kernel calls);
+  `MOTORACER_GE_STALL_STEP=<bytes>` keeps the step for an A/B (package: `MOTORACER_PROF_4K`).
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and
