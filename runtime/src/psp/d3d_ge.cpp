@@ -618,35 +618,145 @@ void set_target(Surface *s) {
     log("d3d ge: render target %ux%u (scale %.2f)\n", g_w, g_h, scale);
 }
 
+namespace {
+// One TLVERTEX in the GE backend's form (screen position scaled into the buffer, depth for this frame).
+inline FrameVertex frame_vertex(float sx, float sy, float sz, float rhw, uint32_t argb, float tu, float tv) {
+    rhw = rhw > 1e-12f ? rhw : 1e-12f;
+    float z;
+    if (ge3d()) {
+        if (sz > 1e-7f && sz < 1.f) frame_min_sz = std::min(frame_min_sz, sz);
+        z = sz > 1e-12f ? 65535.f * frame_s0 / sz : 65535.f;
+    } else {
+        z = 65535.f * (1.f - sz);
+    }
+    z = z < 0.f ? 0.f : z > 65535.f ? 65535.f : z;
+    // Direct3D 5 has pixel centres at integer coordinates, the GE at half-integers: shift by half
+    // a game pixel (as the desktop backend does) so coverage and texel sampling match — otherwise
+    // point-sampled HUD pieces pick the neighbouring texel (black seams in the red bars).
+    return {{tu, tv, argb_to_abgr(argb), (sx + 0.5f) * scale + off_x, (sy + 0.5f) * scale + off_y, z}, rhw, sz};
+}
+
+// ---------- direct vertices ----------
+// The native render loops (native_render.cpp) hand their vertices over here instead of writing
+// TLVERTEX records into the locked execute buffer: each goes straight into frame_vertices at its slot
+// (offset in the buffer / 32), PROCESSVERTICES then uses them as they are (no copy out of guest
+// memory, no conversion); slots written by other code are converted from guest memory as before.
+// The flush runs between Executes, so frame_vertices (the previous Execute's) is free by then.
+// MOTORACER_GE_DIRECT=0: off.
+constexpr uint32_t DIRECT_SLOTS = 1536;   // 48 KB execute buffers: at most 1,472 vertices
+uint32_t direct_mem = 0, direct_size = 0, direct_count = 0;
+uint8_t direct_has[DIRECT_SLOTS];
+uint32_t direct_argb[DIRECT_SLOTS];   // each slot's last colour (the textured loop leaves most unwritten)
+
+bool direct_on() {
+    static const bool on = !getenv("MOTORACER_GE_DIRECT") || strcmp(getenv("MOTORACER_GE_DIRECT"), "0");
+    return on;
+}
+}  // namespace
+
+void execute_buffer_locked(uint32_t mem, uint32_t size) {
+    if (direct_count) memset(direct_has, 0, sizeof direct_has);
+    if (mem != direct_mem)   // the colours the records hold now
+        for (uint32_t k = 0; k < DIRECT_SLOTS && 32 * k + 32 <= size; k++) direct_argb[k] = RD32(mem + 32 * k + 0x10);
+    direct_mem = mem;
+    direct_size = std::min(size, DIRECT_SLOTS * 32u);
+    direct_count = 0;
+}
+
+bool direct_vertex(uint32_t va, float sx, float sy, float sz, float rhw, const uint32_t *argb, float tu, float tv) {
+    const uint32_t off = va - direct_mem;
+    if (!direct_on() || off >= direct_size || (off & 31)) return false;
+    const uint32_t slot = off >> 5;
+    if (frame_vertices.size() <= slot) {
+        if (frame_vertices.capacity() < DIRECT_SLOTS) frame_vertices.reserve(DIRECT_SLOTS);
+        frame_vertices.resize(slot + 1);
+    }
+    if (argb) direct_argb[slot] = *argb;
+    frame_vertices[slot] = frame_vertex(sx, sy, sz, rhw, direct_argb[slot], tu, tv);
+    direct_has[slot] = 1;
+    direct_count++;
+    return true;
+}
+
+// PROCESSVERTICES (COPY) of n vertices from guest `src` (in execute buffer `mem`) to frame slot
+// `dest`, when the native loops filled this buffer: false otherwise (d3d.cpp copies and converts).
+bool direct_process(uint32_t mem, uint32_t src, uint32_t dest, uint32_t n, uint32_t *nverts) {
+    if (!direct_count || mem != direct_mem) return false;
+    static const uint8_t region = prof_id("ge: vertex conversion");
+    prof::Scope prof_scope(region);
+    if (ge3d()) psp_ge::set_near_w(near_w());
+    batch_id++;
+    const uint32_t first = (src - mem) >> 5;
+    if (frame_vertices.size() < dest + n) frame_vertices.resize(dest + n);
+    if (first != dest) {   // not seen from the game; kept correct
+        std::vector<FrameVertex> tmp(n);
+        for (uint32_t i = 0; i < n; i++) {
+            const uint32_t k = first + i;
+            if (k < DIRECT_SLOTS && direct_has[k] && k < frame_vertices.size()) tmp[i] = frame_vertices[k];
+            else {
+                TLVertex v;
+                memcpy(&v, M + src + 32 * i, 32);
+                tmp[i] = frame_vertex(v.sx, v.sy, v.sz, v.rhw, v.color, v.tu, v.tv);
+            }
+        }
+        std::copy(tmp.begin(), tmp.end(), frame_vertices.begin() + dest);
+    } else {
+        static const bool check = getenv("MOTORACER_GE_DIRECT_CHECK") != nullptr;
+        static uint64_t checked = 0, bad = 0;
+        for (uint32_t i = 0; i < n; i++) {
+            const uint32_t k = first + i;
+            if (k < DIRECT_SLOTS && direct_has[k]) {
+                if (check) {   // the records were written too: same vertex both ways?
+                    TLVertex v;
+                    memcpy(&v, M + src + 32 * i, 32);
+                    const FrameVertex a = frame_vertices[k], b = frame_vertex(v.sx, v.sy, v.sz, v.rhw, v.color, v.tu, v.tv);
+                    checked++;
+                    const bool flat = a.rhw == 1.f && a.g.u == 0.f && a.g.v == 0.f;   // untextured: uv, rhw unused
+                    const bool tex_ok = flat || (a.g.u == b.g.u && a.g.v == b.g.v && a.rhw == b.rhw);
+                    if (memcmp(&a.g.x, &b.g.x, 12) || a.g.color != b.g.color || a.sz != b.sz || !tex_ok) {
+                        if (++bad <= 20)
+                            log("ge direct check: slot %u: xyz %g %g %g / %g %g %g colour %08x / %08x uv %g %g / %g %g rhw %g / %g\n", k,
+                                a.g.x, a.g.y, a.g.z, b.g.x, b.g.y, b.g.z, a.g.color, b.g.color, a.g.u, a.g.v, b.g.u, b.g.v, a.rhw, b.rhw);
+                    }
+                    if (checked % 200000 == 0) log("ge direct check: %llu vertices, %llu differ\n", (unsigned long long)checked, (unsigned long long)bad);
+                }
+                continue;
+            }
+            TLVertex v;
+            memcpy(&v, M + src + 32 * i, 32);
+            if (k < DIRECT_SLOTS) direct_argb[k] = v.color;
+            frame_vertices[k] = frame_vertex(v.sx, v.sy, v.sz, v.rhw, v.color, v.tu, v.tv);
+        }
+    }
+    *nverts = static_cast<uint32_t>(frame_vertices.size());
+    return true;
+}
+
+void execute_done(uint32_t mem) {
+    if (mem != direct_mem || !direct_count) return;
+    memset(direct_has, 0, sizeof direct_has);
+    direct_count = 0;
+}
+
 uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
     static const uint8_t region = prof_id("ge: vertex conversion");
     prof::Scope prof_scope(region);
     // Draws only use the vertices of the latest PROCESSVERTICES (d3d.cpp passes this call's base), so
     // the list restarts here instead of growing over the whole frame: PSP-1000 memory (a race frame
     // reached ~10,000 vertices, and the vector's doubling briefly needed twice that).
+    if (direct_count) {   // another buffer executed while the native loops were filling one
+        static int warned = 0;
+        if (warned++ < 3) log("d3d ge: direct vertices of the locked execute buffer dropped by another Execute\n");
+    }
     frame_vertices.clear();
-    if (frame_vertices.capacity() < 2048) frame_vertices.reserve(2048);   // once, early (as d3d.cpp's copy)
+    if (frame_vertices.capacity() < DIRECT_SLOTS) frame_vertices.reserve(DIRECT_SLOTS);   // once, early (as d3d.cpp's copy)
     batch_id++;
-    uint32_t base = 0;
     if (ge3d()) psp_ge::set_near_w(near_w());
     for (uint32_t i = 0; i < n; i++) {
         const TLVertex &v = verts[i];
-        float rhw = v.rhw > 1e-12f ? v.rhw : 1e-12f;
-        float z;
-        if (ge3d()) {
-            if (v.sz > 1e-7f && v.sz < 1.f) frame_min_sz = std::min(frame_min_sz, v.sz);
-            z = v.sz > 1e-12f ? 65535.f * frame_s0 / v.sz : 65535.f;
-        } else {
-            z = 65535.f * (1.f - v.sz);
-        }
-        z = z < 0.f ? 0.f : z > 65535.f ? 65535.f : z;
-        // Direct3D 5 has pixel centres at integer coordinates, the GE at half-integers: shift by half
-        // a game pixel (as the desktop backend does) so coverage and texel sampling match — otherwise
-        // point-sampled HUD pieces pick the neighbouring texel (black seams in the red bars).
-        frame_vertices.push_back({{v.tu, v.tv, argb_to_abgr(v.color), (v.sx + 0.5f) * scale + off_x,
-                                   (v.sy + 0.5f) * scale + off_y, z}, rhw, v.sz});
+        frame_vertices.push_back(frame_vertex(v.sx, v.sy, v.sz, v.rhw, v.color, v.tu, v.tv));
     }
-    return base;
+    return 0;
 }
 
 void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, const uint16_t *indices,

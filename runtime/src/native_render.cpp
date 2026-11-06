@@ -18,6 +18,7 @@
 // every store would make the compiler reload M.
 #include "recomp_mem_local.h"
 #include "native_check.h"
+#include "dx/d3d_gpu.h"
 
 namespace {
 
@@ -61,12 +62,55 @@ ZMode z_mode() {
     return {RD32(Z_ON) != 0, RD32(Z_RAW) != 0, static_cast<fpu_t>(RDF64(Z_SCALE))};
 }
 
-LoopOut flat_vertices(uint32_t esi, uint32_t n, uint32_t ebx) {
+// The vertex's depth field (sz) as the loops write it: 1, the transformed value as it is, or scaled.
+inline uint32_t sz_bits(const ZMode &z, uint32_t v) {
+    MEM_LOCAL();
+    if (!z.on) return 0x3f800000u;
+    if (z.raw) return RD32(v + 8);
+    const float f = static_cast<float>(static_cast<fpu_t>(RDF32(v + 8)) * z.scale);
+    uint32_t b;
+    memcpy(&b, &f, 4);
+    return b;
+}
+// MOTORACER_GE_DIRECT_CHECK=1 (dev): the records are written too, and the backend compares
+bool direct_check() {
+    static const bool on = getenv("MOTORACER_GE_DIRECT_CHECK") != nullptr;
+    return on;
+}
+inline float bits_float(uint32_t b) {
+    float f;
+    memcpy(&f, &b, 4);
+    return f;
+}
+
+// direct: the vertices go to the GE backend (dx::gpu::direct_vertex) instead of the TLVERTEX records
+// (normal mode on the PSP; check mode compares the records, so not there)
+LoopOut flat_vertices(uint32_t esi, uint32_t n, uint32_t ebx, bool direct = false) {
     MEM_LOCAL();
     const uint32_t verts = RD32(ebx + 0xc), eb = RD32(EB_OBJ), col = RD32(COLOR);
     const uint32_t alpha = col & 0xff000000u, ri = (col >> 16) & 0xff, gi = (col >> 8) & 0xff, bi = col & 0xff;
     const ZMode z = z_mode();
     uint32_t idx = esi + 0x2c, v = 0, row = 0, rgb = 0, ecx = 0, out = RD32(eb + 4);
+    if (direct) {
+        // the untextured records get no rhw / uv (the GE path does not use them there)
+        for (uint32_t i = 0; i < n; i++, out += 0x20, idx += 2) {
+            v = verts + RD16(idx) * 28u;
+            row = SHADE_TABLE + ((RD32(v + 0xc) & 0x3e000u) >> 5);
+            rgb = static_cast<uint32_t>(RD8(row + ri)) << 16 | static_cast<uint32_t>(RD8(row + gi)) << 8 | RD8(row + bi);
+            const uint32_t zb = sz_bits(z, v), argb = alpha | rgb;
+            ecx = z.on && z.raw ? zb : rgb;
+            if (!dx::gpu::direct_vertex(out, int_to_float(RD32(v + 0x10)), int_to_float(RD32(v + 0x14)), bits_float(zb),
+                                        1.f, &argb, 0.f, 0.f) || direct_check()) {
+                WRF32(out, int_to_float(RD32(v + 0x10)));
+                WRF32(out + 4, int_to_float(RD32(v + 0x14)));
+                WR32(out + 0x14, rgb | 0xff000000u);
+                WR32(out + 0x10, argb);
+                WR32(out + 8, zb);
+            }
+        }
+        WR32(eb + 4, out);
+        return {eb, ecx, out, idx, 0, row, rgb, v, row, n};
+    }
     for (uint32_t i = 0; i < n; i++, out += 0x20, idx += 2) {
         v = verts + RD16(idx) * 28u;
         WRF32(out, int_to_float(RD32(v + 0x10)));
@@ -97,13 +141,51 @@ LoopOut flat_vertices(uint32_t esi, uint32_t n, uint32_t ebx) {
 // In: esi = polygon record (uv pairs at +4, indexes at +0x2c), edi = count (> 0), ebx = node.
 // Out: [esp+0x14] uv pointer, [esp+0x18] last vertex, [esp+0x20] count; eax = count, ecx = uv
 // pointer, esi past the indexes, edi = count (edx is dead after the loop; ebp unchanged).
-LoopOut tex_vertices(uint32_t esi, uint32_t n, uint32_t ebx, uint32_t ebp, uint32_t esp) {
+LoopOut tex_vertices(uint32_t esi, uint32_t n, uint32_t ebx, uint32_t ebp, uint32_t esp, bool direct = false) {
     MEM_LOCAL();
     const uint32_t verts = RD32(ebx + 0xc), eb = RD32(EB_OBJ), alpha = RD32(COLOR) & 0xff000000u;
     const bool every = RD32(LIGHT_EVERY_VERTEX) == 1, half = RD32(HALF_LIGHT) != 0;
     const bool white = RD32(WHITE_A) || RD32(WHITE_B);
     const ZMode z = z_mode();
     uint32_t uv = esi + 4, idx = esi + 0x2c, v = 0, out = RD32(eb + 4);
+    if (direct) {
+        for (uint32_t i = 0; i < n; i++, uv += 8, idx += 2, out += 0x20) {
+            v = verts + RD16(idx) * 28u;
+            const uint32_t zb = sz_bits(z, v);
+            uint32_t argb = 0;
+            bool has_colour = false;
+            if (i == 0 || every) {   // else the record keeps its colour (the backend keeps the slot's)
+                const uint32_t c = RD32(v + 0xc);
+                has_colour = true;
+                if (c & 0x80000000u) {
+                    argb = c & 0xffffff;
+                } else if (c & 0x40000000u) {
+                    argb = white ? 0xffffffffu : 0xffffffu;
+                } else {
+                    uint32_t e = (c & 0x3fc00u) >> 10;
+                    if (half) e >>= 1;
+                    argb = alpha | e << 16 | e << 8 | e;
+                }
+            }
+            if (!dx::gpu::direct_vertex(out, int_to_float(RD32(v + 0x10)), int_to_float(RD32(v + 0x14)), bits_float(zb),
+                                        RDF32(v + 0x18), has_colour ? &argb : nullptr, RDF32(uv), RDF32(uv + 4)) || direct_check()) {
+                WRF32(out + 4, int_to_float(RD32(v + 0x14)));
+                WRF32(out, int_to_float(RD32(v + 0x10)));
+                WR32(out + 0xc, RD32(v + 0x18));
+                WR32(out + 0x18, RD32(uv));
+                WR32(out + 0x1c, RD32(uv + 4));
+                WR32(out + 8, zb);
+                if (has_colour) {
+                    const uint32_t c = RD32(v + 0xc);
+                    if (c & 0x80000000u) WR32(out + 0x14, 0xffffffffu);
+                    else if (!(c & 0x40000000u)) WR32(out + 0x14, (argb & 0xffffff) | 0xff000000u);
+                    WR32(out + 0x10, argb);
+                }
+            }
+        }
+        WR32(eb + 4, out);
+        return {n, uv, 0, idx, n, ebp, uv, v, RD32(esp + 0x1c), n};
+    }
     for (uint32_t i = 0; i < n; i++, uv += 8, idx += 2, out += 0x20) {
         v = verts + RD16(idx) * 28u;
         WRF32(out + 4, int_to_float(RD32(v + 0x14)));
@@ -172,7 +254,7 @@ int run_loop(bool textured) {
     if (m == OFF) return 0;
     const uint32_t esi = R.esi, n = R.edi, ebx = R.ebx, esp = R.esp;
     if (m == ON) {
-        apply(textured ? tex_vertices(esi, n, ebx, R.ebp, esp) : flat_vertices(esi, n, ebx));
+        apply(textured ? tex_vertices(esi, n, ebx, R.ebp, esp, true) : flat_vertices(esi, n, ebx, true));
         return 1;
     }
     // CHECK
@@ -464,7 +546,7 @@ void zfunc_state(uint32_t eb, uint32_t func) {   // a one-state STATERENDER bloc
     WR32(0x4e4f3c, 0xffffff9cu);   // the next triangle opens a new header
 }
 
-int flush_polygon() {
+int flush_polygon(bool direct = false) {
     MEM_LOCAL();
     const uint32_t sp = R.esp, node = R.ebx, eb = RD32(EB_OBJ);
     WR32(0x624370, RD32(0x624370) + 1);
@@ -518,7 +600,7 @@ int flush_polygon() {
     else { WR32(sp + 0x38, 2); n = 4; }
     if (n) {
         WR32(sp + 0x20, n);   // the untextured loop's counter (the textured loop leaves it at n too)
-        const LoopOut o = untex ? flat_vertices(poly, n, node) : tex_vertices(poly, n, node, R.ebp, sp);
+        const LoopOut o = untex ? flat_vertices(poly, n, node, direct) : tex_vertices(poly, n, node, R.ebp, sp, direct);
         WR32(sp + 0x14, o.s14);
         WR32(sp + 0x18, o.s18);
         WR32(sp + 0x1c, o.s1c);
@@ -629,7 +711,7 @@ extern "C" int native_flush_polygon(void) {
         const uint32_t eb = RD32(EB_OBJ);
         const bool cockpit = cockpit_node(node) && RD32(eb + 8) + 0x70 + 24 < RD32(ROOM_INS_END);
         if (cockpit) zfunc_state(eb, 8);
-        const int r = flush_polygon();
+        const int r = flush_polygon(true);
         if (cockpit && r == 1) zfunc_state(eb, 4);
         R.ebx = node;
         R.esp = sp;

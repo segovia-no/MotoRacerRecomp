@@ -203,7 +203,8 @@ void parse_execute(ExecuteBuffer *eb, Device *dev) {
         case 6:
             if (counting) for (uint16_t i = 0; i < count; i++) stats.transform_states[RD32(data + 8 * i)]++;
             break;
-        case 9:                                   // D3DOP_PROCESSVERTICES: {flags, wStart, wDest, dwCount}
+        case 9: {                                 // D3DOP_PROCESSVERTICES: {flags, wStart, wDest, dwCount}
+            bool direct = false;
             for (uint16_t i = 0; i < count; i++) {
                 uint32_t pv = data + 16 * i;
                 uint32_t flags = RD32(pv), start = RD16(pv + 4), dest = RD16(pv + 6), n = RD32(pv + 8);
@@ -213,20 +214,30 @@ void parse_execute(ExecuteBuffer *eb, Device *dev) {
                     if (!warned) { warned = true; log("D3D: PROCESSVERTICES flags %x not supported\n", flags); }
                     continue;
                 }
+                // the native render loops' vertices, already in the backend (PSP)
+                if (gpu::direct_process(eb->mem, eb->mem + vtx_off + 32 * start, dest, n, &nverts)) {
+                    base = 0;
+                    direct = true;
+                    continue;
+                }
                 // reserved once, early (a growing vector needs its old and new copies at once: on the
-                // PSP-1000 a West Way frame's 1,601 vertices found no 51 KB block left in the C heap)
-                if (dev->processed.capacity() < 2048) dev->processed.reserve(2048);
+                // PSP-1000 a West Way race found no such block left in the C heap)
+                if (dev->processed.capacity() < 1536) dev->processed.reserve(1536);
                 if (dev->processed.size() < dest + n) dev->processed.resize(dest + n);
                 memcpy(&dev->processed[dest], M + eb->mem + vtx_off + 32 * start, 32ull * n);
             }
-            nverts = static_cast<uint32_t>(dev->processed.size());
-            base = gpu::add_vertices(dev->processed.data(), nverts);
+            if (!direct) {
+                nverts = static_cast<uint32_t>(dev->processed.size());
+                base = gpu::add_vertices(dev->processed.data(), nverts);
+            }
             break;
+        }
         default: break;
         }
         if (op == 11) break;   // D3DOP_EXIT
         p = data + static_cast<uint32_t>(sz) * count;
     }
+    gpu::execute_done(eb->mem);
     uint64_t now = SDL_GetTicks();
     if (counting && now - last_report_ms > 10000) {
         last_report_ms = now;
@@ -463,6 +474,7 @@ COM_METHOD(EB_Lock, 1) {
     WR32(d + 12, eb->size);
     WR32(d + 16, eb->mem);
     eb->locked = true;
+    gpu::execute_buffer_locked(eb->mem, eb->size);
     return D3D_OK;
 }
 COM_METHOD(EB_Unlock, 0) { obj<ExecuteBuffer>(self)->locked = false; return D3D_OK; }

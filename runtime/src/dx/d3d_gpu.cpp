@@ -724,6 +724,11 @@ void set_target(Surface *s) {
     cpu_dirty = false;
 }
 
+void execute_buffer_locked(uint32_t, uint32_t) {}
+bool direct_vertex(uint32_t, float, float, float, float, const uint32_t *, float, float) { return false; }
+bool direct_process(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t *) { return false; }
+void execute_done(uint32_t) {}
+
 uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
     uint32_t base = static_cast<uint32_t>(frame_vertices.size());
     if (!dev || !rt) return base;

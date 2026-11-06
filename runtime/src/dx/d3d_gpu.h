@@ -28,6 +28,15 @@ void set_target(Surface *rt);
 
 // Queues vertices for this frame; returns the base index to pass to draw().
 uint32_t add_vertices(const TLVertex *verts, uint32_t n);
+// Direct vertices (the PSP backend; elsewhere these do nothing / return false): the native render
+// loops pass a vertex for guest address `va` in the locked execute buffer instead of writing the
+// TLVERTEX there (false: not taken, write it); PROCESSVERTICES then takes them (direct_process: false
+// = copy and convert the guest records as usual, through add_vertices).
+void execute_buffer_locked(uint32_t mem, uint32_t size);
+// argb nullptr: the slot keeps its last colour (as the guest record would)
+bool direct_vertex(uint32_t va, float sx, float sy, float sz, float rhw, const uint32_t *argb, float tu, float tv);
+bool direct_process(uint32_t mem, uint32_t src, uint32_t dest, uint32_t n, uint32_t *nverts);
+void execute_done(uint32_t mem);
 // Queues `ntri` triangles (3 indices each, relative to `base`) with the device's render-state
 // array (indexed by D3DRENDERSTATETYPE) and the bound texture (nullptr = untextured).
 void draw(const uint32_t *render_states, Surface *texture, uint32_t base, uint32_t nverts, const uint16_t *indices,

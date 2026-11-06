@@ -562,6 +562,21 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   from `.data` `0x4e94e0`. `game::patch_image()` (after `load_image`) rewrites it when the original
   is in place.
 
+### Direct vertices (2026-11-06; owner: "start option 1")
+- Step 1 of drawing the race straight to the GE: the native render loops (`flat_vertices`,
+  `tex_vertices`) hand each vertex to the backend (`dx::gpu::direct_vertex`) instead of writing the
+  32-byte TLVERTEX into the locked execute buffer; it lands in `frame_vertices` at its slot already
+  converted, and PROCESSVERTICES takes it from there (`direct_process`: no copy out of guest memory, no
+  second conversion; slots other code wrote are still converted from the records). Pointers, counts and
+  the instruction stream (states, triangles) are unchanged, so order and render states are the game's.
+  The textured loop writes a colour only for a polygon's first vertex (the others keep the record's
+  old one): the backend keeps each slot's last colour (`direct_argb`, seeded from the records).
+  `MOTORACER_GE_DIRECT=0`: off. `MOTORACER_GE_DIRECT_CHECK=1` (dev): records written too and every
+  direct vertex compared with the converted record — PPSSPP race: 4.8 M vertices, 0 differ (untextured
+  vertices' uv / rhw excepted: the records held stale values there, unused by untextured draws).
+- PPSSPP: neutral (the conversion moved into the loops; PPSSPP has no cache costs). On the PSP it saves
+  writing, copying and re-reading ~77 KB of records per frame: to be measured on hardware.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and
