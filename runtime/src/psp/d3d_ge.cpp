@@ -138,8 +138,19 @@ bool usable() { return target != nullptr; }
 // staging buffer and GE block transfers (psp_ge::read_rect / write_rect).
 uint16_t *staging() { return psp_ge::staging(); }
 
+// profiler regions inside the backend (MOTORACER_PROF): where its time goes
+uint8_t prof_id(const char *name) { return prof_register(name); }
+
 void upload_target() {
+    static const uint8_t region = prof_id("ge: CPU frame upload (downscale)");
+    prof::Scope prof_scope(region);
     st.uploads++;
+    static const bool ge_halve = !getenv("MOTORACER_GE_HALVE") || strcmp(getenv("MOTORACER_GE_HALVE"), "0");
+    if (scale < 1.f && ge_halve &&
+        psp_ge::draw_halved_565(M + target->mem, target->pitch, g_w, g_h, off_x, off_y, static_cast<int>(s_w), static_cast<int>(s_h))) {
+        cpu_dirty = false;
+        return;
+    }
     psp_ge::finish();
     uint16_t *buf = staging();
     if (scale >= 1.f) {
@@ -159,13 +170,39 @@ void upload_target() {
 }
 
 void download_target() {
+    static const uint8_t region = prof_id("ge: CPU frame download (upscale)");
+    prof::Scope prof_scope(region);
     st.downloads++;
     uint16_t *buf = staging();
     psp_ge::read_rect(buf, psp_ge::FB_STRIDE, off_x, off_y, static_cast<int>(s_w), static_cast<int>(s_h));
+    // nearest source column per target column, computed once per size; a target row that maps to the
+    // same source row as the one above is a copy of it (scale 0.57: ~3 of 4 rows)
+    static std::vector<uint16_t> cols;
+    static uint32_t cols_w = 0;
+    static float cols_scale = 0.f;
+    if (cols_w != g_w || cols_scale != scale) {
+        cols.resize(g_w);
+        for (uint32_t x = 0; x < g_w; x++) cols[x] = static_cast<uint16_t>(static_cast<uint32_t>(x * scale));
+        cols_w = g_w;
+        cols_scale = scale;
+    }
+    const bool aligned = !((target->mem | target->pitch) & 1);
+    uint32_t prev_sy = ~0u;
     for (uint32_t y = 0; y < g_h; y++) {
-        const uint16_t *src = buf + static_cast<uint32_t>(y * scale) * psp_ge::FB_STRIDE;
-        uint32_t dst = target->mem + y * target->pitch;
-        for (uint32_t x = 0; x < g_w; x++) WR16(dst + 2 * x, psp_ge::swap_rb565(src[static_cast<uint32_t>(x * scale)]));
+        const uint32_t sy = static_cast<uint32_t>(y * scale);
+        const uint32_t dst = target->mem + y * target->pitch;
+        if (sy == prev_sy && y) {
+            memcpy(M + dst, M + dst - target->pitch, g_w * 2u);
+            continue;
+        }
+        prev_sy = sy;
+        const uint16_t *src = buf + sy * psp_ge::FB_STRIDE;
+        if (aligned) {
+            uint16_t *d = reinterpret_cast<uint16_t *>(M + dst);
+            for (uint32_t x = 0; x < g_w; x++) d[x] = psp_ge::swap_rb565(src[cols[x]]);
+        } else {
+            for (uint32_t x = 0; x < g_w; x++) WR16(dst + 2 * x, psp_ge::swap_rb565(src[cols[x]]));
+        }
     }
 }
 
@@ -176,7 +213,13 @@ void clear_guest() {
     uint16_t c = static_cast<uint16_t>(((a >> 8) & 0xF800) | ((a >> 5) & 0x07E0) | ((a >> 3) & 0x001F));
     for (uint32_t y = 0; y < g_h; y++) {
         uint32_t row = target->mem + y * target->pitch;
-        for (uint32_t x = 0; x < g_w; x++) WR16(row + 2 * x, c);
+        if (!(row & 3) && !(g_w & 1)) {   // two pixels per store
+            uint32_t *d = reinterpret_cast<uint32_t *>(M + row);
+            const uint32_t cc = c | static_cast<uint32_t>(c) << 16;
+            for (uint32_t x = 0; x < g_w / 2; x++) d[x] = cc;
+        } else {
+            for (uint32_t x = 0; x < g_w; x++) WR16(row + 2 * x, c);
+        }
     }
     pending_flags &= ~1u;
     cpu_dirty = true;   // the GE buffer no longer matches
@@ -569,9 +612,6 @@ void set_target(Surface *s) {
     off_y = (psp_ge::FB_H - static_cast<int>(s_h)) / 2;
     log("d3d ge: render target %ux%u (scale %.2f)\n", g_w, g_h, scale);
 }
-
-// profiler regions inside D3D Execute (MOTORACER_PROF): where the render backend's time goes
-uint8_t prof_id(const char *name) { return prof_register(name); }
 
 uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
     static const uint8_t region = prof_id("ge: vertex conversion");

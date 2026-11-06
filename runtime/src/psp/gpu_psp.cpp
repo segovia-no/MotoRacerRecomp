@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "../host_gpu.h"
+#include "runtime.h"
 #include "ge.h"
 
 namespace host::gpu {
@@ -107,9 +108,24 @@ void present_rgb16(const uint8_t *px, uint32_t w, uint32_t h, uint32_t pitch, bo
         // ("stippled" transparency, e.g. the track-select arrows) into blocks.
         float scale = std::min(static_cast<float>(psp_ge::SCREEN_W) / w, static_cast<float>(psp_ge::SCREEN_H) / h);
         uint32_t dw = static_cast<uint32_t>(w * scale), dh = static_cast<uint32_t>(h * scale);
+        {   // the GE halves it (2x2 average) and scales the rest (MOTORACER_GE_HALVE=0: CPU)
+            static const bool ge_halve = !getenv("MOTORACER_GE_HALVE") || strcmp(getenv("MOTORACER_GE_HALVE"), "0");
+            const int x0 = static_cast<int>((psp_ge::SCREEN_W - dw) / 2), y0 = psp_ge::VIEW_Y0 + static_cast<int>((psp_ge::SCREEN_H - dh) / 2);
+            psp_ge::begin();
+            sceGuClearColor(0);
+            sceGuClear(GU_COLOR_BUFFER_BIT);
+            if (ge_halve && psp_ge::draw_halved_565(px, pitch, w, h, x0, y0, static_cast<int>(dw), static_cast<int>(dh))) {
+                psp_ge::show();
+                return;
+            }
+        }
         const uint32_t dstride = (dw + 7) & ~7u;
         frame_buffer(dstride * dh);
-        psp_ge::downscale_565(px, pitch, w, h, frame16, dstride, dw, dh);
+        static const uint8_t region = prof_register("present: CPU downscale");
+        {
+            prof::Scope prof_scope(region);
+            psp_ge::downscale_565(px, pitch, w, h, frame16, dstride, dw, dh);
+        }
         draw_frame(frame16, dw, dh, dstride);
         return;
     }

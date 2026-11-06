@@ -456,6 +456,14 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   the per-triangle path; PPSSPP draw time −20%. The batch arrays fill the 128 KB list sooner: about
   one early flush per frame (harmless: the GE runs a list only after it is closed anyway).
   `psp_ge::reserve` keeps a draw's index and vertex memory in one list.
+- Menu frames (640x480, larger than the screen) go to the screen through the GE instead of the CPU
+  downscale (`psp_ge::draw_halved_565`, `MOTORACER_GE_HALVE=0` for the CPU path): the GE halves the
+  picture into a VRAM scratch buffer behind the depth buffer with its bilinear filter sampling between
+  four texels (an exact 2x2 average, so the 1-pixel checker transparency still blends), the 320x240
+  result comes back to RAM where the CPU swaps red / blue (two pixels per word), and the GE scales it
+  to 363x272. PPSSPP: the menu's CPU-frame upload 5–6 ms → 0.6–1.3 ms per frame. The download of a
+  GE frame for CPU drawing (mixed 3D / 2D menus) uses aligned stores and copies repeated rows; the
+  colour clear stores two pixels per word.
 - Hot race functions: being rewritten natively in `native_race_a..d.cpp` (check mode against the
   translated code before they are switched on).
 

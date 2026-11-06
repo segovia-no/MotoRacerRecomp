@@ -38,6 +38,13 @@ uint64_t take_wait_ns();       // time spent waiting for the GE since the last c
 // source pixels (keeps the game's 1-pixel checker "stippled" transparency as a blend).
 void downscale_565(const uint8_t *src, uint32_t pitch, uint32_t w, uint32_t h, uint16_t *dst, uint32_t dstride,
                    uint32_t dw, uint32_t dh);
+// A guest RGB565 picture larger than the screen (the 640x480 menus) into the draw buffer at
+// (dx, dy) scaled to dw x dh, with the GE: 2x2 box average into a VRAM scratch buffer (the bilinear
+// filter sampled between four texels), the half-size picture back to RAM with its red / blue swapped
+// on the CPU, then scaled to dw x dh. False if the size is not supported (even w / h, w/2 <= 512,
+// h/2 <= 272): the caller downscales on the CPU (downscale_565). Leaves render state changed
+// (touch_state is called).
+bool draw_halved_565(const uint8_t *src, uint32_t pitch, uint32_t w, uint32_t h, int dx, int dy, int dw, int dh);
 // 3D-mode drawing (d3d_ge.cpp): the projection maps (x*w, y*w, w) to pixel (x, y), depth 65535*w0/w
 void set_near_w(float w0);
 uint32_t state_epoch();        // changes whenever GE render state is changed outside the D3D backend

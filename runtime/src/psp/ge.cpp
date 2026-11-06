@@ -200,6 +200,73 @@ void downscale_565(const uint8_t *src, uint32_t pitch, uint32_t w, uint32_t h, u
     }
 }
 
+namespace {
+struct SpriteVertex { float u, v, x, y, z; };
+
+// Through-mode textured sprites copying a w x h 5650 image (stride in pixels) to (x0, y0) scaled to
+// dw x dh, in strips of at most 512 texels (the GE's texture width limit); bilinear filtered.
+void draw_image(const uint16_t *img, uint32_t w, uint32_t h, uint32_t stride, float x0, float y0, float dw, float dh) {
+    sceGuDisable(GU_DEPTH_TEST);
+    sceGuDisable(GU_BLEND);
+    sceGuDisable(GU_ALPHA_TEST);
+    sceGuDisable(GU_CULL_FACE);
+    sceGuDepthMask(GU_TRUE);
+    sceGuEnable(GU_TEXTURE_2D);
+    sceGuTexMode(GU_PSM_5650, 0, 0, 0);
+    sceGuTexFunc(GU_TFX_REPLACE, GU_TCC_RGB);
+    sceGuTexFilter(GU_LINEAR, GU_LINEAR);
+    sceGuTexWrap(GU_CLAMP, GU_CLAMP);
+    uint32_t th = 1;
+    while (th < h) th <<= 1;
+    const float sx_scale = dw / static_cast<float>(w);
+    for (uint32_t sx = 0; sx < w; sx += 512) {
+        const uint32_t sw = w - sx < 512 ? w - sx : 512;
+        uint32_t tw = 1;
+        while (tw < sw) tw <<= 1;
+        sceGuTexImage(0, static_cast<int>(tw), static_cast<int>(th), static_cast<int>(stride), img + sx);
+        sceGuTexFlush();
+        auto *v = static_cast<SpriteVertex *>(list_memory(2 * sizeof(SpriteVertex)));
+        v[0] = {0.f, 0.f, x0 + sx * sx_scale, y0, 0.f};
+        v[1] = {static_cast<float>(sw), static_cast<float>(h), x0 + (sx + sw) * sx_scale, y0 + dh, 0.f};
+        sceGuDrawArray(GU_SPRITES, GU_TEXTURE_32BITF | GU_VERTEX_32BITF | GU_TRANSFORM_2D, 2, nullptr, v);
+    }
+    sceGuDisable(GU_TEXTURE_2D);
+}
+}  // namespace
+
+bool draw_halved_565(const uint8_t *src, uint32_t pitch, uint32_t w, uint32_t h, int dx, int dy, int dw, int dh) {
+    const uint32_t hw = w / 2, hh = h / 2;
+    if ((w | h) & 1 || hw > 512 || hh > static_cast<uint32_t>(FB_H) || (pitch & 31) ||
+        (reinterpret_cast<uintptr_t>(src) & 15))
+        return false;
+    // pass 1: the 2x2 box average into the scratch buffer behind the depth buffer (red / blue are
+    // swapped all along: both 5-bit fields average the same way)
+    const uint32_t scratch = fb_offset(3);
+    begin();
+    sceGuDrawBufferList(GU_PSM_5650, reinterpret_cast<void *>(scratch), FB_STRIDE);
+    sceGuScissor(0, 0, static_cast<int>(hw), static_cast<int>(hh));
+    draw_image(reinterpret_cast<const uint16_t *>(src), w, h, pitch / 2, 0.f, 0.f, static_cast<float>(hw), static_cast<float>(hh));
+    // back to RAM, red / blue swapped (two pixels per word)
+    uint16_t *half = staging();
+    const int hstride = static_cast<int>((hw + 7) & ~7u);
+    sceGuCopyImage(GU_PSM_5650, 0, 0, static_cast<int>(hw), static_cast<int>(hh), FB_STRIDE, vram_abs(scratch), 0, 0, hstride, half);
+    sceGuTexSync();
+    finish();
+    sceKernelDcacheInvalidateRange(half, hstride * hh * 2);
+    uint32_t *pairs = reinterpret_cast<uint32_t *>(half);
+    for (uint32_t i = 0, n = static_cast<uint32_t>(hstride) * hh / 2; i < n; i++) {
+        const uint32_t p = pairs[i];
+        pairs[i] = ((p >> 11) & 0x001F001Fu) | (p & 0x07E007E0u) | ((p << 11) & 0xF800F800u);
+    }
+    // pass 2: scaled into the draw buffer
+    begin();   // a new list: the draw buffer is the current one again
+    draw_image(half, hw, hh, static_cast<uint32_t>(hstride), static_cast<float>(dx), static_cast<float>(dy),
+               static_cast<float>(dw), static_cast<float>(dh));
+    full_region();
+    touch_state();
+    return true;
+}
+
 // Projection for 3D-mode draws (column-major: clip = P.x*X + P.y*Y + P.z*Z + P.w). With the viewport
 // (centre 2048, FB_W x FB_H) and depth range 65535..0 set in init, a vertex (x*w, y*w, w) lands on
 // pixel (x, y) with depth 65535 * w0 / w: clip = (2X/FB_W - Z, Z - 2Y/FB_H, Z - 2*w0, Z).
