@@ -66,6 +66,13 @@ struct Settings {
     float draw_distance = 2;
 #endif
     bool controller_menus = true;
+    // AI level of detail: far opponents update less often (game_hooks.cpp); changes the far bikes'
+    // simulation slightly, so on only where the CPU needs it
+#ifdef __PSP__
+    bool ai_lod = true;
+#else
+    bool ai_lod = false;
+#endif
     bool controller_preset = true;
     TriggerMode trigger_mode = TriggerMode::Auto;
 };

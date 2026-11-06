@@ -498,6 +498,24 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
 - `PROFILE_ENV="MOTORACER_OPPONENTS=7"` (package_hw.sh) runs the profiling app with 7 opponents: the
   hardware cost of the bike AI per opponent.
 
+### AI level of detail (2026-11-06)
+- Setting `AiLod` (`[Recomp]`, PSP default on, desktop off; dev `MOTORACER_AI_LOD=0|1|"R1,R2,P_MID,P_FAR"`).
+  The per-frame bike loop `0x47df40` updates each racing opponent with `0x45d540(..., dt)` (dt = frame
+  time in hundredths, `[0x4e9808]`; for AI bikes → `0x46bf80`: AI + physics). Jump hook at `0x47e189`:
+  an opponent farther than R1 (3000) from the player is updated once per P_MID (13 hundredths, ~7.5 Hz)
+  up to R2 (20000) and once per P_FAR (25, ~4 Hz) beyond; skipped frames' time accumulates and the next
+  update gets it (the frame-time global holds the sum for that call; `game_hook_ai_lod_after` at
+  `0x47e1bb` restores it). Near the player every frame, unchanged.
+- Skipping an opponent's first updates on the grid crashed the race: each bike needs 60 normal
+  updates after the race setup (`game_hook_opponents` resets the counters) before it can be skipped.
+- PPSSPP race (23 opponents): 85–92% of opponent updates skipped once the field spreads out; frame
+  14.3 → 10.6 ms, `0x46bf80` 1.16 → 0.11 ms.
+- `MOTORACER_BIKE_LOD_SCALE=<s>` (dev): the bike model / sprite thresholds × s (0.5: sprites from 1500).
+- `MOTORACER_LOG_SYNC=1` (dev): the PSP log is synced every line (crash hunting; slow).
+- The desktop tests' game folder: `data/bestscor.dat` also stores Time Attack and the lap count; test
+  runs left Time Attack on (no opponents). `package_hw.sh` ships the original file; desktop checks of
+  AI code should use a private game copy (`MOTORACER_GAME_DIR`).
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and

@@ -246,6 +246,8 @@ void game_hook_options_button_nav(void);
 void game_hook_main_menu_init(void);
 void game_hook_main_menu_button_nav(void);
 void game_hook_ai_speed(void);
+int game_hook_ai_lod(void);        /* jump hook: nonzero = skip this bike's update this frame */
+void game_hook_ai_lod_after(void);
 void game_hook_opponents(void);
 /* native versions (runtime/src/native_render.cpp) */
 int native_flat_vertices(void);

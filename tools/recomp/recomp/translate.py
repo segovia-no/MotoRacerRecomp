@@ -119,6 +119,9 @@ GAME_HOOKS = {
     # Race setup (0x47b542): the opponent count 0x542874 has just been chosen (23, 1 with OPPONENTS
     # off, 11 in one mode; -NbComp only applies to another start path); dev override.
     0x47B5AF: "game_hook_opponents",
+    # Per-frame bike loop 0x47df40, next opponent (also reached after a skipped update): restores the
+    # frame time the AI level of detail changed for one update (game_hooks.cpp)
+    0x47E1BB: "game_hook_ai_lod_after",
     # Render-list flush 0x4af570: where both per-vertex loops end (check mode of the native loops).
     0x4AF9FE: "native_vertices_check",
     # render-list flush: skip runs of empty depth buckets (native_render.cpp)
@@ -202,6 +205,9 @@ GAME_JUMP_HOOKS = {
     0x4AF6CB: ("native_flush_polygon", (0x4AFCD3, 0x4AFCD8, 0x4AFD3E)),
     # Texture loader 0x41c050: native 24-bit row loop, continuing after it
     0x41CDB6: ("native_rgb_row", 0x41D08D),
+    # Per-frame bike loop 0x47df40: an opponent's full update (0x45d540) about to be called -> the AI
+    # level of detail may skip it this frame (game_hooks.cpp)
+    0x47E189: ("game_hook_ai_lod", 0x47E1BB),
     # CString::FormatV 0x4c3b8b: the buffer-length estimate loop natively (native_load.cpp)
     0x4C3BB2: ("native_formatv_len", 0x4C3E79),
 }

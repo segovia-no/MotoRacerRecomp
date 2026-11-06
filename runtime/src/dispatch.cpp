@@ -41,7 +41,8 @@ bool unsynced = false;
 void sync_log(bool force) {
     if (!log_file || !unsynced) return;
     const uint64_t now = SDL_GetTicks();
-    if (!force && synced_lines >= 300 && now - synced_at < 1000) return;
+    static const bool every_line = getenv("MOTORACER_LOG_SYNC") != nullptr;   // dev: crash hunting
+    if (!force && !every_line && synced_lines >= 300 && now - synced_at < 1000) return;
     synced_lines++;
     synced_at = now;
     unsynced = false;

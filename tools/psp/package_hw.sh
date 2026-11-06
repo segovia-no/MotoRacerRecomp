@@ -30,6 +30,9 @@ rm -rf build/psp-hw && mkdir -p "$out"
 eboot build/psp "$out" "Moto Racer"
 rsync -a --exclude '__support' --exclude '*.log*' --exclude 'psp_env.txt' --exclude '*.wav' "$game/" "$out/game/"
 tools/psp/cd_mp3.sh "$game" "$out/game" >/dev/null
+# the race settings / best times as shipped (data/bestscor.dat also keeps Time Attack and the lap count;
+# desktop test runs change it): the original from the development checkout when there is one
+if [ -f extracted/app/data/bestscor.dat ]; then cp extracted/app/data/bestscor.dat "$out/game/data/bestscor.dat"; fi
 # the desktop config's draw distance (often 2) costs the PSP ~35% per race frame: original distance
 sed -i '' -e 's/^DrawDistance=.*/DrawDistance=1/' "$out/game/motoracer.ini" 2>/dev/null || true
 if [ -n "${PROF:-}" ]; then echo "MOTORACER_PROF=1" > "$out/psp_env.txt"; fi

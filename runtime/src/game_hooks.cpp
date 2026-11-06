@@ -379,7 +379,10 @@ extern "C" void game_hook_lean(void) {
 constexpr uint32_t BIKES = 0x584421, BIKE_STRIDE = 0x3209, BIKE_DT = 0x581014;
 // Race setup, after the opponent count (0x542874) was chosen: MOTORACER_OPPONENTS=<0..23> (dev,
 // PSP profiling) overrides it. -NbComp<n> only applies to another start path (0x40b924).
+void ai_lod_race_setup();
+
 extern "C" void game_hook_opponents(void) {
+    ai_lod_race_setup();   // a new race: the AI level of detail starts over
     static const char *env = getenv("MOTORACER_OPPONENTS");
     if (env) WR32(0x542874, static_cast<uint32_t>(std::clamp(atoi(env), 0, 23)));
 }
@@ -549,7 +552,96 @@ extern "C" void game_hook_detail_loaded(void) {
 // [bike + 0x634] and read by a 900..1000 blend next to the full-model threshold, which stays matched.
 extern "C" void game_hook_bike_lod(void) {
     float d = settings::get().draw_distance;
-    if (d > 1.f) ST(0) /= 3.0 * d;
+    // MOTORACER_BIKE_LOD_SCALE=<s> (dev experiment): every threshold x s (0.5: sprites from 1500)
+    static const float lod_scale = getenv("MOTORACER_BIKE_LOD_SCALE") ? static_cast<float>(atof(getenv("MOTORACER_BIKE_LOD_SCALE"))) : 1.f;
+    const double k = (d > 1.f ? 3.0 * d : 1.0) * (lod_scale > 0.f ? lod_scale : 1.f);
+    if (k != 1.0) ST(0) /= k;
+}
+
+// ---- AI level of detail (setting AiLod; PSP default on) ----
+// The per-frame loop 0x47df40 updates every racing opponent with 0x45d540(..., dt), dt = the frame
+// time in hundredths of a second ([0x4e9808], at least 1). On a PSP that is ~22 ms of a race frame,
+// bound by data memory (24 records of 0x3209 bytes). Opponents far from the player are updated less
+// often: the skipped frames' time accumulates and the next update gets all of it (the frame-time
+// global holds the sum for that one call, restored by game_hook_ai_lod_after), so they cover the same
+// ground in fewer, larger steps. Near the player (where you see and touch them) every frame, exact.
+//   near:  distance < R1 (3000, about where bikes turn into sprites): every frame
+//   mid:   R1..R2 (20000): an update per P_MID hundredths of a second (13: ~7.5 Hz)
+//   far:   beyond R2 (not drawn at all): an update per P_FAR (25: ~4 Hz)
+// MOTORACER_AI_LOD="R1,R2,P_MID,P_FAR" (dev) changes them; "0" turns it off.
+namespace {
+constexpr uint32_t FRAME_DT = 0x4e9808, PLAYER_BIKE = 0x584421, BIKE_POS = 0x3c;
+constexpr uint32_t WARM_UP = 60;   // the grid / first seconds: skipping an opponent's first updates broke the race
+struct AiLod {
+    float r1 = 3000.f, r2 = 20000.f, p_mid = 13.f, p_far = 25.f;
+    float acc[32] = {};
+    uint32_t warm[32] = {};   // normal updates since the race was set up: none skipped before WARM_UP
+    uint32_t saved_dt = 0;
+    bool restore = false;
+    uint64_t updates = 0, skips = 0;
+};
+AiLod &ai_lod() {
+    static AiLod a = [] {
+        AiLod l;
+        if (const char *e = getenv("MOTORACER_AI_LOD"); e && strchr(e, ','))
+            sscanf(e, "%f,%f,%f,%f", &l.r1, &l.r2, &l.p_mid, &l.p_far);
+        log("ai lod: %s (near < %g every frame, to %g one update per %g, beyond one per %g hundredths)\n",
+            settings::get().ai_lod ? "on" : "off", l.r1, l.r2, l.p_mid, l.p_far);
+        return l;
+    }();
+    return a;
+}
+}  // namespace
+
+void ai_lod_race_setup() {
+    AiLod &l = ai_lod();
+    for (uint32_t i = 0; i < 32; i++) l.acc[i] = 0.f, l.warm[i] = 0;
+}
+
+extern "C" int game_hook_ai_lod(void) {
+    if (!settings::get().ai_lod) return 0;
+    AiLod &l = ai_lod();
+    const uint32_t slot = R.ebx, bike = R.edi - 0x68;   // loop registers at 0x47e189
+    if (slot >= 32 || !RD32(R.edi)) return 0;           // not active: the game skips it anyway
+    const float dt = RDF32(FRAME_DT);
+    float &acc = l.acc[slot];
+    if (acc > 4.f * l.p_far) acc = 0.f;                 // stale (previous race, menus)
+    const float dx = RDF32(bike + BIKE_POS) - RDF32(PLAYER_BIKE + BIKE_POS);
+    const float dy = RDF32(bike + BIKE_POS + 4) - RDF32(PLAYER_BIKE + BIKE_POS + 4);
+    const float dz = RDF32(bike + BIKE_POS + 8) - RDF32(PLAYER_BIKE + BIKE_POS + 8);
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    const float period = (d2 < l.r1 * l.r1 || l.warm[slot] < WARM_UP) ? 0.f : d2 < l.r2 * l.r2 ? l.p_mid : l.p_far;
+    acc += dt;
+    if (acc < period) {   // not yet: skip this frame's update
+        l.skips++;
+        return 1;
+    }
+    if (acc != dt) {      // this update covers the skipped frames too
+        l.saved_dt = RD32(FRAME_DT);
+        WRF32(FRAME_DT, acc);
+        l.restore = true;
+    }
+    acc = 0.f;
+    if (l.warm[slot] < WARM_UP) l.warm[slot]++;
+    l.updates++;
+    return 0;
+}
+
+extern "C" void game_hook_ai_lod_after(void) {
+    AiLod &l = ai_lod();
+    if (l.restore) {
+        WR32(FRAME_DT, l.saved_dt);
+        l.restore = false;
+    }
+    static uint64_t last = 0;
+    static const bool report = getenv("MOTORACER_PROF") != nullptr;
+    if (report && SDL_GetTicks() - last >= 5000) {   // with the profiler: how much is skipped
+        last = SDL_GetTicks();
+        if (l.updates + l.skips)
+            log("ai lod: %llu updates, %llu skipped (%.0f%%) in 5 s\n", static_cast<unsigned long long>(l.updates),
+                static_cast<unsigned long long>(l.skips), 100.0 * l.skips / static_cast<double>(l.updates + l.skips));
+        l.updates = l.skips = 0;
+    }
 }
 
 
