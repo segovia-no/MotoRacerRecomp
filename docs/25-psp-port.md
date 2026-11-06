@@ -584,6 +584,19 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   1.27 → 1.16 ms. Profiler sub-regions in the polygon flush: "flush: vertex loops" (now including the
   conversion) and "flush: states + primitives"; the rest stays `native_flush_polygon`.
 
+- Owner: "attempt to improve without profiler results for a while". Work that is less on any CPU:
+  - direct vertices per polygon: `direct_span` once (bounds, slots, the backend's scale / depth
+    parameters), then `direct_put` inline per vertex (was an out-of-line call per vertex). PPSSPP:
+    vertex loops 2.89 → 2.22 ms per race frame; `MOTORACER_GE_DIRECT_CHECK`: 8 M vertices, 0 differ.
+  - D3D parser: texture handle → surface remembered for the next draw (a `std::map` walk per draw);
+    triangle indexes copied without reallocating per Execute.
+  - The flush's node loop runs inside `native_flush_polygon` (new jump-hook exit 4 = the bucket advance
+    `0x4afd00`, when the next node is 0 or the abort flag `[esp+0x30]` is set): one trip through the
+    translated function per depth bucket instead of per polygon (~1,090 per race frame).
+  - Measured per race frame in PPSSPP (Speed Bay): ~2,860 vertices transformed, ~3,210 faces tested,
+    ~1,090 polygons emitted; the rejected faces are mostly back faces (object culling would not save
+    much).
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and
