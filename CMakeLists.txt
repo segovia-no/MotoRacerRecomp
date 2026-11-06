@@ -66,6 +66,20 @@ add_library(gamecode OBJECT ${GEN_SOURCES})
 target_include_directories(gamecode PRIVATE runtime/include "${GEN_DIR}")
 set(MOTORACER_GUEST_OPT_LEVEL "-O2" CACHE STRING "Optimisation level for the generated game code")
 target_compile_options(gamecode PRIVATE -w ${MOTORACER_GUEST_OPT_LEVEL} -fno-strict-aliasing)
+# Profile-guided game code (PSP: the translated functions are larger than the 16 KB instruction cache;
+# GCC moves the code a run never took out of the hot paths and orders functions by use).
+# MOTORACER_PGO=gen: instrumented build (training run: tools/psp/pgo.sh); =use: built with the counts
+# found next to the objects (the same build directory, after the training run's .gcda files are copied in).
+set(MOTORACER_PGO "" CACHE STRING "Profile-guided game code: gen or use (empty: off)")
+if(MOTORACER_PGO STREQUAL "gen")
+  target_compile_options(gamecode PRIVATE -fprofile-generate -fprofile-update=single)
+  add_compile_definitions(RECOMP_PGO_GEN)
+  add_link_options(-fprofile-generate)
+elseif(MOTORACER_PGO STREQUAL "use")
+  # (no hot / cold function splitting: -freorder-blocks-and-partition breaks on MIPS — assembler CFI
+  # errors, then HI16 / LO16 relocation pairs split across .text.hot and .text.unlikely)
+  target_compile_options(gamecode PRIVATE -fprofile-use -fprofile-partial-training -Wno-missing-profile)
+endif()
 if(MOTORACER_GUEST_OPT)
   target_compile_definitions(gamecode PRIVATE RECOMP_GENERATED)
 endif()

@@ -453,7 +453,25 @@ void patch_image() {
     memcpy(M + TITLE_LINE, to, sizeof to);
 }
 
+#ifdef RECOMP_PGO_GEN
+extern "C" void __gcov_dump(void);
+#endif
+
 void frame_tick() {
+#ifdef RECOMP_PGO_GEN
+    // profile-guided build, training run (CMake MOTORACER_PGO=gen): write the execution counts once
+    // MOTORACER_GCOV_DUMP_MS have passed (GCOV_PREFIX / GCOV_PREFIX_STRIP place the .gcda files)
+    {
+        static const uint64_t at = getenv("MOTORACER_GCOV_DUMP_MS") ? strtoull(getenv("MOTORACER_GCOV_DUMP_MS"), nullptr, 10) : 0;
+        static bool dumped = false;
+        if (at && !dumped && SDL_GetTicks() >= at) {
+            dumped = true;
+            log("pgo: writing the execution counts\n");
+            __gcov_dump();
+            log("pgo: done\n");
+        }
+    }
+#endif
     static const bool mem_stats = getenv("MOTORACER_MEM_STATS") != nullptr;
     if (mem_stats) {
         static uint64_t last = 0;
