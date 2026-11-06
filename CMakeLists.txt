@@ -90,6 +90,12 @@ if(PSP)
   set(MOTORACER_FPU_FLOAT ON CACHE BOOL "" FORCE)
   add_compile_definitions(RECOMP_COMPACT_GUEST)
   add_compile_options(-G0)
+  # add_compile_options reaches only targets created after it: the game code (created above) too.
+  # Without it the generated code addressed small runtime globals (M, prof_fn) gp-relative, which
+  # links only while they happen to lie within 32 KB of _gp.
+  if(TARGET gamecode)
+    target_compile_options(gamecode PRIVATE -G0)
+  endif()
 endif()
 option(MOTORACER_COUNT_INSNS "Count executed x86 instructions (slow)" OFF)
 option(MOTORACER_CHECK_SAVED "Check the translator's register-spill assumptions at run time" OFF)
