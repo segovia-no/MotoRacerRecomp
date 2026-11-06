@@ -386,6 +386,15 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   PPSSPP: the modules take 16 KB of kernel memory (180 → 164 KB free); the log line
   "CD: MP3 decoder ready (kernel free A -> B KB)" shows the real cost on hardware.
 - The log is now written under a mutex (the audio thread logs too; the PSP reopens the file per line).
+- A folder that still has NN.wav plays the WAVs (they are looked for first): replace the whole
+  `PSP/GAME/MOTORACER` folder on the memory stick.
+
+### CPU: draw distance (2026-11-06)
+- The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
+  profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and
+  `package_hw.sh` writes `DrawDistance=1` into the packaged ini (the recomp menu can still raise it).
+- `PROF=1 tools/psp/package_hw.sh` adds `psp_env.txt` with `MOTORACER_PROF=1`: the hardware log then
+  has the sampling profile every 5 s (PPSSPP does not model the PSP's caches or memory timing).
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).
