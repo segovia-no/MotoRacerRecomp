@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <string>
 #include <cstdlib>
+#include <mutex>
 #include <vector>
 
 #include "platform/platform.h"
@@ -25,7 +26,10 @@ constexpr int RING = 256;
 CallRecord ring[RING];
 uint32_t ring_pos = 0;
 
+std::recursive_mutex log_mu;   // the audio thread logs too (the PSP closes and reopens the file per line)
+
 void vout(const char *fmt, va_list ap) {
+    std::lock_guard<std::recursive_mutex> lock(log_mu);
     va_list ap2;
     va_copy(ap2, ap);
     vfprintf(stderr, fmt, ap);

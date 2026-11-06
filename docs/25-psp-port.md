@@ -367,6 +367,25 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   audio thread for every 23 ms block (a seek drops the stdio buffer): now a seek only when playback
   jumps, and a 32 KB file buffer. PSP audio blocks 1024 → 2048 samples (46 ms to mix the next one).
   The log is now synced (closed / reopened) for the first 2000 lines.
+- Fourth hardware run (owner): no crash, the game plays normally — the FPU traps were the cause.
+
+### CD audio as MP3 (2026-11-06)
+- The 12 CD-audio WAVs are 345 MB on the memory stick and 176 KB/s of reads competing with the
+  game's loads. `tools/psp/cd_mp3.sh <game dir> <out>` converts them with ffmpeg (libmp3lame, CBR
+  128 kbps, 44.1 kHz stereo, no ID3 / Xing header so the decoder starts at byte 0): 31 MB, cached in
+  `build/psp-mp3`. `cdaudio.txt` lists `NN.mp3 <CD frames>`: the virtual disc keeps the WAV lengths
+  (the game reads the table of contents; past the decoded end it plays silence).
+- `package_hw.sh` ships the MP3s instead of the WAVs (package 444 → 131 MB); `e2e_psp.sh`
+  `WITH_MUSIC=1` stages them too (`WITH_MUSIC=wav` for the WAVs).
+- Playback: `winmm_cd.cpp` reads a track through `host::TrackDecoder` — the WAV file, or
+  `host::open_mp3_track` (`psp/mp3_psp.cpp`; other hosts return nullptr and play the WAVs). The PSP
+  version uses the firmware's sceMp3 (Media Engine decoding, the main CPU only copies PCM):
+  `sceUtilityLoadModule` avcodec + mp3 on the first track, 16 KB stream + 9 KB PCM buffers per open
+  track, file data through libc (`open` / `read`: relative paths use libc's working directory, which
+  `sceIoOpen` does not know). A seek inside a track restarts at the MP3 frame and drops the rest.
+  PPSSPP: the modules take 16 KB of kernel memory (180 → 164 KB free); the log line
+  "CD: MP3 decoder ready (kernel free A -> B KB)" shows the real cost on hardware.
+- The log is now written under a mutex (the audio thread logs too; the PSP reopens the file per line).
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).

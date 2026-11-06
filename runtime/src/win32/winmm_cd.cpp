@@ -2,16 +2,20 @@
 // CD is a virtual disc in drive D: whose audio tracks 2..13 are the shipped NN.wav files.
 //
 // Disc layout (CD frames, 75 per second): 2 s lead-in, track 1 = data, 2 s pregap, then the
-// audio tracks back to back. Track lengths come from the WAV sizes (2352 bytes per frame).
+// audio tracks back to back. Track lengths come from the WAV sizes (2352 bytes per frame). The PSP
+// package has NN.mp3 instead (tools/psp/cd_mp3.sh), with the WAV lengths in cdaudio.txt.
 #include <SDL3/SDL.h>
 
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 
 #include "host_audio.h"
+#include "textio.h"
 #include "user32.h"
 #include "win32.h"
 
@@ -45,6 +49,7 @@ struct Track {
     bool audio = false;
     std::string path;
     uint32_t data_offset = 44;        // byte offset of PCM data in the WAV
+    bool mp3 = false;                 // path is NN.mp3 (decoded by host::open_mp3_track)
 };
 
 std::vector<Track> tracks;            // index 0 = track 1
@@ -57,14 +62,53 @@ std::mutex mu;
 SDL_AudioStream *stream = nullptr;
 uint32_t pos = 0, play_end = 0;       // absolute CD frames
 uint32_t frame_carry = 0;             // bytes already consumed of frame `pos`
-FILE *cur_file = nullptr;
+std::unique_ptr<host::TrackDecoder> cur_src;
 int cur_track = -1;
-uint32_t cur_off = 0;   // file position after the last read (a seek only when playback jumps)
+uint64_t cur_off = 0;   // track PCM position after the last read (a seek only when playback jumps)
 std::atomic<bool> playing{false}, finished{false};
 bool paused = false;
 uint32_t notify_hwnd = 0;
 
+// An audio track's PCM straight from the WAV file.
+class WavTrack final : public host::TrackDecoder {
+public:
+    WavTrack(FILE *f, uint32_t data_offset) : f(f), base(data_offset) {
+        // big reads, few of them: on the PSP each read goes to the memory stick from the audio
+        // thread (4 KB per 23 ms block crackled while the game loaded files)
+        setvbuf(f, nullptr, _IOFBF, 32 * 1024);
+    }
+    ~WavTrack() override { fclose(f); }
+    int read(uint8_t *dst, int bytes) override {
+        return static_cast<int>(fread(dst, 1, static_cast<size_t>(bytes), f));
+    }
+    void seek(uint64_t pcm_byte) override { fseek(f, static_cast<long>(base + pcm_byte), SEEK_SET); }   // drops the stdio buffer
+
+private:
+    FILE *f;
+    uint32_t base;
+};
+
+std::unique_ptr<host::TrackDecoder> open_track(const Track &t) {
+    if (t.mp3) return host::open_mp3_track(t.path);
+    FILE *f = fopen(t.path.c_str(), "rb");
+    return f ? std::make_unique<WavTrack>(f, t.data_offset) : nullptr;
+}
+
 uint32_t disc_end() { return tracks.empty() ? 0 : tracks.back().start + tracks.back().length; }
+
+// cdaudio.txt: "NN.mp3 <CD frames>" per track, in order (written with the MP3s)
+void load_mp3_tracks(uint32_t next) {
+    std::vector<std::string> lines;
+    if (!read_lines(host_path("cdaudio.txt"), lines)) return;
+    for (const std::string &l : lines) {
+        char name[32];
+        unsigned frames = 0;
+        if (sscanf(l.c_str(), "%31s %u", name, &frames) != 2 || !frames) continue;
+        Track tr{next, frames, true, host_path(name), 0, true};
+        tracks.push_back(tr);
+        next += tr.length;
+    }
+}
 
 void load_disc() {
     if (disc_loaded) return;
@@ -77,7 +121,10 @@ void load_disc() {
         snprintf(name, sizeof name, "%02d.wav", t);
         std::string p = host_path(name);
         FILE *f = fopen(p.c_str(), "rb");
-        if (!f) break;
+        if (!f) {
+            load_mp3_tracks(next);
+            break;
+        }
         uint8_t hdr[12];
         fread(hdr, 1, 12, f);
         uint32_t data_off = 0, data_len = 0;
@@ -148,24 +195,22 @@ int pull(uint8_t *dst, int bytes) {
             frame_carry += static_cast<uint32_t>(n);
         } else {
             if (t != cur_track) {
-                if (cur_file) fclose(cur_file);
-                cur_file = fopen(tracks[t].path.c_str(), "rb");
-                // big reads, few of them: on the PSP each read goes to the memory stick from the
-                // audio thread (4 KB per 23 ms block crackled while the game loaded files)
-                if (cur_file) setvbuf(cur_file, nullptr, _IOFBF, 32 * 1024);
+                cur_src.reset();   // one decoder at a time
+                cur_src = open_track(tracks[t]);
                 cur_track = t;
-                cur_off = ~0u;
+                cur_off = ~0ull;
             }
-            if (!cur_file) { playing = false; finished = true; break; }
-            uint32_t off = tracks[t].data_offset + (pos - tracks[t].start) * BYTES_PER_FRAME + frame_carry;
-            if (off != cur_off) fseek(cur_file, off, SEEK_SET);   // a seek drops the stdio buffer
+            if (!cur_src) { playing = false; finished = true; break; }
+            const uint64_t off = static_cast<uint64_t>(pos - tracks[t].start) * BYTES_PER_FRAME + frame_carry;
+            if (off != cur_off) cur_src->seek(off);
             uint32_t frames_left_track = tracks[t].start + tracks[t].length - pos;
             uint32_t frames_left = std::min(frames_left_track, play_end - pos);
             uint64_t avail = static_cast<uint64_t>(frames_left) * BYTES_PER_FRAME - frame_carry;
             int n = static_cast<int>(std::min<uint64_t>(static_cast<uint64_t>(bytes - written), avail));
-            size_t got = fread(dst + written, 1, static_cast<size_t>(n), cur_file);
-            cur_off = off + static_cast<uint32_t>(got);
-            if (got < static_cast<size_t>(n)) memset(dst + written + got, 0, static_cast<size_t>(n) - got);
+            // past the decoded end (MP3 encoder padding / delay): silence up to the WAV length
+            const int got = std::max(0, cur_src->read(dst + written, n));
+            cur_off = off + static_cast<uint64_t>(n);
+            if (got < n) memset(dst + written + got, 0, static_cast<size_t>(n - got));
             written += n;
             frame_carry += static_cast<uint32_t>(n);
         }

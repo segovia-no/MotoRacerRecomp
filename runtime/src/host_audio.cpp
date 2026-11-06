@@ -100,4 +100,8 @@ void audio_close_source(SDL_AudioStream *s) {
     sources.erase(s);
 }
 
+#ifndef __PSP__
+std::unique_ptr<TrackDecoder> open_mp3_track(const std::string &) { return nullptr; }
+#endif
+
 }  // namespace host
