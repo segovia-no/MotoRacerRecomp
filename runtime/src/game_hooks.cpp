@@ -442,6 +442,17 @@ bool speedometer_button() {
     return true;
 }
 
+// The title screen's line above the logo, drawn by the game's font from this .data string (0x446f85):
+// "RECOMPILED" instead of "FULL D3D VERSION" (17 bytes there; only when the original is in place).
+void patch_image() {
+    constexpr uint32_t TITLE_LINE = 0x4e94e0;
+    static const char from[] = "FULL D3D VERSION", to[] = "RECOMPILED";
+    static_assert(sizeof to <= sizeof from, "fits in the original string");
+    if (memcmp(M + TITLE_LINE, from, sizeof from) != 0) return;
+    memset(M + TITLE_LINE, 0, sizeof from);
+    memcpy(M + TITLE_LINE, to, sizeof to);
+}
+
 void frame_tick() {
     static const bool mem_stats = getenv("MOTORACER_MEM_STATS") != nullptr;
     if (mem_stats) {

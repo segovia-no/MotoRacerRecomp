@@ -15,6 +15,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>   // Windows: WinMain entry for a GUI program, UTF-8 argv
 
+#include "game_hooks.h"
 #include "platform/platform.h"
 #include "installer.h"
 #include "runtime.h"
@@ -139,6 +140,7 @@ int main(int argc, char **argv) {
     memory_init();
     log("loading %s/game.EXE\n", game_dir.c_str());
     load_image(game_dir + "/game.EXE");
+    game::patch_image();
     donate_text_to_heap();
     if (!plat::host().fs.set_current_dir(game_dir)) fatal("cannot chdir to %s", game_dir.c_str());
     setup_thread_environment("game.EXE " + game_args);

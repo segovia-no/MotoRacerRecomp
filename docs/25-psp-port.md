@@ -556,6 +556,12 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
 - Audio: at most the 10 loudest voices are mixed on the PSP (`MOTORACER_MIX_VOICES`, 0 = all; desktop
   all); a race plays ~24 engine voices, most distant.
 
+### Title line (2026-11-06, all platforms)
+- Owner: the title's "FULL D3D VERSION" should read "RECOMPILED". It is not in the pictures (four
+  640x480 sprites) but a string drawn by the game's font (`0x417d20`, called at `0x446f8a`, centred)
+  from `.data` `0x4e94e0`. `game::patch_image()` (after `load_image`) rewrites it when the original
+  is in place.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and

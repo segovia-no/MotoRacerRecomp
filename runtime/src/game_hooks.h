@@ -3,6 +3,7 @@
 
 namespace game {
 void frame_tick();   // once per presented frame
+void patch_image();  // after load_image: changes to the game's own data (the title's subtitle)
 bool first_run();    // no first-run defaults applied yet (recomp_state.txt has no Defaults=1)
 bool speedometer_button();      // a race is on and gamepad Back is free: Back sends F7 (speedometer)
 bool initials_entry_active();   // the end-of-race record page (9) is waiting for initials
