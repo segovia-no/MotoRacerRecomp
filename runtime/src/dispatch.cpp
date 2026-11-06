@@ -28,6 +28,29 @@ uint32_t ring_pos = 0;
 
 std::recursive_mutex log_mu;   // the audio thread logs too (the PSP closes and reopens the file per line)
 
+#ifdef __PSP__
+// Real PSP: the memory stick's file size is only updated when the file is closed, so a hang or
+// power-off loses what was written since. Closing and reopening (or even a write per line) costs
+// milliseconds: hundreds of lines per load screen, the profiler's report inside the present. The
+// first 300 lines (startup) are synced each; later the log is buffered and synced at most once per
+// second (by a later line or log_flush_queued, every presented frame) and before a FATAL.
+int synced_lines = 0;
+uint64_t synced_at = 0;
+bool unsynced = false;
+
+void sync_log(bool force) {
+    if (!log_file || !unsynced) return;
+    const uint64_t now = SDL_GetTicks();
+    if (!force && synced_lines >= 300 && now - synced_at < 1000) return;
+    synced_lines++;
+    synced_at = now;
+    unsynced = false;
+    fclose(log_file);
+    log_file = fopen(log_path.c_str(), "a");
+    if (log_file) setvbuf(log_file, nullptr, _IOFBF, 4096);
+}
+#endif
+
 void vout(const char *fmt, va_list ap) {
     std::lock_guard<std::recursive_mutex> lock(log_mu);
     va_list ap2;
@@ -35,18 +58,11 @@ void vout(const char *fmt, va_list ap) {
     vfprintf(stderr, fmt, ap);
     if (log_file) {
         vfprintf(log_file, fmt, ap2);
-        fflush(log_file);   // the Windows CRT treats _IOLBF as full buffering: a crash would lose the log
 #ifdef __PSP__
-        // Real PSP: the memory stick's file size is only updated when the file is closed, so a hang or
-        // power-off loses what was written since. The first 2000 lines (startup, menus, the first
-        // loads; later lines are rare) close and reopen it.
-        static int synced = 0;
-        if (synced < 2000) {
-            synced++;
-            fclose(log_file);
-            log_file = fopen(log_path.c_str(), "a");
-            if (log_file) setvbuf(log_file, nullptr, _IOLBF, 4096);
-        }
+        unsynced = true;
+        sync_log(false);
+#else
+        fflush(log_file);   // the Windows CRT treats _IOLBF as full buffering: a crash would lose the log
 #endif
     }
     va_end(ap2);
@@ -77,7 +93,7 @@ void open_log_file() {
     h.fs.rename(log_path, log_path + ".1");
     log_file = fopen(log_path.c_str(), "w");
 #ifdef __PSP__
-    if (log_file) setvbuf(log_file, nullptr, _IOLBF, 4096);   // PSP-1000 memory
+    if (log_file) setvbuf(log_file, nullptr, _IOFBF, 4096);   // PSP-1000 memory; synced by sync_log
 #else
     if (log_file) setvbuf(log_file, nullptr, _IOLBF, 1 << 16);
 #endif
@@ -116,10 +132,13 @@ void log_flush_queued() {
     std::string lines;
     {
         std::lock_guard<std::mutex> lock(queue_mu);
-        if (queued.empty()) return;
         lines.swap(queued);
     }
-    out("%s", lines.c_str());
+    if (!lines.empty()) out("%s", lines.c_str());
+#ifdef __PSP__
+    std::lock_guard<std::recursive_mutex> lock(log_mu);
+    sync_log(false);   // lines written less than a second ago
+#endif
 }
 
 void dump_state() {
@@ -139,6 +158,11 @@ void dump_state() {
     if (log_file) {
         plat::host().crash.write_backtrace(log_file);
         fflush(log_file);
+#ifdef __PSP__
+        std::lock_guard<std::recursive_mutex> lock(log_mu);
+        unsynced = true;
+        sync_log(true);
+#endif
     }
 }
 

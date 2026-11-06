@@ -173,6 +173,7 @@ int audio_thread(SceSize, void *argp) {
     while (s->running) {
         int16_t *out = bufs + cur * kSamples * 2;
         cur ^= 1;
+        prof::audio_cpu(+1);
         const int have = static_cast<int>(s->data.size());
         if (have < need && s->get) s->get(s->user, s, need - have, need);
         const int n = std::min(need, static_cast<int>(s->data.size()));
@@ -189,6 +190,7 @@ int audio_thread(SceSize, void *argp) {
         if (postmix) postmix(postmix_user, &device_spec, nullptr, 0);
         const int vol = static_cast<int>(PSP_AUDIO_VOLUME_MAX * std::clamp(device_gain, 0.f, 1.f));
         sceKernelDcacheWritebackRange(out, kSamples * 4);   // the DMA reads memory, not the cache
+        prof::audio_cpu(-1);
         const uint32_t t_made = sceKernelGetSystemTimeLow();
         sceAudioOutputPannedBlocking(s->channel, vol, vol, out);
         const uint32_t t_out = sceKernelGetSystemTimeLow();

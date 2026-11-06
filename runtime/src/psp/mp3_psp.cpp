@@ -116,7 +116,9 @@ private:
     void wait() {
         if (pending < 0) return;
         SceInt64 res = 0;
+        prof::audio_cpu(-1);
         sceIoWaitAsync(fd, &res);
+        prof::audio_cpu(+1);
         len[pending] = res > 0 ? static_cast<int>(res) : 0;
         fd_pos = start[pending] + len[pending];
         pending = -1;
@@ -125,7 +127,9 @@ private:
     void read_now(int n, SceOff at) {
         wait();
         if (fd_pos != at) fd_pos = sceIoLseek(fd, at, PSP_SEEK_SET);
+        prof::audio_cpu(-1);
         const int r = sceIoRead(fd, buf[n], kChunk);
+        prof::audio_cpu(+1);
         start[n] = at;
         len[n] = std::max(0, r);
         fd_pos = at + len[n];
@@ -230,7 +234,9 @@ private:
         if (ended) return false;
         feed();
         SceShort16 *out = nullptr;
+        prof::audio_cpu(-1);   // the Media Engine decodes; the CPU runs the game meanwhile
         const int n = sceMp3Decode(handle, &out);
+        prof::audio_cpu(+1);
         if (n <= 0 || !out) { ended = true; return false; }   // 0 or an error: the end of the stream
         src = reinterpret_cast<const uint8_t *>(out);
         left = static_cast<uint32_t>(n);

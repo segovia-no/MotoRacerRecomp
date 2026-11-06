@@ -410,6 +410,21 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   samples still playing (PPSSPP copies them at submit). Now two 64-byte aligned blocks alternate,
   with a data-cache writeback before each output.
 
+- Hardware race profile (owner, before the double buffering; audio never late): 62–85 ms per
+  frame (12–16 fps): game code ~21 ms (30%), "audio mixing" 12–17 ms (17–22%), D3D Execute 9–15 ms
+  + native render-list flush 6–9 ms, "present" ~6 ms, native geometry ~6 ms. Three corrections:
+  - Profiler: the audio share counted the whole time an audio thread was between its stream
+    callback and the post-mix, including its waits for the Media Engine (MP3 decoding) and the memory
+    stick, while the game ran. Now `prof::audio_cpu(+1/-1)` brackets only CPU work (and drops around
+    `sceMp3Decode` / `sceIoWaitAsync` / `sceIoRead`). PPSSPP race: 9.6% → under 0.5%.
+  - DirectSound mixer: integer (16.16 stepping, Q14 interpolation, Q15 gains, int32 accumulation,
+    16-bit output stream instead of float; also on desktop). Silent voices only advance.
+  - Log: every line closed and reopened the file on the memory stick (and `_IOLBF` wrote each line),
+    milliseconds per line — the profiler's ~15 lines per 5 s inside the present (its ~6 ms), hundreds
+    of `CreateSurface` lines per load screen. Now the first 300 lines are synced each, later the log
+    is fully buffered and synced at most once per second (by a line or every presented frame) and
+    before a FATAL.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and

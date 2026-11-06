@@ -159,6 +159,9 @@ struct Scope {   // marks a region for the sampler (one store each way)
 void start();   // at startup: starts the sampler when MOTORACER_PROF is set
 void frame();   // per presented frame: logs the shares every 5 s
 void audio_mixing(bool busy);   // audio thread: mixing a device buffer / done
+// PSP: +1 / -1 around an audio thread's CPU work, -1 / +1 around its blocking waits (Media Engine
+// decoding, memory stick reads): only CPU time counts as "audio" (the game runs during the waits)
+void audio_cpu(int delta);
 // PSP audio thread, per output block: microseconds spent producing it and waiting for the channel
 // (a wait near 0 means the block arrived late: the channel ran dry, a gap / crackle)
 void audio_block(uint32_t produce_us, uint32_t wait_us, uint32_t budget_us);

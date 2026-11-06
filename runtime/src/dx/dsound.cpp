@@ -1,8 +1,8 @@
 // DirectSound (DirectX 3/5) with its own software mixer on one SDL3 audio stream.
 //
 // Secondary buffers keep their samples in guest memory so Lock returns real guest pointers.
-// Buffers that have been played are voices of one mixer: on SDL's audio thread it produces float
-// stereo at the device's rate, each voice stepped at its frequency (SetFrequency: the engines'
+// Buffers that have been played are voices of one mixer: on SDL's audio thread it produces 16-bit
+// stereo at the device's rate (integer mixing), each voice stepped at its frequency (SetFrequency: the engines'
 // pitch) with linear interpolation, DirectSound volume / pan applied. Until 2026-10-17 every
 // buffer was an SDL stream of its own, and SDL resampled ~24 engine sounds separately: 12-18% of a
 // PSP race frame (docs/26-psp-profile.md). The primary buffer is a formality.
@@ -82,37 +82,42 @@ Format read_format(uint32_t p) {
 
 float db_to_gain(int32_t hundredths) { return hundredths <= -10000 ? 0.f : std::pow(10.f, hundredths / 2000.f); }
 
-// One voice into `out` (float stereo, `frames` frames, added): steps through the buffer at its
-// frequency relative to the mix rate (16.16 fixed point) with linear interpolation between frames.
+// One voice into `acc` (int32 stereo, `frames` frames, added): steps through the buffer at its
+// frequency relative to the mix rate (16.16 fixed point) with linear interpolation between frames;
+// gains in Q15. Integer only: on the PSP's CPU the float version of this loop took 12-17 ms of a
+// race frame (~24 engine voices; docs/25-psp-port.md).
 template <int BITS, int CH>
-void mix_voice(Buffer *b, float *out, int frames, float gl, float gr) {
+void mix_voice(Buffer *b, int32_t *acc, int frames, int32_t gl, int32_t gr) {
     const uint32_t bs = b->fmt.block ? b->fmt.block : 1;
     const uint32_t count = b->size / bs;
     if (!count) { b->playing = false; return; }
     const uint32_t rate = b->freq ? b->freq : b->fmt.rate;
     const uint32_t step = static_cast<uint32_t>((static_cast<uint64_t>(rate) << 16) / mix_rate);
     const uint8_t *base = M + b->mem;
-    auto sample = [&](uint32_t i, int c) -> float {
+    auto sample = [&](uint32_t i, int c) -> int32_t {
         const uint8_t *s = base + i * bs;
-        if (BITS == 8) return (s[c] - 128) * (1.f / 128.f);
+        if (BITS == 8) return (static_cast<int32_t>(s[c]) - 128) << 8;
         int16_t v;
         memcpy(&v, s + 2 * c, 2);
-        return v * (1.f / 32768.f);
+        return v;
     };
     uint32_t pos = b->play_pos / bs, frac = b->frac;
     if (pos >= count) pos = 0;
+    const bool silent = !gl && !gr;
     for (int n = 0; n < frames; n++) {
-        const uint32_t next = pos + 1 < count ? pos + 1 : (b->looping ? 0 : pos);
-        const float t = static_cast<float>(frac) * (1.f / 65536.f);
-        const float l0 = sample(pos, 0), l1 = sample(next, 0);
-        const float l = l0 + (l1 - l0) * t;
-        float r = l;
-        if (CH == 2) {
-            const float r0 = sample(pos, 1), r1 = sample(next, 1);
-            r = r0 + (r1 - r0) * t;
+        if (!silent) {
+            const uint32_t next = pos + 1 < count ? pos + 1 : (b->looping ? 0 : pos);
+            const int32_t t = static_cast<int32_t>(frac >> 2);   // Q14: (s1 - s0) * t fits in 32 bits
+            const int32_t l0 = sample(pos, 0);
+            const int32_t l = l0 + (((sample(next, 0) - l0) * t) >> 14);
+            int32_t r = l;
+            if (CH == 2) {
+                const int32_t r0 = sample(pos, 1);
+                r = r0 + (((sample(next, 1) - r0) * t) >> 14);
+            }
+            acc[2 * n] += (l * gl) >> 15;
+            acc[2 * n + 1] += (r * gr) >> 15;
         }
-        out[2 * n] += l * gl;
-        out[2 * n + 1] += r * gr;
         frac += step;
         pos += frac >> 16;
         frac &= 0xffff;
@@ -125,23 +130,29 @@ void mix_voice(Buffer *b, float *out, int frames, float gl, float gr) {
     b->frac = frac;
 }
 
-// Audio thread: all playing voices, float stereo at the mix rate. 0 when nothing plays.
+int32_t q15(float g) { return static_cast<int32_t>(std::min(g, 1.f) * 32768.f + 0.5f); }
+
+// Audio thread: all playing voices, 16-bit stereo at the mix rate. 0 when nothing plays.
 int mix(uint8_t *dst, int bytes) {
     std::lock_guard<std::mutex> lock(mu);
-    const int frames = bytes / 8;
-    auto *out = reinterpret_cast<float *>(dst);
+    const int frames = bytes / 4;
+    static std::vector<int32_t> acc;
     bool any = false;
     for (Buffer *b : voices) {
         if (!b->playing || !b->size) continue;
-        if (!any) { memset(out, 0, static_cast<size_t>(frames) * 8); any = true; }
+        if (!any) { acc.assign(static_cast<size_t>(frames) * 2, 0); any = true; }
         const float vol = db_to_gain(b->volume) * host::sfx_gain();
-        const float gl = vol * (b->pan > 0 ? db_to_gain(-b->pan) : 1.f);
-        const float gr = vol * (b->pan < 0 ? db_to_gain(b->pan) : 1.f);
+        const int32_t gl = q15(vol * (b->pan > 0 ? db_to_gain(-b->pan) : 1.f));
+        const int32_t gr = q15(vol * (b->pan < 0 ? db_to_gain(b->pan) : 1.f));
         const bool stereo = b->fmt.channels > 1;
-        if (b->fmt.bits == 8) stereo ? mix_voice<8, 2>(b, out, frames, gl, gr) : mix_voice<8, 1>(b, out, frames, gl, gr);
-        else stereo ? mix_voice<16, 2>(b, out, frames, gl, gr) : mix_voice<16, 1>(b, out, frames, gl, gr);
+        int32_t *a = acc.data();
+        if (b->fmt.bits == 8) stereo ? mix_voice<8, 2>(b, a, frames, gl, gr) : mix_voice<8, 1>(b, a, frames, gl, gr);
+        else stereo ? mix_voice<16, 2>(b, a, frames, gl, gr) : mix_voice<16, 1>(b, a, frames, gl, gr);
     }
-    return any ? frames * 8 : 0;
+    if (!any) return 0;
+    auto *out = reinterpret_cast<int16_t *>(dst);
+    for (int i = 0; i < frames * 2; i++) out[i] = static_cast<int16_t>(std::clamp<int32_t>(acc[i], -32768, 32767));
+    return frames * 4;
 }
 
 // a played buffer becomes a voice (and the mixer's stream opens on the first one)
@@ -149,7 +160,7 @@ void make_voice(Buffer *b) {
     if (b->primary || b->voice) return;
     if (!mix_stream) {
         mix_rate = host::audio_device_rate();
-        SDL_AudioSpec spec{SDL_AUDIO_F32, 2, static_cast<int>(mix_rate)};
+        SDL_AudioSpec spec{SDL_AUDIO_S16LE, 2, static_cast<int>(mix_rate)};
         mix_stream = host::audio_open_source(spec, mix);
     }
     std::lock_guard<std::mutex> lock(mu);

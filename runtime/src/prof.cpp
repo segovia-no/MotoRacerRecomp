@@ -29,10 +29,11 @@ volatile uint32_t samples[256];
 bool on = false;
 
 volatile bool audio_busy = false;
+volatile int audio_cpu_count = 0;   // PSP: audio threads running on the CPU (not blocked in a wait)
 
 void tick() {
 #ifdef __PSP__   // one core: while the audio thread mixes, the game is not running
-    if (audio_busy) {
+    if (audio_cpu_count > 0) {
         samples[prof::AUDIO]++;
         return;
     }
@@ -61,6 +62,7 @@ extern "C" uint8_t prof_register(const char *name) {
 namespace prof {
 
 void audio_mixing(bool busy) { audio_busy = busy; }
+void audio_cpu(int delta) { audio_cpu_count = audio_cpu_count + delta; }
 
 volatile uint32_t audio_blocks = 0, audio_late = 0, audio_worst_us = 0, audio_budget_us = 0;
 void audio_block(uint32_t produce_us, uint32_t wait_us, uint32_t budget_us) {
