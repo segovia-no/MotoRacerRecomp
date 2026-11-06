@@ -192,6 +192,7 @@ target_compile_options(motoracer PRIVATE
 # Native replacements of guest functions must round like the translated code (one rounding per x87
 # operation): no fused multiply-add contraction of their expressions.
 set_source_files_properties(runtime/src/native_geom.cpp runtime/src/native_render.cpp runtime/src/native_load.cpp
+  runtime/src/native_race_a.cpp runtime/src/native_race_b.cpp runtime/src/native_race_c.cpp runtime/src/native_race_d.cpp
   PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 target_link_libraries(motoracer PRIVATE ${SDL3_TARGET})
 if(PSP)

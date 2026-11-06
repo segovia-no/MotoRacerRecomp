@@ -159,6 +159,28 @@ NATIVE_FUNCS = {
     0x4B8800: "native_output",      # CRT _output (printf engine)
     0x43EDE0: "native_sprite_blit", # menu sprite blitter (native_menu.cpp)
     0x43F0F0: "native_tile_fill",   # menu tiled background
+    0x46B120: "native_hot_46b120",   # hot race function, native_race_a.cpp
+    0x46BDC0: "native_hot_46bdc0",   # hot race function, native_race_a.cpp
+    0x46CD20: "native_hot_46cd20",   # hot race function, native_race_a.cpp
+    0x46C970: "native_hot_46c970",   # hot race function, native_race_a.cpp
+    0x410010: "native_hot_410010",   # hot race function, native_race_a.cpp
+    0x40FD40: "native_hot_40fd40",   # hot race function, native_race_a.cpp
+    0x469C60: "native_hot_469c60",   # hot race function, native_race_b.cpp
+    0x467930: "native_hot_467930",   # hot race function, native_race_b.cpp
+    0x48E180: "native_hot_48e180",   # hot race function, native_race_b.cpp
+    0x466A80: "native_hot_466a80",   # hot race function, native_race_b.cpp
+    0x45B4E0: "native_hot_45b4e0",   # hot race function, native_race_b.cpp
+    0x46BF80: "native_hot_46bf80",   # hot race function, native_race_c.cpp
+    0x461AA0: "native_hot_461aa0",   # hot race function, native_race_c.cpp
+    0x490220: "native_hot_490220",   # hot race function, native_race_c.cpp
+    0x403A80: "native_hot_403a80",   # hot race function, native_race_c.cpp
+    0x4B0F60: "native_hot_4b0f60",   # hot race function, native_race_c.cpp
+    0x40C960: "native_hot_40c960",   # hot race function, native_race_c.cpp
+    0x493820: "native_hot_493820",   # hot race function, native_race_d.cpp
+    0x493490: "native_hot_493490",   # hot race function, native_race_d.cpp
+    0x492B10: "native_hot_492b10",   # hot race function, native_race_d.cpp
+    0x485E50: "native_hot_485e50",   # hot race function, native_race_d.cpp
+    0x4B3400: "native_hot_4b3400",   # hot race function, native_race_d.cpp
 }
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function); with a

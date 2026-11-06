@@ -48,7 +48,9 @@ inline void restore(const Snapshot &s) {
 
 inline uint64_t checks = 0, mismatches = 0;
 
-inline void compare(const char *fn, const Snapshot &native, const Snapshot &translated) {
+// live_st: how many x87 stack registers (st0, st1, ...) are part of the result (a float returned
+// in st0: 1); their values are compared bit for bit (other slots may hold stale temporaries).
+inline void compare(const char *fn, const Snapshot &native, const Snapshot &translated, int live_st = 0) {
     checks++;
     auto bad = [&](const char *what, uint32_t a, uint32_t b) {
         if (++mismatches <= 20)
@@ -67,6 +69,17 @@ inline void compare(const char *fn, const Snapshot &native, const Snapshot &tran
     if (native.f.cw != translated.f.cw) bad("fpu cw", native.f.cw, translated.f.cw);
     if (native.f.sw != translated.f.sw) bad("fpu sw", native.f.sw, translated.f.sw);
     if (native.f.top != translated.f.top) bad("fpu top", native.f.top, translated.f.top);
+    for (int i = 0; i < live_st; i++) {
+        const fpu_t x = native.f.st[(native.f.top + i) & 7u], y = translated.f.st[(translated.f.top + i) & 7u];
+        if (memcmp(&x, &y, sizeof x)) {
+            char what[32];
+            snprintf(what, sizeof what, "st%d", i);
+            uint32_t u = 0, v = 0;
+            memcpy(&u, &x, sizeof u);
+            memcpy(&v, &y, sizeof v);
+            bad(what, u, v);
+        }
+    }
     for (size_t k = 0; k < native.mem.size(); k++) {
         const auto &x = native.mem[k].second, &y = translated.mem[k].second;
         for (size_t i = 0; i + 4 <= x.size(); i += 4) {
@@ -88,19 +101,19 @@ inline void compare(const char *fn, const Snapshot &native, const Snapshot &tran
 
 // Runs the native function `fn` and the translated `t` on the same input; keeps the translated result.
 template <typename Fn>
-void check(const char *name, Fn fn, void (*t)(void), const std::vector<Region> &regions) {
+void check(const char *name, Fn fn, void (*t)(void), const std::vector<Region> &regions, int live_st = 0) {
     Snapshot before = take(regions);
     fn();
     Snapshot native = take(regions);
     restore(before);
     t();
-    compare(name, native, take(regions));
+    compare(name, native, take(regions), live_st);
 }
 
 // The same for a function whose callers read none of eax / ecx / edx afterwards (they reload them):
 // those registers are not compared.
 template <typename Fn>
-void check_abi(const char *name, Fn fn, void (*t)(void), const std::vector<Region> &regions) {
+void check_abi(const char *name, Fn fn, void (*t)(void), const std::vector<Region> &regions, int live_st = 0) {
     Snapshot before = take(regions);
     fn();
     Snapshot native = take(regions);
@@ -110,7 +123,7 @@ void check_abi(const char *name, Fn fn, void (*t)(void), const std::vector<Regio
     native.r.eax = translated.r.eax;
     native.r.ecx = translated.r.ecx;
     native.r.edx = translated.r.edx;
-    compare(name, native, translated);
+    compare(name, native, translated, live_st);
 }
 
 }  // namespace native
