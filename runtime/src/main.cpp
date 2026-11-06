@@ -29,6 +29,7 @@ using namespace rt;
 namespace {
 
 void run_game() {
+    log("entering the game at 0x%08x\n", image.entry);
     PUSH32(RETURN_MAGIC);   // the CRT entry never returns, but give it somewhere to go
     call_indirect(image.entry);
     exit_process(R.eax);
@@ -91,6 +92,7 @@ int main(int argc, char **argv) {
     load_psp_env();
 #endif
     open_log_file();
+    if (getenv("MOTORACER_TRACE")) trace_imports = true;   // = --trace (the PSP has no command line)
     // out of host memory (the PSP-1000 runs close to its limit): say so instead of ending silently
     std::set_new_handler([] {
 #ifdef RECOMP_MALLOC_TRACE
