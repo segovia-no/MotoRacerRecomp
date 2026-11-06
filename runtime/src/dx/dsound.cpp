@@ -103,9 +103,18 @@ void mix_voice(Buffer *b, int32_t *acc, int frames, int32_t gl, int32_t gr) {
     };
     uint32_t pos = b->play_pos / bs, frac = b->frac;
     if (pos >= count) pos = 0;
-    const bool silent = !gl && !gr;
+    if (!gl && !gr) {   // inaudible (a far engine): only the position moves
+        const uint64_t total = frac + static_cast<uint64_t>(step) * static_cast<uint32_t>(frames);
+        frac = static_cast<uint32_t>(total & 0xffff);
+        const uint64_t p = pos + (total >> 16);
+        if (p >= count && !b->looping) { b->playing = false; pos = 0; frac = 0; }
+        else pos = static_cast<uint32_t>(p % count);
+        b->play_pos = pos * bs;
+        b->frac = frac;
+        return;
+    }
     for (int n = 0; n < frames; n++) {
-        if (!silent) {
+        {
             const uint32_t next = pos + 1 < count ? pos + 1 : (b->looping ? 0 : pos);
             const int32_t t = static_cast<int32_t>(frac >> 2);   // Q14: (s1 - s0) * t fits in 32 bits
             const int32_t l0 = sample(pos, 0);
@@ -160,6 +169,9 @@ void make_voice(Buffer *b) {
     if (b->primary || b->voice) return;
     if (!mix_stream) {
         mix_rate = host::audio_device_rate();
+#ifdef __PSP__
+        mix_rate /= 2;   // 22050 Hz (the game's sounds are 5-22 kHz): half the mixing; the PSP output upsamples
+#endif
         SDL_AudioSpec spec{SDL_AUDIO_S16LE, 2, static_cast<int>(mix_rate)};
         mix_stream = host::audio_open_source(spec, mix);
     }

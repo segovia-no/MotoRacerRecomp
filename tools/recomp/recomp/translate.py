@@ -214,7 +214,7 @@ PURE_CALLS = {
     "EFLAGS_UNPACK", "ST", "FPUSH", "FPOP", "FSTSW", "FCOM", "FXAM", "FPREM", "F_ROUND", "F_TO_I16",
     "F_TO_I32", "F_TO_I64", "FNSTENV", "FLDENV", "FM", "trunc", "if", "switch", "while", "sizeof",
     "RD16A", "RD32A", "RD64A", "RDF32A", "RDF64A", "WR16A", "WR32A", "WR64A", "WRF32A", "WRF64A",
-    "memcpy", "memset", "FTOL", "PROF_IN", "PROF_OUT",
+    "memcpy", "memset", "FTOL", "PROF_IN", "PROF_OUT", "PROF_FN",
 }
 REG_RE = re.compile(r"\bR\.(eax|ecx|edx|ebx|esp|ebp|esi|edi)\b")
 CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\(")
@@ -862,6 +862,7 @@ class FunctionTranslator:
                  "    uint32_t cf = 0, zf = 0, sf = 0, of = 0, pf = 0, af = 0;",
                  "    (void)cf; (void)zf; (void)sf; (void)of; (void)pf; (void)af;"]
         lines.append("    MEM_LOCAL();")
+        lines.append(f"    PROF_FN(0x{self.entry:08x}u);")   # profiling builds: the function being run
         if cached:
             lines.append("    REGS_LOCAL();")
         if fpu_decl:

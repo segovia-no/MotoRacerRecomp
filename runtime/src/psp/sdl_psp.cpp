@@ -167,11 +167,17 @@ int audio_thread(SceSize, void *argp) {
     int16_t *bufs = static_cast<int16_t *>(memalign(64, sizeof(int16_t) * kSamples * 2 * 2));
     if (!bufs) return 0;
     int cur = 0;
-    const int need = kSamples * bytes_per_frame(s->src);
+    // a half-rate stream (the DirectSound mixer at 22050 Hz: half the mixing work) is upsampled x2
+    const bool half = s->src.freq * 2 == device_spec.freq;
+    const int src_frames = half ? kSamples / 2 : kSamples;
+    std::vector<int16_t> half_buf(half ? static_cast<size_t>(src_frames) * 2 : 0);
+    int16_t prev_l = 0, prev_r = 0;
+    const int need = src_frames * bytes_per_frame(s->src);
     const uint32_t budget_us = static_cast<uint32_t>(kSamples * 1000000ull / 44100);
     uint32_t t_ready = sceKernelGetSystemTimeLow();
     while (s->running) {
         int16_t *out = bufs + cur * kSamples * 2;
+        int16_t *dst = half ? half_buf.data() : out;
         cur ^= 1;
         prof::audio_cpu(+1);
         const int have = static_cast<int>(s->data.size());
@@ -180,11 +186,22 @@ int audio_thread(SceSize, void *argp) {
         if (s->src.format == SDL_AUDIO_F32) {
             const float *f = reinterpret_cast<const float *>(s->data.data());
             const int vals = n / 4;
-            for (int i = 0; i < kSamples * 2; i++)
-                out[i] = i < vals ? static_cast<int16_t>(std::clamp(f[i] * 32767.f, -32768.f, 32767.f)) : 0;
+            for (int i = 0; i < src_frames * 2; i++)
+                dst[i] = i < vals ? static_cast<int16_t>(std::clamp(f[i] * 32767.f, -32768.f, 32767.f)) : 0;
         } else {
-            std::memcpy(out, s->data.data(), static_cast<size_t>(n));
-            std::memset(reinterpret_cast<uint8_t *>(out) + n, 0, static_cast<size_t>(kSamples * 4 - n));
+            std::memcpy(dst, s->data.data(), static_cast<size_t>(n));
+            std::memset(reinterpret_cast<uint8_t *>(dst) + n, 0, static_cast<size_t>(src_frames * 4 - n));
+        }
+        if (half) {   // linear: each source frame, preceded by the midpoint from the previous one
+            for (int i = 0; i < src_frames; i++) {
+                const int16_t l = dst[2 * i], r = dst[2 * i + 1];
+                out[4 * i] = static_cast<int16_t>((prev_l + l) >> 1);
+                out[4 * i + 1] = static_cast<int16_t>((prev_r + r) >> 1);
+                out[4 * i + 2] = l;
+                out[4 * i + 3] = r;
+                prev_l = l;
+                prev_r = r;
+            }
         }
         s->data.erase(s->data.begin(), s->data.begin() + n);
         if (postmix) postmix(postmix_user, &device_spec, nullptr, 0);
@@ -357,7 +374,7 @@ bool SDL_SetAudioDeviceGain(SDL_AudioDeviceID, float gain) {
     return true;
 }
 SDL_AudioStream *SDL_CreateAudioStream(const SDL_AudioSpec *src, const SDL_AudioSpec *dst) {
-    if (!src || src->channels != 2 || src->freq != device_spec.freq ||
+    if (!src || src->channels != 2 || (src->freq != device_spec.freq && src->freq * 2 != device_spec.freq) ||
         (src->format != SDL_AUDIO_S16LE && src->format != SDL_AUDIO_F32)) {
         SDL_SetError("PSP audio: unsupported stream format %x/%d/%d", src ? src->format : 0,
                      src ? src->channels : 0, src ? src->freq : 0);

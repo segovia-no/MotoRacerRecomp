@@ -1,25 +1,43 @@
 #!/bin/bash
 # Folder for a real PSP (docs/25-psp-port.md): build/psp-hw/PSP/GAME/MOTORACER/ with a stripped EBOOT.PBP
 # (5 MB instead of 50 MB with debug info) and the game files in game/ (the player's own GOG files;
-# the CD-audio WAVs as MP3, tools/psp/cd_mp3.sh: 31 MB instead of 345 MB). Copy build/psp-hw/PSP to the memory stick root. Needs custom firmware.
+# the CD-audio WAVs as MP3, tools/psp/cd_mp3.sh: 31 MB instead of 345 MB). Copy build/psp-hw/PSP to the
+# memory stick root. Needs custom firmware.
 # Builds from build/psp as configured (MOTORACER_PSP_1000=ON: runs on every model, MEMSIZE=2).
 #
 #   tools/psp/package_hw.sh [game dir]     (default: the macOS install folder)
+#
+# PROF=1: psp_env.txt turns the sampling profiler on (docs/26-psp-profile.md).
+# PROFILE_BUILD=<build dir>: also PSP/GAME/MOTORACER_PROF/ with that build's EBOOT (e.g. one configured
+# with MOTORACER_PROF_FUNCS=ON), the profiler on, and the game files of MOTORACER/ (no second copy).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PSPDEV="${PSPDEV:-$HOME/pspdev}" PATH="$HOME/pspdev/bin:$PATH"
 game="${1:-$HOME/Library/Application Support/MotoRacerRecomp/game}"
-cmake --build build/psp -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" >/dev/null
+jobs="$(sysctl -n hw.ncpu 2>/dev/null || nproc)"
+
+eboot() {   # <build dir> <out folder>
+    cmake --build "$1" -j"$jobs" >/dev/null
+    psp-strip "$1/motoracer" -o build/psp-hw/motoracer.elf
+    mksfoex -d MEMSIZE=2 -s APP_VER=01.00 "$3" build/psp-hw/PARAM.SFO
+    pack-pbp "$2/EBOOT.PBP" build/psp-hw/PARAM.SFO NULL NULL NULL NULL NULL build/psp-hw/motoracer.elf NULL >/dev/null
+    rm -f build/psp-hw/motoracer.elf build/psp-hw/PARAM.SFO
+}
+
 out=build/psp-hw/PSP/GAME/MOTORACER
 rm -rf build/psp-hw && mkdir -p "$out"
-psp-strip build/psp/motoracer -o build/psp-hw/motoracer.elf
-mksfoex -d MEMSIZE=2 -s APP_VER=01.00 "Moto Racer" build/psp-hw/PARAM.SFO
-pack-pbp "$out/EBOOT.PBP" build/psp-hw/PARAM.SFO NULL NULL NULL NULL NULL build/psp-hw/motoracer.elf NULL >/dev/null
-rm -f build/psp-hw/motoracer.elf build/psp-hw/PARAM.SFO
+eboot build/psp "$out" "Moto Racer"
 rsync -a --exclude '__support' --exclude '*.log*' --exclude 'psp_env.txt' --exclude '*.wav' "$game/" "$out/game/"
 tools/psp/cd_mp3.sh "$game" "$out/game" >/dev/null
 # the desktop config's draw distance (often 2) costs the PSP ~35% per race frame: original distance
 sed -i '' -e 's/^DrawDistance=.*/DrawDistance=1/' "$out/game/motoracer.ini" 2>/dev/null || true
-# PROF=1: the sampling profiler logs where each 5 s of frame time goes (docs/26-psp-profile.md)
 if [ -n "${PROF:-}" ]; then echo "MOTORACER_PROF=1" > "$out/psp_env.txt"; fi
 echo "$out: $(du -sh "$out" | cut -f1) (EBOOT $(du -h "$out/EBOOT.PBP" | cut -f1))"
+
+if [ -n "${PROFILE_BUILD:-}" ]; then
+    pout=build/psp-hw/PSP/GAME/MOTORACER_PROF
+    mkdir -p "$pout"
+    eboot "$PROFILE_BUILD" "$pout" "Moto Racer (profiling)"
+    printf 'MOTORACER_PROF=1\nMOTORACER_GAME_DIR=ms0:/PSP/GAME/MOTORACER/game\n' > "$pout/psp_env.txt"
+    echo "$pout: EBOOT $(du -h "$pout/EBOOT.PBP" | cut -f1), game files from MOTORACER/"
+fi

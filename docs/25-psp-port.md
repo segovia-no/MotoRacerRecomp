@@ -425,6 +425,21 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
     is fully buffered and synced at most once per second (by a line or every presented frame) and
     before a FATAL.
 
+- Next hardware race (owner): crackle gone, no crashes, ~60–68 ms per frame. Game code ~24 ms, D3D
+  Execute ~12, render-list flush ~8, audio ~7 (true CPU), native geometry ~8, present ~1 (the log fix).
+  PPSSPP on the same race: 9.6 ms per frame, game code only 1.5 ms (16%) — on hardware the translated
+  code is ~16x slower, the native loops 2.4–6x: PPSSPP has no cache model, and ~4 MB of translated
+  MIPS code against a 16 KB instruction cache. PPSSPP's ranking is not the hardware's.
+- Audio: the DirectSound mixer runs at 22050 Hz on the PSP (the game's sounds are 5–22 kHz) and
+  `sdl_psp` upsamples a half-rate stream x2 (linear); inaudible voices only advance (O(1)).
+- `MOTORACER_PROF_FUNCS` (CMake, profiling build): every translated function stores its guest address
+  in `prof_fn` on entry and restores the caller's on return (`PROF_FN`, a cleanup variable); the
+  sampler histograms it while the region is translated code, and `prof: hot guest functions (%)`
+  lists the top 24 every 5 s. Render sub-regions: `ge: vertex conversion`, `ge: draw (vertices out)`,
+  `ge: texture + state`. `PROFILE_BUILD=build/psp-pf tools/psp/package_hw.sh` adds
+  `PSP/GAME/MOTORACER_PROF/` with that EBOOT, the profiler on and `MOTORACER_GAME_DIR` pointing at
+  `MOTORACER/game` (configured with `MOTORACER_PSP_HEAP_KB=13056`: the stores take ~0.9 MB of code).
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and

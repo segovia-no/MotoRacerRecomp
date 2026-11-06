@@ -512,7 +512,12 @@ void set_target(Surface *s) {
     log("d3d ge: render target %ux%u (scale %.2f)\n", g_w, g_h, scale);
 }
 
+// profiler regions inside D3D Execute (MOTORACER_PROF): where the render backend's time goes
+uint8_t prof_id(const char *name) { return prof_register(name); }
+
 uint32_t add_vertices(const TLVertex *verts, uint32_t n) {
+    static const uint8_t region = prof_id("ge: vertex conversion");
+    prof::Scope prof_scope(region);
     // Draws only use the vertices of the latest PROCESSVERTICES (d3d.cpp passes this call's base), so
     // the list restarts here instead of growing over the whole frame: PSP-1000 memory (a race frame
     // reached ~10,000 vertices, and the vector's doubling briefly needed twice that).
@@ -548,9 +553,12 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
         uint64_t t0 = stats_on() ? SDL_GetTicksNS() : 0;
         ~DrawTimer() { if (t0) st.ns_draw += SDL_GetTicksNS() - t0; }
     } timer;
+    static const uint8_t region_draw = prof_id("ge: draw (vertices out)"), region_state = prof_id("ge: texture + state");
+    prof::Scope prof_scope(region_state);
     prepare();
     Texture *tex = texture_for(texture);
     apply_states(rs, tex);
+    prof_region = region_draw;
     const float su = tex ? static_cast<float>(texture->w) : 1.f, sv = tex ? static_cast<float>(texture->h) : 1.f;
     // Direct3D MODULATE takes alpha from the texture alone when it has an alpha channel; the GE's
     // modulate multiplies it with the vertex alpha, and the game's HUD vertices carry alpha 0.

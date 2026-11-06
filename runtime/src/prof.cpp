@@ -10,7 +10,9 @@
 // thread marks regions. SDL's audio thread flags its mixing (from the first stream callback of a
 // buffer to the post-mix callback): on the PSP's single core that time counts as "audio mixing";
 // elsewhere it runs in parallel and is ignored.
+#include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 
 #include <SDL3/SDL_timer.h>
@@ -19,6 +21,7 @@
 #include "runtime.h"
 
 extern "C" volatile uint8_t prof_region = 0;
+extern "C" volatile uint32_t prof_fn = 0;   // RECOMP_PROF_FUNCS: the running translated function
 extern "C" uint8_t native_off[256] = {};
 
 namespace {
@@ -27,6 +30,12 @@ const char *names[256] = {"game code (translated)", "Win32 / COM shims", "D3D Ex
 uint32_t next_id = prof::FIRST_NATIVE;
 volatile uint32_t samples[256];
 bool on = false;
+
+// guest functions sampled while in translated code (RECOMP_PROF_FUNCS): open addressing, filled
+// from the timer, read and cleared by the game thread every 5 s
+struct FnCount { uint32_t va, n; };
+constexpr uint32_t FN_SLOTS = 2048;
+FnCount fn_counts[FN_SLOTS];
 
 volatile bool audio_busy = false;
 volatile int audio_cpu_count = 0;   // PSP: audio threads running on the CPU (not blocked in a wait)
@@ -39,6 +48,15 @@ void tick() {
     }
 #endif
     samples[prof_region]++;
+#ifdef RECOMP_PROF_FUNCS
+    if (prof_region == prof::GAME && prof_fn) {
+        const uint32_t va = prof_fn;
+        for (uint32_t i = (va * 2654435761u) >> 21, k = 0; k < 16; i = (i + 1) & (FN_SLOTS - 1), k++) {
+            if (fn_counts[i].va == va) { fn_counts[i].n++; break; }
+            if (!fn_counts[i].va) { fn_counts[i].va = va; fn_counts[i].n = 1; break; }
+        }
+    }
+#endif
 }
 }  // namespace
 
@@ -107,6 +125,21 @@ void frame() {
         rt::log("prof:   %5.1f%%  %5.2f ms  %s\n", 100 * share, share * ms_per_frame, names[best] ? names[best] : "?");
         snap[best] = 0;
     }
+#ifdef RECOMP_PROF_FUNCS
+    {   // the hottest translated functions, share of all samples (top 24, down to 0.3%)
+        static FnCount snap_fn[FN_SLOTS];
+        memcpy(snap_fn, fn_counts, sizeof fn_counts);
+        memset(fn_counts, 0, sizeof fn_counts);
+        std::sort(snap_fn, snap_fn + FN_SLOTS, [](const FnCount &a, const FnCount &b) { return a.n > b.n; });
+        char line[512];
+        int len = snprintf(line, sizeof line, "prof: hot guest functions (%%):");
+        for (uint32_t i = 0; i < 24 && snap_fn[i].n * 1000u >= total * 3u && total; i++) {
+            len += snprintf(line + len, sizeof line - len, " %06x %.1f", snap_fn[i].va & 0xffffff, 100.0 * snap_fn[i].n / total);
+            if (len > static_cast<int>(sizeof line) - 24) break;
+        }
+        rt::log("%s\n", line);
+    }
+#endif
     if (audio_blocks) {
         rt::log("prof: audio: %u blocks, %u late (channel ran dry), slowest %.1f ms to produce (block %.1f ms)\n",
                 audio_blocks, audio_late, audio_worst_us / 1000.0, audio_budget_us / 1000.0);

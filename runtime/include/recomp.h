@@ -269,6 +269,16 @@ uint8_t prof_register(const char *name);
     const uint8_t prof_prev_ = prof_region;                                                      \
     prof_region = prof_id_ ? prof_id_ : (prof_id_ = prof_register(NAME))
 #define PROF_OUT() (prof_region = prof_prev_)
+/* RECOMP_PROF_FUNCS (CMake MOTORACER_PROF_FUNCS, a profiling build): every translated function
+   records its guest address while it runs (restored on return), and the sampler counts them: the
+   hot functions on real hardware. A load and two stores per call; nothing otherwise. */
+#ifdef RECOMP_PROF_FUNCS
+RECOMP_HOST_DATA extern volatile uint32_t prof_fn;
+static inline void prof_fn_restore_(uint32_t *prev) { prof_fn = *prev; }
+#define PROF_FN(VA) uint32_t prof_fn_prev_ __attribute__((cleanup(prof_fn_restore_))) = prof_fn; prof_fn = (VA)
+#else
+#define PROF_FN(VA) ((void)0)
+#endif
 int native_blend_states(void);
 int native_wrap_states(void);
 int native_state_1a(void);

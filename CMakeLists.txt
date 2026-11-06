@@ -98,6 +98,10 @@ if(MOTORACER_CHECK_SAVED)
 endif()
 # PSP dev: PPSSPP does not trap unaligned lw/sw like the real Allegrex; this makes every "proven
 # aligned" access (RD32A & co., translator and native code) check its address and stop with FATAL.
+option(MOTORACER_PROF_FUNCS "Profiling build: the sampler also counts the running guest function" OFF)
+if(MOTORACER_PROF_FUNCS)
+  add_compile_definitions(RECOMP_PROF_FUNCS)
+endif()
 option(MOTORACER_CHECK_ALIGN "Check aligned guest memory accesses at run time" OFF)
 if(MOTORACER_CHECK_ALIGN)
   add_compile_definitions(RECOMP_CHECK_ALIGN)
