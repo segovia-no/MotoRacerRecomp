@@ -723,16 +723,26 @@ extern "C" int native_flush_polygon(void) {
     if (md == OFF) return 0;
     const uint32_t sp = R.esp, node = R.ebx;
     if (md == ON) {
-        // cockpit polygon: Z test off around it, if the buffer has room for both state blocks
-        // besides the polygon's own 0x70 bytes (else flush_polygon reports it full: no change)
+        // the whole bucket list: after a polygon the x86 takes the next node (0x4afcd3: ebx = [ebx + 8])
+        // and comes back here unless it is 0 or the abort flag [esp + 0x30] is set (0x4af6bf), both of
+        // which continue at the bucket advance 0x4afd00 (exit 4). Done here: one round trip through
+        // the translated code per bucket instead of per polygon.
         const uint32_t eb = RD32(EB_OBJ);
-        const bool cockpit = cockpit_node(node) && RD32(eb + 8) + 0x70 + 24 < RD32(ROOM_INS_END);
-        if (cockpit) zfunc_state(eb, 8);
-        const int r = flush_polygon(true);
-        if (cockpit && r == 1) zfunc_state(eb, 4);
-        R.ebx = node;
-        R.esp = sp;
-        return r;
+        for (uint32_t n = node;;) {
+            // cockpit polygon: Z test off around it, if the buffer has room for both state blocks
+            // besides the polygon's own 0x70 bytes (else flush_polygon reports it full: no change)
+            const bool cockpit = cockpit_node(n) && RD32(eb + 8) + 0x70 + 24 < RD32(ROOM_INS_END);
+            if (cockpit) zfunc_state(eb, 8);
+            R.ebx = n;
+            const int r = flush_polygon(true);
+            if (cockpit && r == 1) zfunc_state(eb, 4);
+            R.ebx = n;
+            R.esp = sp;
+            if (r != 1) return r;
+            n = RD32(n + 8);
+            R.ebx = n;
+            if (!n || RD32(sp + 0x30)) return 4;
+        }
     }
     // check: native first, then the translated code on the same input; compared at the exits
     const uint32_t eb = RD32(EB_OBJ), poly = RD32(node), id = RD16(poly + 0x36);
