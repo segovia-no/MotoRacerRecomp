@@ -202,7 +202,7 @@ GAME_JUMP_HOOKS = {
     0x4AF9AF: ("native_tex_vertices", 0x4AF9FE),
     # Render-list flush: one polygon natively (native_render.cpp); exits: next node, no room left,
     # execute buffer full
-    0x4AF6CB: ("native_flush_polygon", (0x4AFCD3, 0x4AFCD8, 0x4AFD3E, 0x4AFD00)),
+    0x4AF6CB: ("native_flush_polygon", (0x4AFCD3, 0x4AFCD8, 0x4AFD3E, 0x4AFD00, 0x4AFD25)),
     # Texture loader 0x41c050: native 24-bit row loop, continuing after it
     0x41CDB6: ("native_rgb_row", 0x41D08D),
     # Per-frame bike loop 0x47df40: an opponent's full update (0x45d540) about to be called -> the AI

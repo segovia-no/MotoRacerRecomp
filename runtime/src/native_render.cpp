@@ -343,14 +343,17 @@ extern "C" void native_vertices_check(void) {
 // instructions. Clear the current bucket, then move b to the last empty bucket before the next
 // non-empty one (or the end): the translated block then takes its one final step as before. Not
 // with the abort flag [esp+0x30] or a pending resume ([esp+0x44] with [esp+0x48] = 1).
-extern "C" void native_bucket_skip(void) {
-    MEM_LOCAL();
-    if (mode() == OFF) return;
-    static const bool off = [] {   // a GAME_HOOK: MOTORACER_NATIVE_OFF is checked here
+static bool bucket_skip_on() {   // a GAME_HOOK: MOTORACER_NATIVE_OFF is checked here
+    static const bool off = [] {
         const char *e = getenv("MOTORACER_NATIVE_OFF");
         return e && (std::string(",") + e + ",").find(",native_bucket_skip,") != std::string::npos;
     }();
-    if (off) return;
+    return mode() != OFF && !off;
+}
+
+extern "C" void native_bucket_skip(void) {
+    MEM_LOCAL();
+    if (!bucket_skip_on()) return;
     constexpr uint32_t HEADS = 0x655d38;
     const uint32_t sp = R.esp, step = RD32(sp + 0x50), end = RD32(sp + 0x40);
     if (RD32(sp + 0x30) || (RD32(sp + 0x44) && RD32(sp + 0x48) == 1)) return;
@@ -741,7 +744,26 @@ extern "C" int native_flush_polygon(void) {
             if (r != 1) return r;
             n = RD32(n + 8);
             R.ebx = n;
-            if (!n || RD32(sp + 0x30)) return 4;
+            if (n && !RD32(sp + 0x30)) continue;
+            // end of the bucket's list: the bucket advance 0x4afd00 (native_bucket_skip, then
+            // `b += step; until b == end`) and the next list's head (0x4af681..0x4af6b7) here too, up
+            // to the next polygon; the abort flag or a pending resume ([esp+0x44], [esp+0x48] = 1)
+            // and the end of the buckets go back to the translated code (exit 4 = 0x4afd00, 5 = 0x4afd25)
+            if (RD32(sp + 0x30) || (RD32(sp + 0x44) && RD32(sp + 0x48) == 1) || !bucket_skip_on()) return 4;
+            constexpr uint32_t HEADS = 0x655d38;
+            const uint32_t step = RD32(sp + 0x50), end = RD32(sp + 0x40);
+            uint32_t b = RD32(sp + 0x28);
+            WR32(HEADS + 4 * b, 0);
+            do {
+                b += step;
+            } while (b != end && !RD32(HEADS + 4 * b));
+            WR32(sp + 0x28, b);
+            if (b == end) {
+                R.ebx = n;
+                return 5;
+            }
+            n = RD32(HEADS + 4 * b);
+            R.ebx = n;
         }
     }
     // check: native first, then the translated code on the same input; compared at the exits
