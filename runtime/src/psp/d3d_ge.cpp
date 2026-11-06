@@ -16,6 +16,7 @@
 #include <cstring>
 #include <map>
 #include <set>
+#include <unordered_map>
 #include <vector>
 
 #include "../dx/d3d_gpu.h"
@@ -57,6 +58,8 @@ struct Texture {
     bool shared = false;        // data points into guest memory (not owned)
     bool in_place = false;      // 16-bit: guest pixels converted to the GE's order in place
     bool swizzled = false;      // stored in the GE's swizzled layout (16-byte x 8-row blocks)
+    bool clut_shared = false;   // clut is an entry of shared_cluts (not owned)
+    bool converted = true;      // new contents since the GE last loaded it (texture cache flush)
     uint32_t *clut = nullptr;   // T8: 256 palette entries (GE 8888), 16-byte aligned
 };
 
@@ -282,6 +285,22 @@ void prepare() {
 }
 
 // ---------- textures ----------
+// One CLUT per distinct palette (up to 64; beyond, textures keep their own).
+std::unordered_map<uint64_t, uint32_t *> shared_cluts;
+uint32_t *shared_clut(const uint32_t *pal) {
+    uint64_t h = 1469598103934665603ull;
+    for (int i = 0; i < 256; i++) h = (h ^ pal[i]) * 1099511628211ull;
+    auto it = shared_cluts.find(h);
+    if (it != shared_cluts.end()) return memcmp(it->second, pal, 1024) ? nullptr : it->second;
+    if (shared_cluts.size() >= 64) return nullptr;
+    auto *c = static_cast<uint32_t *>(memalign(16, 1024));
+    if (!c) return nullptr;
+    memcpy(c, pal, 1024);
+    psp_ge::writeback(c, 1024);
+    shared_cluts[h] = c;
+    return c;
+}
+
 Texture *texture_for(Surface *s) {
     if (!s) return nullptr;
     if (s->w > 512 || s->h > 512) {
@@ -298,6 +317,7 @@ Texture *texture_for(Surface *s) {
     last_tex = &t;
     if (t.data && t.version == s->version && t.pal_version == pal_version) return &t;
     st.tex_converts++;
+    t.converted = true;
     struct TexTimer { uint64_t t0 = SDL_GetTicksNS(); ~TexTimer() { st.ns_tex += SDL_GetTicksNS() - t0; } } timer;
     t.version = s->version;
     t.pal_version = pal_version;
@@ -326,8 +346,16 @@ Texture *texture_for(Surface *s) {
         // (no 32-bit copy, 4x the size); needs a 16-byte aligned start and a pitch of 16n texels.
         uint8_t *src = reinterpret_cast<uint8_t *>(rt::host_ptr(s->mem));
         if ((reinterpret_cast<uintptr_t>(src) & 15) == 0 && (s->pitch & 15) == 0) {
-            if (!t.clut) t.clut = static_cast<uint32_t *>(memalign(16, 256 * 4));
-            std::memcpy(t.clut, pal, sizeof pal);
+            // textures with the same palette share one CLUT: switching between them needs no reload
+            // (the GE reads the 1 KB palette at every CLUT load)
+            if (uint32_t *shared = shared_clut(pal)) {
+                if (t.clut && !t.clut_shared) free(t.clut);
+                t.clut = shared;
+                t.clut_shared = true;
+            } else {
+                if (!t.clut || t.clut_shared) t.clut = static_cast<uint32_t *>(memalign(16, 256 * 4)), t.clut_shared = false;
+                std::memcpy(t.clut, pal, sizeof pal);
+            }
             t.psm = GU_PSM_T8;
             t.tbw = static_cast<int>(s->pitch);
             t.data = src;
@@ -493,7 +521,13 @@ void apply_states(const uint32_t *rs, Texture *tex) {
         sceGuTexMode(tex->psm, 0, 0, tex->swizzled ? 1 : 0);
         gs.swz = tex->swizzled;
         sceGuTexImage(0, tex->tw, tex->th, tex->tbw, tex->data);
-        sceGuTexFlush();
+        // the texture cache only needs a flush when the pixels at this address changed (not for a
+        // switch to another texture)
+        static const bool always_flush = getenv("MOTORACER_GE_TEXFLUSH") && strcmp(getenv("MOTORACER_GE_TEXFLUSH"), "0");
+        if (tex->converted || always_flush) {   // MOTORACER_GE_TEXFLUSH=1: at every switch (as before)
+            sceGuTexFlush();
+            tex->converted = false;
+        }
         gs.tdata = tex->data;
         gs.psm = tex->psm;
     }
@@ -1099,7 +1133,7 @@ void surface_destroyed(Surface *s) {
     }
     if (it != textures.end()) {
         if (!it->second.shared) free(it->second.data);
-        free(it->second.clut);
+        if (!it->second.clut_shared) free(it->second.clut);
         if (gs.clut == it->second.clut) gs.clut = nullptr;
         textures.erase(it);
     }

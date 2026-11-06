@@ -60,10 +60,17 @@ extern int ge_list_executed[2];
 namespace {
 
 constexpr uint32_t FB_BYTES = FB_STRIDE * FB_H * 2;
-constexpr size_t LIST_BYTES = 128 * 1024;   // PSP-1000 memory: 512 KB before; a race frame needs ~67 KB
+// The display list: two halves of 64 KB (commands and vertex data). When the open half is full it is
+// closed and handed to the GE without waiting, and drawing goes on in the other half (waiting only if
+// the GE has not finished the list there yet): the GE draws the first part of a frame while the CPU
+// builds the rest. Before, a full list (about twice per race frame) was finished and waited for, the
+// CPU idle until the GE caught up with everything. (PSP-1000 memory: 512 KB before.)
+constexpr size_t LIST_BYTES = 128 * 1024, HALF_BYTES = LIST_BYTES / 2;
+constexpr size_t LIST_MARGIN = 6 * 1024;   // room left for the commands written between two checks
 uint32_t early_flush_count = 0, list_peak = 0;
-alignas(64) unsigned int list[LIST_BYTES / 4];   // commands and vertices; flushed early when half full
-size_t list_used = 0;                            // vertex bytes taken from the open list
+alignas(64) unsigned int list[LIST_BYTES / 4];
+int half = 0;                    // the half in use
+int half_qid[2] = {-1, -1};      // the GE list id of each half while the GE may still read it
 // In a direct list the GE runs up to the stall address. pspgu moves it (a kernel call) after every
 // sceGuDrawArray and sceGuGetMemory: ~1,200 times per race frame. Here: after a draw once the list has
 // grown by MOTORACER_GE_STALL_STEP bytes since the last move (default 0: every draw; list memory never).
@@ -124,11 +131,16 @@ void begin() {
     init();
     if (open) return;
     generation++;
-    sceGuStart(GU_DIRECT, list);
+    if (half_qid[half] >= 0) {   // the GE is (or was) running the list last built in this half
+        prof::Scope prof_wait(prof::WAIT);
+        sceGeListSync(half_qid[half], 0);
+        half_qid[half] = -1;
+    }
+    sceGuStart(GU_DIRECT, list + half * (HALF_BYTES / 4));
+    half_qid[half] = ge_list_executed[0];
     sceGuDrawBufferList(GU_PSM_5650, reinterpret_cast<void *>(fb_offset(cur)), FB_STRIDE);
     full_region();
     open = true;
-    list_used = 0;
 }
 
 void finish() {
@@ -137,9 +149,25 @@ void finish() {
     sceGuFinish();
     uint64_t t0 = SDL_GetTicksNS();
     prof::Scope prof_wait(prof::WAIT);
-    sceGuSync(0, 0);
+    sceGuSync(0, 0);   // every list queued
     wait_ns += SDL_GetTicksNS() - t0;
+    half_qid[0] = half_qid[1] = -1;
     open = false;
+}
+
+// The open half is full: hand it to the GE and continue in the other half (no wait here).
+static void flush_early() {
+    if (!open) return;
+    sceKernelDcacheWritebackAll();
+    sceGuFinish();
+    open = false;
+    half ^= 1;
+    early_flush_count++;
+}
+
+// bytes in the open list (commands and data)
+static size_t list_bytes() {
+    return open ? static_cast<size_t>(gu_list->current - gu_list->start) * 4 : 0;
 }
 
 static uint8_t *vram_abs(uint32_t offset) {   // the address the GE uses for transfers
@@ -356,16 +384,15 @@ void writeback(const void *p, size_t n) { sceKernelDcacheWritebackRange(p, stati
 
 void reserve(size_t n) {
     n = (n + 15) & ~size_t{15};
-    if (open && list_used + n > LIST_BYTES / 2) { finish(); early_flush_count++; }
+    if (open && list_bytes() + n + LIST_MARGIN > HALF_BYTES) flush_early();
     begin();
 }
 
 void *list_memory(size_t n) {
     n = (n + 15) & ~size_t{15};
-    if (open && list_used + n > LIST_BYTES / 2) { finish(); early_flush_count++; }   // the rest of the frame: a new list
+    if (open && list_bytes() + n + LIST_MARGIN > HALF_BYTES) flush_early();   // the rest of the frame: the other half
     begin();
-    list_used += n;
-    list_peak = std::max(list_peak, static_cast<uint32_t>(list_used));
+    list_peak = std::max(list_peak, static_cast<uint32_t>(list_bytes() + n));
     // sceGuGetMemory: a jump over the block (BASE + JUMP), the block after it
     unsigned int *cur = gu_list->current, *data = cur + 2;
     auto *next = reinterpret_cast<unsigned int *>(reinterpret_cast<uint8_t *>(data) + n);
