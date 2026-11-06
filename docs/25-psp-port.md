@@ -332,6 +332,14 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   (`game_hook_input_loaded`), and on the PSP the PSP layout also replaces the desktop's Xbox preset
   (throttle on triggers the PSP lacks), not only the factory bindings; the player's own bindings stay.
 
+### Hardware test package (2026-11-06)
+- `tools/psp/package_hw.sh [game dir]` → `build/psp-hw/PSP/GAME/MOTORACER/`: `EBOOT.PBP` from the
+  stripped ELF (5.3 MB; the build's own EBOOT carries 45 MB of debug info) with `PARAM.SFO`
+  `MEMSIZE=2` (pspdev's "limited memory": the PSP-1000's 24 MB on every model, as tested in PPSSPP),
+  plus the game files in `game/`. Copy `PSP/` to the memory stick root; needs custom firmware. The log is
+  `ms0:/PSP/GAME/MOTORACER/motoracer.log`. Checked in PPSSPP from a plain folder (PPSSPP treats a path
+  with `PSP/GAME/` as its own memory stick).
+
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).
 - Time per 5 s in the race: Direct3D Execute (parsing + GE backend) 400–660 ms (8–13%), of which the
