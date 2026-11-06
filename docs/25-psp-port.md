@@ -619,6 +619,28 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
     buckets): PPSSPP translated game code 1.94 → 1.65 ms; AI level of detail: beyond 80,000 (twice
     the drawing range) one update per 20 hundredths; mixer: 16-bit samples by halfword loads.
 
+### Hardware research and profile-guided game code (2026-11-07)
+- Owner: more performance without fewer opponents or a shorter draw distance; research PSP techniques.
+- Facts: 16 KB I-cache and 16 KB D-cache, 64-byte lines, 2-way; a line miss ~79 CPU cycles (a PSP
+  timing model, phobos PR 279); the bus runs at half the CPU clock; 16 KB scratchpad (faster than RAM,
+  slower than cache); the Media Engine (a second 333 MHz Allegrex) needs kernel access and its own
+  library (mcidclan/psp-media-engine-custom-core) — and replacing its firmware loses sceMp3 (the music).
+  GE: textures in RAM are slow unless swizzled (done); display lists through uncached memory (done).
+- The hot translated functions are larger than the I-cache: `0x45f290` 26 KB, `0x406290` 22 KB,
+  `0x47ecd0` 17 KB, `0x493820` 14 KB, `0x478990` 12 KB; the per-bike path (`0x469c60` 19 KB,
+  `0x46b120` 12 KB, `0x466d70`, `0x4683e0`, ...) runs once per bike, refetching its code each time.
+  Translated code is fetch-bound on hardware. ~27% of `0x469c60`'s instructions are loads / stores,
+  mostly the x86 call ABI (arguments on the guest stack, guest registers around each of its 86 calls).
+- `-Os` for the game code (−7%, 5.81 → 5.41 MB) was rejected earlier on PPSSPP timings, which cannot
+  show I-cache effects; a hardware A/B is pending (`build/psp-pf-os`).
+- Profile-guided game code: CMake `MOTORACER_PGO=gen|use`, `tools/psp/pgo.sh` (instrumented build with
+  64 MB memory — the counters do not fit a PSP-1000 —, a PPSSPP race writes the `.gcda` counts via
+  `__gcov_dump` at `MOTORACER_GCOV_DUMP_MS`, `GCOV_PREFIX(_STRIP)`; counts kept in `build/pgo-data/`,
+  not committed). GCC orders functions by use (`.text.hot`) and lays out branches for the trained
+  path; `-fprofile-partial-training` keeps untrained functions (other tracks) as before. Hot / cold
+  function splitting (`-freorder-blocks-and-partition`) fails on MIPS (assembler CFI errors, then
+  HI16 / LO16 relocations split across sections): not used. PPSSPP race: plays normally.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and
