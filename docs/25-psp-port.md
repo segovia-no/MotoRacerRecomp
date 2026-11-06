@@ -352,6 +352,21 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   thread filled the unused bottom of its stack with a marker byte for the high-water mark; the kernel
   keeps a guard word there. Now nothing writes to the stack: the mark scans for the kernel's 0xFF fill
   (from 64 bytes up); "game thread started" is logged first.
+- Third hardware run: menus, CD music and sound work; it powered off on entering the bike selection
+  (last line: the detail-table hook, then the bike model loads). Not reproducible in PPSSPP, with or
+  without the CD-audio WAVs. Ruled out: unaligned accesses — `MOTORACER_CHECK_ALIGN` (CMake, dev)
+  makes every "proven aligned" access (`RD32A` & co., translator and native code) check its address;
+  no fault from boot through the bike selection and a race (`PSP_BUILD=build/psp-align
+  tools/psp/e2e_psp.sh ...` runs another build's EBOOT). Found: a new PSP thread starts with FCR31 =
+  0x00000e00, i.e. FPU traps enabled for invalid operation, division by zero and overflow. x86 runs
+  with the x87 exceptions masked and the game divides by zero / makes NaNs freely; on the Allegrex
+  that traps (PPSSPP never does). `psp/fpu.h` `psp_fpu::quiet()` clears the enables
+  (pspSdkDisableFPUExceptions) in main, the game thread and the audio threads; the game thread logs
+  the old value.
+- Same run: crackling audio, slow menus. CD audio seeked and read 4 KB from the memory stick on the
+  audio thread for every 23 ms block (a seek drops the stdio buffer): now a seek only when playback
+  jumps, and a 32 KB file buffer. PSP audio blocks 1024 → 2048 samples (46 ms to mix the next one).
+  The log is now synced (closed / reopened) for the first 2000 lines.
 
 ## Measured in PPSSPP (emulated time; Speed Bay, 23 opponents, detail 5, 480x270)
 - Race: 16–35 fps (82–177 presented frames per 5 s; earlier runs at 222 MHz: 3–4.5 fps).

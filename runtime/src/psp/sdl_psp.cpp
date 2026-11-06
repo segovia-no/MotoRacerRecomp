@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "runtime.h"
+#include "fpu.h"
 
 PSP_MODULE_INFO("Moto Racer", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER | THREAD_ATTR_VFPU);
@@ -132,7 +133,9 @@ void poll_pad() {
 }
 
 // ---------- audio ----------
-constexpr int kSamples = 1024;   // per output block (~23 ms at 44.1 kHz)
+// per output block (~46 ms at 44.1 kHz): the next block is mixed while this one plays, so a
+// memory-stick read or a busy frame on the way must fit in it (1024 crackled on a PSP-1000)
+constexpr int kSamples = 2048;
 SDL_AudioSpec device_spec{SDL_AUDIO_S16LE, 2, 44100};
 SDL_AudioPostmixCallback postmix = nullptr;
 void *postmix_user = nullptr;
@@ -156,6 +159,7 @@ int bytes_per_frame(const SDL_AudioSpec &s) { return SDL_AUDIO_BYTESIZE(s.format
 
 int audio_thread(SceSize, void *argp) {
     SDL_AudioStream *s = *static_cast<SDL_AudioStream **>(argp);
+    psp_fpu::quiet();   // the mixer's float code
     std::vector<int16_t> out(kSamples * 2);
     const int need = kSamples * bytes_per_frame(s->src);
     while (s->running) {

@@ -34,9 +34,10 @@ void vout(const char *fmt, va_list ap) {
         fflush(log_file);   // the Windows CRT treats _IOLBF as full buffering: a crash would lose the log
 #ifdef __PSP__
         // Real PSP: the memory stick's file size is only updated when the file is closed, so a hang or
-        // power-off loses what was written since. The first 300 lines (startup) close and reopen it.
+        // power-off loses what was written since. The first 2000 lines (startup, menus, the first
+        // loads; later lines are rare) close and reopen it.
         static int synced = 0;
-        if (synced < 300) {
+        if (synced < 2000) {
             synced++;
             fclose(log_file);
             log_file = fopen(log_path.c_str(), "a");
@@ -245,6 +246,12 @@ static void on_fault(const plat::Fault &f) {
 void install_crash_handlers() { plat::host().crash.install(on_fault); }
 
 }  // namespace rt
+
+#ifdef RECOMP_CHECK_ALIGN
+extern "C" void recomp_align_fault(uint32_t a, int n, const char *file, int line) {
+    rt::fatal("unaligned %d-byte access at guest 0x%08x (%s:%d)", n, a, file, line);
+}
+#endif
 
 #ifdef RECOMP_CHECK_SAVED
 // CMake MOTORACER_CHECK_SAVED: optimize_spills (translate.py) assumptions checked at run time.

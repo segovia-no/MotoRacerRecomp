@@ -96,6 +96,12 @@ option(MOTORACER_CHECK_SAVED "Check the translator's register-spill assumptions 
 if(MOTORACER_CHECK_SAVED)
   add_compile_definitions(RECOMP_CHECK_SAVED)
 endif()
+# PSP dev: PPSSPP does not trap unaligned lw/sw like the real Allegrex; this makes every "proven
+# aligned" access (RD32A & co., translator and native code) check its address and stop with FATAL.
+option(MOTORACER_CHECK_ALIGN "Check aligned guest memory accesses at run time" OFF)
+if(MOTORACER_CHECK_ALIGN)
+  add_compile_definitions(RECOMP_CHECK_ALIGN)
+endif()
 if(MOTORACER_FPU_FLOAT)
   add_compile_definitions(RECOMP_FPU_FLOAT)
 endif()

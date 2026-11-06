@@ -66,6 +66,7 @@ std::string find_game_dir(const std::string &explicit_dir) {
 #ifdef __PSP__
 #include <psppower.h>
 #include "psp/ge.h"
+#include "psp/fpu.h"
 // No environment on the PSP: dev settings (MOTORACER_AUTOKEYS, MOTORACER_SNAPSHOT_DIR, ...) come
 // from psp_env.txt next to the EBOOT, one KEY=VALUE per line (tools/psp/e2e_psp.sh writes it).
 void load_psp_env() {
@@ -90,6 +91,7 @@ using rt::malloc_trace_log;
 int main(int argc, char **argv) {
 #ifdef __PSP__
     scePowerSetClockFrequency(333, 333, 166);   // homebrew starts at 222 MHz
+    psp_fpu::quiet();
     load_psp_env();
 #endif
     open_log_file();

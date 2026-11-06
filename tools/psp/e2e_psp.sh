@@ -6,7 +6,8 @@
 #   tools/psp/e2e_psp.sh <name> "<keys>" [seconds] [KEY=VALUE ...]
 #
 # <keys>: MOTORACER_AUTOKEYS syntax (tools/e2e.sh). Output: build/e2e/<name>.png, build/e2e/<name>.log.
-# Runs are muted (MOTORACER_MUTE=1: audio runs at volume 0) unless WITH_SOUND=1.
+# Runs are muted (MOTORACER_MUTE=1: audio runs at volume 0) unless WITH_SOUND=1. PSP_BUILD=<dir>
+# runs another build's EBOOT (default build/psp), e.g. one configured with MOTORACER_CHECK_ALIGN.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 name=$1 keys=$2 secs=${3:-60}
@@ -17,7 +18,7 @@ mkdir -p "$run/game" build/e2e
 # WITH_MUSIC=1 also copies the CD-audio WAVs (~340 MB) for the music
 if [ -n "${WITH_MUSIC:-}" ]; then rsync -a --exclude '__support' "$game/" "$run/game/"
 else rsync -a --exclude '*.wav' --exclude '__support' "$game/" "$run/game/"; fi
-cp build/psp/EBOOT.PBP "$run/"
+cp "${PSP_BUILD:-build/psp}/EBOOT.PBP" "$run/"
 rm -rf "$run/snap" && mkdir -p "$run/snap"
 {
     echo "MOTORACER_AUTOKEYS=$keys"

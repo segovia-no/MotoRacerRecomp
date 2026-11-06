@@ -59,6 +59,7 @@ uint32_t pos = 0, play_end = 0;       // absolute CD frames
 uint32_t frame_carry = 0;             // bytes already consumed of frame `pos`
 FILE *cur_file = nullptr;
 int cur_track = -1;
+uint32_t cur_off = 0;   // file position after the last read (a seek only when playback jumps)
 std::atomic<bool> playing{false}, finished{false};
 bool paused = false;
 uint32_t notify_hwnd = 0;
@@ -149,16 +150,21 @@ int pull(uint8_t *dst, int bytes) {
             if (t != cur_track) {
                 if (cur_file) fclose(cur_file);
                 cur_file = fopen(tracks[t].path.c_str(), "rb");
+                // big reads, few of them: on the PSP each read goes to the memory stick from the
+                // audio thread (4 KB per 23 ms block crackled while the game loaded files)
+                if (cur_file) setvbuf(cur_file, nullptr, _IOFBF, 32 * 1024);
                 cur_track = t;
+                cur_off = ~0u;
             }
             if (!cur_file) { playing = false; finished = true; break; }
             uint32_t off = tracks[t].data_offset + (pos - tracks[t].start) * BYTES_PER_FRAME + frame_carry;
-            fseek(cur_file, off, SEEK_SET);
+            if (off != cur_off) fseek(cur_file, off, SEEK_SET);   // a seek drops the stdio buffer
             uint32_t frames_left_track = tracks[t].start + tracks[t].length - pos;
             uint32_t frames_left = std::min(frames_left_track, play_end - pos);
             uint64_t avail = static_cast<uint64_t>(frames_left) * BYTES_PER_FRAME - frame_carry;
             int n = static_cast<int>(std::min<uint64_t>(static_cast<uint64_t>(bytes - written), avail));
             size_t got = fread(dst + written, 1, static_cast<size_t>(n), cur_file);
+            cur_off = off + static_cast<uint32_t>(got);
             if (got < static_cast<size_t>(n)) memset(dst + written + got, 0, static_cast<size_t>(n) - got);
             written += n;
             frame_carry += static_cast<uint32_t>(n);

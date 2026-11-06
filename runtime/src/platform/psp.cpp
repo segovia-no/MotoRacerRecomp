@@ -15,6 +15,7 @@
 #include "platform.h"
 #include "runtime.h"
 #include "buffered_file.h"
+#include "../psp/fpu.h"
 
 extern "C" void call_on_stack(void *stack_top, void (*fn)(void));   // stack_mips.S
 
@@ -42,7 +43,8 @@ public:
 
 int game_thread(SceSize, void *argp) {
     void (*fn)() = *static_cast<void (**)()>(argp);
-    rt::log("game thread started\n");
+    const uint32_t fcr31 = psp_fpu::quiet();
+    rt::log("game thread started (FPU control 0x%08x, exceptions now off)\n", fcr31);
     // High-water mark (MOTORACER_MEM_STATS): the kernel fills a new thread's stack with 0xFF. Never
     // write to it here: the kernel keeps a guard word at the stack's bottom, and a real PSP stops the
     // program when it changes (PPSSPP does not check).

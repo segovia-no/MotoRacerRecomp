@@ -42,7 +42,17 @@
 #define WRF32(a, v) do { float w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 4); } while (0)
 #define WRF64(a, v) do { double w_ = (v); memcpy(mb + (uint32_t)(a), &w_, 8); } while (0)
 /* proven-aligned accesses (align_accesses in translate.py): one load/store on strict-alignment CPUs */
+#ifdef RECOMP_CHECK_ALIGN
+#ifdef __cplusplus
+extern "C"
+#endif
+void recomp_align_fault(uint32_t a, int n, const char *file, int line);
+#define AL_(a, n) ({ uint32_t al_ = (uint32_t)(a); \
+    if (al_ & ((n) - 1)) recomp_align_fault(al_, n, __FILE__, __LINE__); \
+    __builtin_assume_aligned(mb + al_, n); })
+#else
 #define AL_(a, n) __builtin_assume_aligned(mb + (uint32_t)(a), n)
+#endif
 #define RD16A(a) ({ uint16_t r_; memcpy(&r_, AL_(a, 2), 2); r_; })
 #define RD32A(a) ({ uint32_t r_; memcpy(&r_, AL_(a, 4), 4); r_; })
 #define RD64A(a) ({ uint64_t r_; memcpy(&r_, AL_(a, 4), 8); r_; })
