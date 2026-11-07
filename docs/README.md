@@ -2,23 +2,15 @@
 
 Living index of what we know. Each topic gets its own file; this one links them.
 
-## Repository layout
+## Guides (players)
+- [guides/install.md](guides/install.md) — download, first start, per-platform notes, updating, uninstall
+- [guides/playing.md](guides/playing.md) — features, controls, settings (`[Recomp]` options)
+- [guides/troubleshooting.md](guides/troubleshooting.md) — logs, reinstalling, resetting settings
+- [guides/psp-build.md](guides/psp-build.md) — building and installing the PSP version
 
-| Folder | What is there |
-|---|---|
-| `recompiler/` | The translator (`recomp_main.py`, `recomp/`), the release builds' module builder (`build_gamecode.py`), the differential tests (`tests/`) |
-| `runtime/src/core/` | Program entry, PE loader, guest memory, exceptions, dispatch, profiler |
-| `runtime/src/win32/`, `dx/`, `gpu/` | Windows API, DirectDraw / Direct3D / DirectSound, the SDL_GPU shaders |
-| `runtime/src/host/` | SDL window, audio, video and presentation |
-| `runtime/src/game/` | Moto Racer specifics: hooks, the Recomp menu, settings, the first-run installer; `natives/`: native rewrites of game functions |
-| `runtime/src/platform/`, `psp/` | OS adapters (macOS, Linux, Windows, PSP) and the PSP's GE backend |
-| `runtime/include/` | Headers shared with the generated code |
-| `scripts/setup/` | Setup helpers (installer unpacking, Linux container build, Windows toolchain, the PSP build) |
-| `scripts/psp/`, `dev/`, `release/` | PSP packaging and tests, development tools (E2E tests, profiling, disassembly), release kits |
-| `packaging/` | Per-platform packaging (macOS app bundle, Windows manifest, Linux icon) |
-| `docs/guides/`, `notes/`, `decomp/` | Player guides, dated technical notes (below), decompilation notes |
-| `site/` | The project website (and its image generator in `site/tools/`) |
-| `setup.sh`, `setup.cmd`, `setup.ps1` | One-step builds from the GOG installer (`--psp`: the PSP version) |
+## Developer docs
+- [dev/building.md](dev/building.md) — building from source (setup scripts, by hand), developer aids
+- [dev/architecture.md](dev/architecture.md) — how it works, repository layout, further reading
 
 ## Source artifact
 
@@ -66,7 +58,6 @@ Not yet: Linux / Steam Deck, Windows, multiplayer (stubbed by decision), GDI tex
 - [27-native-geometry.md](notes/27-native-geometry.md) — native vertex transform, face visibility loops and polygon setup (check mode, PSP timings, alignment of packed objects, local memory base fix)
 - [28-easy-install.md](notes/28-easy-install.md) — plan for installing without toolchains (option A): prebuilt host + game-code module built on the player's machine with a bundled `zig cc`, frozen translator, first-run installer, CI releases; nothing translated is distributed
 - [29-discoverability.md](notes/29-discoverability.md) — website (GitHub Pages, JSON-LD, FAQ), llms.txt, README hero, social preview, listing / launch plan
-- [guides/psp-build.md](guides/psp-build.md) — building the PSP version from the GOG installer on macOS, Linux and Windows (WSL): `./setup.sh --psp` / `setup.cmd --psp`, what it installs, installing on the PSP
 - [decomp/](decomp/README.md) — decompilation notes: functions, record layouts and globals found by the native rewrites
 - [13-e2e-testing.md](notes/13-e2e-testing.md) — unattended E2E runs: scripted keys, snapshots, contact sheets, menu navigation facts
 - [15-ports-plan.md](notes/15-ports-plan.md) — Linux / Steam Deck / Windows ports: plan, platform adapters (P0 done), shader pipeline, risks

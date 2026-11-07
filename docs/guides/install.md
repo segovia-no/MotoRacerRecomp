@@ -1,0 +1,62 @@
+# Installing Moto Racer Recomp
+
+> **You need your own copy of the game.** Buy *Moto Racer* on [GOG](https://www.gog.com/game/moto_racer) and download the offline installer (`setup_moto_racer_2.1.0.11.exe`). The downloads contain no game code or assets; everything is made from your installer on your own computer.
+
+1. **Download** the package for your system from the [Releases page](https://github.com/segovia-no/MotoRacerRecomp/releases):
+
+   | System | Download | Needs |
+   |---|---|---|
+   | Mac (Apple Silicon) | `MotoRacer-macos-arm64.zip` | macOS 12 or later |
+   | Windows | `MotoRacer-windows-x86_64.zip` | Windows 10 or 11, 64-bit |
+   | Steam Deck / Linux | `MotoRacer-linux-x86_64.tar.xz` | x86-64, glibc 2.29 or later |
+
+2. **Put the GOG installer in your Downloads folder** (`setup_moto_racer_2.1.0.11.exe`: GOG › Moto Racer › Download offline backup game installers).
+3. **Unpack the download and start Moto Racer** (details for your system below). On the first start it shows a setup screen:
+   - It finds the GOG installer in your Downloads folder: choose **Install**. Elsewhere? Choose **Choose installer...** and select it.
+   - It unpacks the game files and builds the game code on your computer, with a progress bar. This takes a minute or two and happens only once (and once after an update).
+   - Then the game starts. From now on it starts straight away.
+
+Everything needed for this comes in the download (Python, a C compiler and an installer unpacker, about 300 MB). Nothing is installed system-wide and nothing else is downloaded. Keep about 1.5 GB free.
+
+No package for your system, or you want the latest code? [Build from source](../dev/building.md). The PSP version is built from source too: [psp-build.md](psp-build.md).
+
+## Mac
+- Double-click the zip, then move **MotoRacer.app** to your Applications folder and open it.
+- The app is not notarized by Apple, so the first open is blocked ("Apple could not verify…"). Choose **Done**, then open **System Settings › Privacy & Security**, scroll down and choose **Open Anyway** next to MotoRacer. (macOS 12–14: right-click the app › **Open** › **Open**.) You only do this once.
+- Still blocked? In Terminal: `xattr -dr com.apple.quarantine /Applications/MotoRacer.app`
+
+## Windows
+- Right-click the zip › **Extract All…**, then open the **MotoRacer** folder and double-click **motoracer.exe**.
+- If SmartScreen says "Windows protected your PC": **More info › Run anyway** (the program is not code-signed).
+- Keep `motoracer.exe` next to its `kit` folder. To start it from the Start menu or the desktop, right-click `motoracer.exe` › **Show more options › Send to › Desktop (create shortcut)**, or pin it to Start.
+
+## Steam Deck
+1. In **Desktop Mode**, download the GOG installer and the Linux package with the browser (both land in Downloads).
+2. In Dolphin (the file manager), right-click `MotoRacer-linux-x86_64.tar.xz` › **Extract › Extract archive here**. Move the **MotoRacer** folder wherever you like, e.g. your home folder.
+3. Add it to Steam: in Steam choose **Games › Add a Non-Steam Game to My Library… › Browse…**, pick **MotoRacer/motoracer** and **Add Selected Programs**.
+4. Start it once from Steam in Desktop Mode, so the setup screen can build the game (it finds the installer in Downloads; choose **Install**).
+5. Back in **Game Mode**, start *Moto Racer* from your library (under Non-Steam).
+   - Controls: Steam gives new non-Steam games a keyboard layout. Once, open the game's controller settings (Steam button › Controller settings) and choose **Gamepad with Joystick Trackpad**; Steam remembers it.
+   - The game starts in 16/9 MODE at the Deck's native **1280×800**. Docked to a TV? Choose e.g. 1920×1080 in Options › SCREEN MODE.
+
+## Linux PC
+Unpack and run:
+```sh
+tar -xJf ~/Downloads/MotoRacer-linux-x86_64.tar.xz -C ~
+~/MotoRacer/motoracer
+```
+Keep `motoracer` next to its `kit` folder.
+
+## Updating
+Download the new package and replace the old one (the app, or the MotoRacer folder). On the next start it rebuilds the game code once ("UPDATING"); your saves, best times and settings stay where they are (see [Settings](playing.md#settings)).
+
+## Where things are
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Data folder (game files, compiled game code, saves, settings) | `~/Library/Application Support/MotoRacerRecomp` | `~/.local/share/MotoRacerRecomp` | `%LOCALAPPDATA%\MotoRacerRecomp` |
+| Log | `~/Library/Logs/MotoRacerRecomp/motoracer.log` | `~/.local/state/MotoRacerRecomp/motoracer.log` | `%LOCALAPPDATA%\MotoRacerRecomp\logs\motoracer.log` |
+
+## Uninstall
+Delete the app (or the MotoRacer folder) and the data folder above. Source builds also made `~/Applications/MotoRacer.app` (macOS), `~/.local/share/applications/motoracer-recomp.desktop` (Linux) or a Start menu shortcut (Windows).
+
+Problems? See [troubleshooting.md](troubleshooting.md).

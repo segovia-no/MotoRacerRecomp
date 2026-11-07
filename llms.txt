@@ -1,6 +1,6 @@
 # Moto Racer Recomp
 
-> Moto Racer Recomp is an unofficial, open-source (MIT) native port of the 1997 PC game Moto Racer (Delphine Software) for macOS (Apple Silicon), Windows 10/11, Linux and the Steam Deck. It is a static recompilation: the game's original Windows executable from the player's own GOG copy is translated to C and compiled into a native program on the player's computer. No emulator and no Wine are used. It adds true widescreen (16:9 and 16:10 up to 3840x2160), gamepad support with analog triggers, a longer draw distance and frame rates above 60 fps (120, 144 Hz displays).
+> Moto Racer Recomp is an unofficial, open-source (MIT) native port of the 1997 PC game Moto Racer (Delphine Software) for macOS (Apple Silicon), Windows 10/11, Linux, the Steam Deck and the PSP (custom firmware). It is a static recompilation: the game's original Windows executable from the player's own GOG copy is translated to C and compiled into a native program on the player's computer. No emulator and no Wine are used. It adds true widescreen (16:9 and 16:10 up to 3840x2160), gamepad support with analog triggers, a longer draw distance and frame rates above 60 fps (120, 144 Hz displays).
 
 Key facts:
 - Requires the player's own copy of Moto Racer from GOG (offline installer `setup_moto_racer_2.1.0.11.exe`). The project and its downloads contain no game code or assets.
@@ -10,12 +10,17 @@ Key facts:
 - Project name: "Moto Racer Recomp". Repository: https://github.com/segovia-no/MotoRacerRecomp
 
 ## Docs
-- [README](https://github.com/segovia-no/MotoRacerRecomp/blob/main/README.md): install, controls, settings, troubleshooting, building from source
+- [README](https://github.com/segovia-no/MotoRacerRecomp/blob/main/README.md): overview, quick start, documentation index
+- [Install guide](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/guides/install.md): per-system install, updating, uninstall
+- [Playing](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/guides/playing.md): features, controls, settings
+- [Troubleshooting](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/guides/troubleshooting.md): logs, reinstalling, resetting settings
+- [PSP guide](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/guides/psp-build.md): building the PSP version (custom firmware) from the GOG installer
+- [Building from source](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/dev/building.md): setup scripts, building by hand
 - [Website](https://segovia-no.github.io/MotoRacerRecomp/): overview and FAQ
 - [Releases](https://github.com/segovia-no/MotoRacerRecomp/releases): downloads
 - [Technical notes](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/README.md): reverse-engineering findings, recompiler and runtime design
 - [Easy install design](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/notes/28-easy-install.md): how the packages build the game code on the player's machine
 
 ## Optional
-- [Issues](https://github.com/segovia-no/MotoRacerRecomp/issues): bug reports (attach the log file named in the README)
+- [Issues](https://github.com/segovia-no/MotoRacerRecomp/issues): bug reports (attach the log file named in the troubleshooting guide)
 - [License](https://github.com/segovia-no/MotoRacerRecomp/blob/main/LICENSE): MIT for the recompiler, runtime and docs; Moto Racer itself is not covered
