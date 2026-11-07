@@ -5,6 +5,7 @@
 // (native_check.h). Floating point in fpu_t, in the x87 code's operation order (-ffp-contract=off).
 #include <cstring>
 #include <limits>
+#include <initializer_list>
 
 #include "runtime.h"
 #include "recomp_mem_local.h"
@@ -25,6 +26,10 @@ extern "C" void f_0046e8b0_t(void);
 extern "C" void f_00422540_t(void);
 extern "C" void f_00464190_t(void);
 extern "C" void f_00403710_t(void);
+extern "C" void f_0040ce60_t(void);
+extern "C" void f_00403a80(void);
+extern "C" void f_0049b2c0(void);
+extern "C" void f_0049b7f0(void);
 extern "C" void f_00476700(void);
 extern "C" void f_004767b0(void);
 extern "C" void f_004b2bb0(void);
@@ -147,9 +152,8 @@ constexpr uint32_t SIN_TABLE = 0x5fcb80;
 inline float rnd(fpu_t v) { return static_cast<float>(v); }
 inline fpu_t F_(float v) { return static_cast<fpu_t>(v); }
 
-void rot_translate() {
+void rot_translate_at(uint32_t out, uint32_t ang, uint32_t t) {
     MEM_LOCAL();
-    const uint32_t sp = R.esp, out = R.ecx, ang = RD32A(sp + 4), t = RD32A(sp + 8);
     const fpu_t k = static_cast<fpu_t>(RDF64(0x4d00d0));
     auto ab = [&](uint32_t a, fpu_t &s, fpu_t &c) {
         const uint32_t i = static_cast<uint32_t>(FTOL(F_(RDF32(a)) * k));
@@ -177,9 +181,15 @@ void rot_translate() {
     WR32(out + 0x24, tx);
     WR32(out + 0x28, ty);
     WR32(out + 0x2c, tz);
+}
+
+void rot_translate() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, out = R.ecx, ang = RD32A(sp + 4), t = RD32A(sp + 8);
+    rot_translate_at(out, ang, t);
     R.eax = out;
-    R.ecx = tz;
-    R.edx = tx;
+    R.ecx = RD32(t + 8);
+    R.edx = RD32(t);
     R.esp = sp + 12;
 }
 
@@ -586,7 +596,135 @@ void node_matrices_call() {
     R.esp += 4;
 }
 
-uint32_t n_473a90, n_495bd0, n_4b32d0, n_4039c0, n_403a20, n_403740, n_458b80, n_41e1b0, n_490b90, n_40d3b0, n_49a160, n_46e8b0, n_422540, n_464190, n_403710;
+// 0x40fe80: inverse of a rotation + translation (transpose, -R^T t), as native_race_c.cpp
+void inverse12(const float m[12], float o[12]) {
+    auto F_ = [](float v) { return static_cast<fpu_t>(v); };
+    const fpu_t t10 = ((F_(m[2]) * F_(m[11]) + F_(m[1]) * F_(m[10])) + F_(m[9]) * F_(m[0]));
+    const fpu_t t19 = ((F_(m[5]) * F_(m[11]) + F_(m[9]) * F_(m[3])) + F_(m[10]) * F_(m[4]));
+    const fpu_t t26 = ((F_(m[10]) * F_(m[7]) + F_(m[9]) * F_(m[6])) + F_(m[11]) * F_(m[8]));
+    const float r[12] = {m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8], rnd(-t10), rnd(-t19), rnd(-t26)};
+    memcpy(o, r, sizeof r);
+}
+
+// a guest function pointer called as the x86 does (thiscall ecx, stack arguments, return address)
+void vcall(uint32_t va, uint32_t esp, uint32_t ret, uint32_t ecx, std::initializer_list<uint32_t> args) {
+    MEM_LOCAL();
+    const uint32_t at = esp - 4 * static_cast<uint32_t>(args.size()) - 4;
+    WR32A(at, ret);
+    uint32_t a = at + 4;
+    for (uint32_t v : args) { WR32A(a, v); a += 4; }
+    R.esp = at;
+    R.ecx = ecx;
+    call_indirect(va);
+    R.esp = esp;
+}
+
+// ---- 0x40ce60: draw the track around a sector (thiscall: ecx = track view; sector, camera, out; ret 0xc) ----
+// Track view: sectors [+0] (252 bytes), sector count [+4], chunks [+8] (112 bytes, count [+0x10]),
+// range [+0x24]; [+0x20] = the sector. By the camera's view axis (the inverse of its matrix +0x68 applied
+// to (0, 0, 1)) against the sector's direction +0x40: n chunks ahead and 1 behind, n/2 each way, or 1
+// ahead and n behind, around the sector's chunk +0x3c. Each chunk with geometry: the camera matrix
+// (rotation 0 with the translation -position +0x98 (0x403740), times the camera's (0x403a80)), the
+// transform 0x49b2c0 and the faces 0x49b7f0. Then the track objects of the sectors cur .. cur + 4 * ahead
+// + 4 and cur - 1 .. cur - 4 * behind - 4 (virtual draw [vtbl + 0xc] when [0x4dc098]), their indexes
+// into out. eax = the number of indexes. Callers read no other register.
+void track_draw() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, t = R.ecx, cur = RD32A(sp + 4), cam = RD32A(sp + 8), out = RD32A(sp + 12);
+    const uint32_t B = sp - 0x9c;   // esp after the prologue
+    R.esp = sp + 16;
+    WR32A(B + 0x24, 0);
+    if (!RD32(t + 0x10)) {
+        WR32(t + 0x20, 0);
+        R.eax = 0;
+        return;
+    }
+    WR32(t + 0x20, cur);
+    const uint32_t S = RD32(t) + cur * 252u;
+    const uint32_t c0 = RD32(S + 0x3c);
+    auto F_ = [](float v) { return static_cast<fpu_t>(v); };
+    float cm[12], ci[12];
+    for (int k = 0; k < 12; k++) cm[k] = RDF32(cam + 0x68 + 4 * k);
+    inverse12(cm, ci);
+    auto c = [&](int k) { return F_(ci[k]); };
+    const fpu_t v0 = 0, v1 = 0, v2 = 1;   // 0x410010 on (0, 0, 1)
+    const float f[3] = {rnd(((c(6) * v2 + c(3) * v1) + c(0) * v0) + c(9)), rnd(((c(1) * v0 + c(4) * v1) + c(7) * v2) + c(10)),
+                        rnd(((c(8) * v2 + c(5) * v1) + c(2) * v0) + c(11))};
+    const fpu_t dot = (static_cast<fpu_t>(RDF32(S + 0x48)) * F_(f[2]) + F_(f[1]) * static_cast<fpu_t>(RDF32(S + 0x44))) +
+                      static_cast<fpu_t>(RDF32(S + 0x40)) * F_(f[0]);
+    const int32_t n = static_cast<int32_t>(RD32(t + 0x24));
+    uint32_t fsw = F.sw;
+    int32_t ahead, behind;
+    FCOM_L(fsw, dot, static_cast<fpu_t>(RDF64(0x4d02f0)));
+    if (!(fsw & 0x100u)) {
+        ahead = n;
+        behind = 1;
+    } else {
+        FCOM_L(fsw, dot, static_cast<fpu_t>(RDF64(0x4d02f8)));
+        if (!(fsw & 0x4100u)) ahead = behind = n / 2;
+        else { ahead = 1; behind = n; }
+    }
+    F.sw = static_cast<uint16_t>(fsw);
+    const float negpos[3] = {rnd(-static_cast<fpu_t>(RDF32(cam + 0x98))), rnd(-static_cast<fpu_t>(RDF32(cam + 0x9c))),
+                             rnd(-static_cast<fpu_t>(RDF32(cam + 0xa0)))};
+    auto chunk = [&](int32_t idx, uint32_t r1, uint32_t r2, uint32_t r3) {
+        const uint32_t C = RD32(t + 8) + static_cast<uint32_t>(idx) * 112u;
+        if (!C || !RD32(C + 0x2c) || !RD32(C + 0x30)) return;
+        for (int k = 0; k < 3; k++) {
+            WR32A(B + 0x30 + 4 * k, 0);
+            WRF32A(B + 0x18 + 4 * k, negpos[k]);
+        }
+        rot_translate_at(B + 0x6c, B + 0x30, B + 0x18);
+        gcall(f_00403a80, B, r1, R.ecx, {B + 0x3c, B + 0x6c, cam + 0x68});
+        const uint32_t v = gcall(f_0049b2c0, B, r2, RD32A(0x4dc0c0), {B + 0x3c, RD32(C + 4), RD32(C + 0x30), 0x1f});
+        gcall(f_0049b7f0, B, r3, RD32A(0x4dc0c0), {v, RD32(C), RD32(C + 0x2c), 1});
+    };
+    chunk(static_cast<int32_t>(c0) % static_cast<int32_t>(RD32(t + 0x10)), 0x40cff9, 0x40d013, 0x40d028);
+    for (int32_t i = 1; i <= ahead; i++)
+        chunk((static_cast<int32_t>(c0) + i) % static_cast<int32_t>(RD32(t + 0x10)), 0x40d0a8, 0x40d0c2, 0x40d0d7);
+    for (int32_t i = 1; i <= behind; i++) {
+        int32_t idx = static_cast<int32_t>(c0) - i;
+        if (idx < 0) idx += static_cast<int32_t>(RD32(t + 0x10));
+        chunk(idx, 0x40d162, 0x40d17c, 0x40d191);
+    }
+    auto objects = [&](int32_t sec, uint32_t ret) {
+        if (!RD32A(0x4dc098)) return;
+        const uint32_t off = static_cast<uint32_t>(sec) * 252u;
+        for (int32_t j = 0; static_cast<int32_t>(RD32(RD32(t) + off + 0xd4)) > j; j++) {
+            const int16_t id = static_cast<int16_t>(RD16(RD32(t) + off + 0xb4 + 2 * static_cast<uint32_t>(j)));
+            const uint32_t obj = RD32(RD32A(0x4dc0e4) + 4 * static_cast<int32_t>(id));
+            R.eax = RD32(obj);
+            R.edx = RD32A(0x4dc0c0);
+            vcall(RD32(R.eax + 0xc), B, ret, obj, {RD32A(0x4dc0c0), cam});
+        }
+    };
+    WR32A(B + 0x18, 0);
+    uint32_t cnt = 0;
+    const int32_t total = ahead * 4 + 4;
+    if (total >= 0) {
+        cnt = static_cast<uint32_t>(ahead * 4 + 5);
+        for (int32_t k = 0; k <= total; k++) {
+            const int32_t sec = static_cast<int32_t>(cur + static_cast<uint32_t>(k)) % static_cast<int32_t>(RD32(t + 4));
+            WR32(out + 4 * static_cast<uint32_t>(k), static_cast<uint32_t>(sec));
+            objects(sec, 0x40d244);
+        }
+    }
+    const int32_t total2 = behind * 4 + 4;
+    if (total2 >= 1) {
+        const uint32_t o = out + 4 * cnt;
+        cnt += static_cast<uint32_t>(behind * 4 + 4);
+        for (int32_t k = 1; k <= total2; k++) {
+            int32_t sec = static_cast<int32_t>(cur) - k;
+            if (sec < 0) sec += static_cast<int32_t>(RD32(t + 4));
+            WR32(o + 4 * static_cast<uint32_t>(k - 1), static_cast<uint32_t>(sec));
+            objects(sec, 0x40d314);
+        }
+    }
+    R.eax = cnt;
+    R.esp = sp + 16;
+}
+
+uint32_t n_473a90, n_495bd0, n_4b32d0, n_4039c0, n_403a20, n_403740, n_458b80, n_41e1b0, n_490b90, n_40d3b0, n_49a160, n_46e8b0, n_422540, n_464190, n_403710, n_40ce60;
 }  // namespace
 
 extern "C" int native_hot_473a90(void) {
@@ -757,5 +895,16 @@ extern "C" int native_hot_464190(void) {
     }
     check_abi("node matrices 0x464190", node_matrices_call, f_00464190_t, regions);
     counted("node matrices 0x464190", n_464190);
+    return 1;
+}
+
+extern "C" int native_hot_40ce60(void) {
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { track_draw(); return 1; }
+    // the chunk and object draws write the render lists, pools and vertex buffers: the whole writable image
+    const uint32_t lo = 0x4db000, hi = 0x70c568;
+    check_abi("track draw 0x40ce60", track_draw, f_0040ce60_t, {{lo, hi - lo}});
+    counted("track draw 0x40ce60", n_40ce60);
     return 1;
 }

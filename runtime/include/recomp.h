@@ -383,6 +383,7 @@ int native_hot_46e8b0(void);
 int native_hot_422540(void);
 int native_hot_464190(void);
 int native_hot_403710(void);
+int native_hot_40ce60(void);
 int native_hot_497e40(void);
 int native_hot_497d60(void);
 void native_rgb_row_check(void);

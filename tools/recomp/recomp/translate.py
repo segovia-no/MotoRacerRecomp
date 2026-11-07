@@ -199,6 +199,7 @@ NATIVE_FUNCS = {
     0x422540: "native_hot_422540",   # hot race function, native_race_e.cpp
     0x464190: "native_hot_464190",   # hot race function, native_race_e.cpp
     0x403710: "native_hot_403710",   # hot race function, native_race_e.cpp
+    0x40CE60: "native_hot_40ce60",   # hot race function, native_race_e.cpp
     0x497E40: "native_hot_497e40",   # near-plane splitter, native_geom.cpp
     0x497D60: "native_hot_497d60",   # its edge split, native_geom.cpp
 }
