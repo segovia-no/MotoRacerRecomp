@@ -4,6 +4,7 @@
 // translated body f_<va>_t. MOTORACER_NATIVE=check runs both on the same state and compares
 // (native_check.h). Floating point in fpu_t, in the x87 code's operation order (-ffp-contract=off).
 #include <cstring>
+#include <limits>
 
 #include "runtime.h"
 #include "recomp_mem_local.h"
@@ -16,6 +17,9 @@ extern "C" void f_004039c0_t(void);
 extern "C" void f_00403a20_t(void);
 extern "C" void f_00403740_t(void);
 extern "C" void f_00458b80_t(void);
+extern "C" void f_0041e1b0_t(void);
+extern "C" void f_00490b90_t(void);
+extern "C" void f_0040d3b0_t(void);
 extern "C" void f_0046e8b0(void);
 extern "C" void f_00462110(void);
 extern "C" void f_0045f290(void);
@@ -240,7 +244,111 @@ void draw_bikes() {
     R.esp = sp + 12;
 }
 
-uint32_t n_473a90, n_495bd0, n_4b32d0, n_4039c0, n_403a20, n_403740, n_458b80;
+// ---- 0x41e1b0: Direct3D render states into an execute buffer (thiscall: ecx = writer, arg on; ret 4) ----
+// [ecx + 8] = the write pointer: a D3DOP_STATERENDER header (8, 8, count 3), then three (state, value)
+// pairs: on: (0x1b, [0x4e4f10]), (0x13, 5), (0x14, 6); off: (0xf, 0), (0x1b, 0), (0x15, [0x53bc10]).
+// [0x4e4f2c] = on, [0x4e4f3c] = -100. eax = the new pointer; edx = [0x53bc10] when off.
+void blend_ops() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, w = R.ecx, on = RD32A(sp + 4);
+    uint32_t p = RD32(w + 8);
+    WR8(p, 8);
+    WR8(p + 1, 8);
+    WR16(p + 2, 3);
+    p += 4;
+    const uint32_t ops[2][6] = {{0xf, 0, 0x1b, 0, 0x15, RD32A(0x53bc10)}, {0x1b, RD32A(0x4e4f10), 0x13, 5, 0x14, 6}};
+    const uint32_t *o = ops[on ? 1 : 0];
+    for (int k = 0; k < 3; k++, p += 8) {
+        WR32(p, o[2 * k]);
+        WR32(p + 4, o[2 * k + 1]);
+    }
+    WR32(w + 8, p);
+    WR32A(0x4e4f2c, on ? 1 : 0);
+    WR32A(0x4e4f3c, 0xffffff9cu);
+    R.eax = p;
+    if (!on) R.edx = o[5];
+    R.esp = sp + 8;
+}
+
+// ---- 0x490b90: a 32-step colour gradient into a palette range (thiscall: ecx = object; first, last; ret 8) ----
+// From the bytes (r, g, b) at +0x5497 to those at +0x5494 in 16.16 steps of ((end - start) << 16) >> 5
+// (unsigned, as the x86 shifts), 32 display pixels (0x473a90) into the table 0x60d1a0; then entries
+// first + 1 .. last + 1 of the object's 16-bit table at +0x416 take table[i & 31].
+void gradient() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, obj = R.ecx, first = RD32A(sp + 4), last = RD32A(sp + 8);
+    uint32_t r = static_cast<uint32_t>(RD8(obj + 0x5497)) << 16, g = static_cast<uint32_t>(RD8(obj + 0x5498)) << 16,
+             b = static_cast<uint32_t>(RD8(obj + 0x5499)) << 16;
+    const uint32_t dr = ((static_cast<uint32_t>(RD8(obj + 0x5494)) - (r >> 16)) << 16) >> 5;
+    const uint32_t dg = ((static_cast<uint32_t>(RD8(obj + 0x5495)) - (g >> 16)) << 16) >> 5;
+    const uint32_t db = ((static_cast<uint32_t>(RD8(obj + 0x5496)) - (b >> 16)) << 16) >> 5;
+    uint32_t ecx = R.ecx, edx = R.edx, eax = 0;
+    for (uint32_t i = 0; i < 32; i++) {
+        eax = pack_rgb(r >> 16, g >> 16, b >> 16, ecx, edx);
+        WR16A(0x60d1a0 + 2 * i, static_cast<uint16_t>(eax));
+        r += dr;
+        g += dg;
+        b += db;
+    }
+    eax = dg;
+    edx = first;
+    if (last >= first) {
+        do {
+            const uint32_t k = edx & 0x1f;
+            edx++;
+            eax = RD16A(0x60d1a0 + 2 * k);
+            WR16(obj + 0x416 + 2 * edx, static_cast<uint16_t>(eax));
+        } while (edx <= last);
+    }
+    R.eax = eax;
+    R.ecx = last;
+    R.edx = edx;
+    R.esp = sp + 12;
+}
+
+// ---- 0x40d3b0: per surface type, the nearest sector around the current one (thiscall: ecx = track; out, n; ret 8) ----
+// Track: sectors [ecx] (252 bytes: centre x y z at +0, type mask +0xf8), count [ecx + 4], current [ecx + 0x20].
+// Over the 2n sectors from current - n (wrapped once), for each of the 7 mask bits a sector has, the
+// sector with the smallest squared distance (floats as the x86 rounds them; ties keep the first) goes to
+// out[bit]. eax = 2n, ecx = 2n (0 without sectors to scan), edx = the first sector.
+void nearest_types() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, t = R.ecx, out = RD32A(sp + 4), n = RD32A(sp + 8);
+    const int32_t count = static_cast<int32_t>(RD32(t + 4)), cur = static_cast<int32_t>(RD32(t + 0x20));
+    const int32_t start = static_cast<int32_t>((static_cast<int64_t>(static_cast<int32_t>(static_cast<uint32_t>(count) - n + static_cast<uint32_t>(cur)))) % count);
+    const uint32_t base = RD32(t);
+    const uint32_t c = base + static_cast<uint32_t>(cur) * 252u;
+    const float px = RDF32(c), py = RDF32(c + 4), pz = RDF32(c + 8);
+    float best[7];
+    for (float &x : best) x = std::numeric_limits<float>::max();
+    uint32_t fsw = F.sw;
+    const int32_t total = static_cast<int32_t>(n * 2);
+    int32_t i = 0;
+    for (; i < total; i++) {
+        int32_t sct = i + start;
+        if (!(count > sct)) sct -= count;
+        const uint32_t S = base + static_cast<uint32_t>(sct) * 252u;
+        const float dx = static_cast<float>(static_cast<fpu_t>(RDF32(S)) - px);
+        const float dy = static_cast<float>(static_cast<fpu_t>(RDF32(S + 4)) - py);
+        const float dz = static_cast<float>(static_cast<fpu_t>(RDF32(S + 8)) - pz);
+        const float d = static_cast<float>((static_cast<fpu_t>(dy) * dy + static_cast<fpu_t>(dz) * dz) + static_cast<fpu_t>(dx) * dx);
+        const uint32_t mask = RD32(S + 0xf8);
+        for (int k = 0; k < 7; k++) {
+            if (!(mask & (1u << k))) continue;
+            FCOM_L(fsw, static_cast<fpu_t>(best[k]), static_cast<fpu_t>(d));
+            if (fsw & 0x4100u) continue;
+            best[k] = d;
+            WR32(out + 4 * k, static_cast<uint32_t>(sct));
+        }
+    }
+    F.sw = static_cast<uint16_t>(fsw);
+    R.eax = static_cast<uint32_t>(total);
+    R.ecx = total > 0 ? static_cast<uint32_t>(total) : 0;
+    R.edx = static_cast<uint32_t>(start);
+    R.esp = sp + 12;
+}
+
+uint32_t n_473a90, n_495bd0, n_4b32d0, n_4039c0, n_403a20, n_403740, n_458b80, n_41e1b0, n_490b90, n_40d3b0;
 }  // namespace
 
 extern "C" int native_hot_473a90(void) {
@@ -314,5 +422,38 @@ extern "C" int native_hot_458b80(void) {
     const uint32_t lo = 0x4db000, hi = 0x70c568;
     check_abi("draw bikes 0x458b80", draw_bikes, f_00458b80_t, {{lo, hi - lo}, {R.esp - 0x2000, 0x2000}});
     counted("draw bikes 0x458b80", n_458b80);
+    return 1;
+}
+
+extern "C" int native_hot_41e1b0(void) {
+    MEM_LOCAL();
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { blend_ops(); return 1; }
+    check("blend ops 0x41e1b0", blend_ops, f_0041e1b0_t, {{R.ecx + 8, 4}, {RD32(R.ecx + 8), 28}, {0x4e4f2c, 4}, {0x4e4f3c, 4}});
+    counted("blend ops 0x41e1b0", n_41e1b0);
+    return 1;
+}
+
+extern "C" int native_hot_490b90(void) {
+    MEM_LOCAL();
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { gradient(); return 1; }
+    const uint32_t obj = R.ecx, first = RD32A(R.esp + 4), last = RD32A(R.esp + 8);
+    std::vector<Region> regions{{0x60d1a0, 64}};
+    if (last >= first && last - first < 0x10000) regions.push_back({obj + 0x418 + 2 * first, 2 * (last - first + 1) + 2});
+    check("gradient 0x490b90", gradient, f_00490b90_t, regions);
+    counted("gradient 0x490b90", n_490b90);
+    return 1;
+}
+
+extern "C" int native_hot_40d3b0(void) {
+    MEM_LOCAL();
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { nearest_types(); return 1; }
+    check("nearest types 0x40d3b0", nearest_types, f_0040d3b0_t, {{RD32A(R.esp + 4), 28}});
+    counted("nearest types 0x40d3b0", n_40d3b0);
     return 1;
 }
