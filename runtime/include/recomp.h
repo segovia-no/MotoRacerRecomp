@@ -22,7 +22,7 @@ typedef struct {
 
 /* x87 registers are emulated in double precision, or in float with RECOMP_FPU_FLOAT (CMake
  * MOTORACER_FPU_FLOAT: for CPUs with a single-precision FPU, e.g. the PSP; the game computes in single
- * precision, docs/21-psp-feasibility.md). FM(sin) is sin or sinf to match. */
+ * precision, docs/notes/21-psp-feasibility.md). FM(sin) is sin or sinf to match. */
 /* RECOMP_COUNT_INSNS (CMake MOTORACER_COUNT_INSNS): every translated instruction counts itself, in
  * total, per guest function (indexed by the function's entry address - 0x400000) and per
  * instruction address. */
@@ -64,11 +64,11 @@ RECOMP_HOST_DATA extern uint8_t *M;
 
 typedef void (*RecompFn)(void);
 
-/* ---------- tables of the generated code (tools/recomp/recomp_main.py) ---------- */
+/* ---------- tables of the generated code (recompiler/recomp_main.py) ---------- */
 typedef struct { uint32_t va; RecompFn fn; } RecompEntry;   /* guest function at va */
 typedef struct { uint32_t iat_va; const char *dll; const char *name; RecompFn fn; } ImportEntry;
 
-/* A game-code module (MOTORACER_GAME_MODULE, docs/28-easy-install.md) exports one of these as
+/* A game-code module (MOTORACER_GAME_MODULE, docs/notes/28-easy-install.md) exports one of these as
    `recomp_module`; the host checks the version, then fills the import slots with its shims. */
 #define RECOMP_MODULE_VERSION 1u
 typedef struct {
@@ -289,7 +289,7 @@ void game_hook_ai_speed(void);
 int game_hook_ai_lod(void);        /* jump hook: nonzero = skip this bike's update this frame */
 void game_hook_ai_lod_after(void);
 void game_hook_opponents(void);
-/* native versions (runtime/src/native_render.cpp) */
+/* native versions (runtime/src/game/natives/native_render.cpp) */
 int native_flat_vertices(void);
 int native_tex_vertices(void);
 void native_vertices_check(void);
@@ -297,7 +297,7 @@ void native_bucket_skip(void);
 int native_flush_polygon(void);
 int native_emit_triangle(void);
 int native_emit_line(void);
-/* sampling profiler (runtime/src/prof.cpp, MOTORACER_PROF=1): the region the running code is in,
+/* sampling profiler (runtime/src/core/prof.cpp, MOTORACER_PROF=1): the region the running code is in,
    sampled by a timer. Generated code marks each native hook with a region of its own. */
 RECOMP_HOST_DATA extern volatile uint8_t prof_region;
 /* MOTORACER_NATIVE_OFF=name,name (dev): native hooks to skip (their translated code runs), by the
@@ -328,7 +328,7 @@ void native_flush_check(void);
 void game_hook_bikes_begin(void);   /* cockpit view with the Z-buffer (native_render.cpp) */
 void game_hook_cockpit_begin(void);
 void game_hook_cockpit_end(void);
-/* whole functions (NATIVE_FUNCS in translate.py, runtime/src/native_geom.cpp): nonzero = done */
+/* whole functions (NATIVE_FUNCS in translate.py, runtime/src/game/natives/native_geom.cpp): nonzero = done */
 int native_transform(void);
 int native_faces(void);
 int native_poly_setup(void);
@@ -337,13 +337,13 @@ int native_poly_special(void);
 int native_clip(void);
 int native_poly_record_init(void);
 int native_sector_search(void);
-int native_getc(void);   /* runtime/src/native_load.cpp */
+int native_getc(void);   /* runtime/src/game/natives/native_load.cpp */
 int native_cfile_read(void);
 int native_rgb_row(void);
 int native_sprintf(void);
 int native_vsprintf(void);
 int native_output(void);
-int native_sprite_blit(void);   /* runtime/src/native_menu.cpp */
+int native_sprite_blit(void);   /* runtime/src/game/natives/native_menu.cpp */
 int native_tile_fill(void);
 /* hot race functions (runtime/src/native_race_a..d.cpp) */
 int native_hot_46b120(void);

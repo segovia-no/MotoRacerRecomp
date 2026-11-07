@@ -20,7 +20,7 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - run: cp llms.txt site/llms.txt
+      - run: cp llms.txt site/llms.txt && rm -rf site/tools   # site/tools: the image generator, not published
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

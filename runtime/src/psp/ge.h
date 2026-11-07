@@ -1,5 +1,5 @@
 // PSP graphics engine (GE) context shared by the frame presenter and the Direct3D backend
-// (docs/25-psp-port.md).
+// (docs/notes/25-psp-port.md).
 //
 // VRAM (2 MB): three 16-bit colour buffers (triple buffering), a 16-bit depth buffer and a scratch
 // buffer (the menu halving) of 480x272 (stride 512): 1.33 MB.

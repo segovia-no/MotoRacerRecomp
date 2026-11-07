@@ -1,4 +1,4 @@
-// host::gpu on the PSP (docs/25-psp-port.md): the software frame presenter draws the CPU-made
+// host::gpu on the PSP (docs/notes/25-psp-port.md): the software frame presenter draws the CPU-made
 // frame (menus: 640x480) as a scaled texture with the GE; there is no SDL_GPU device.
 #include <malloc.h>
 #include <pspgu.h>
@@ -8,7 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "../host_gpu.h"
+#include "host/host_gpu.h"
 #include "runtime.h"
 #include "ge.h"
 

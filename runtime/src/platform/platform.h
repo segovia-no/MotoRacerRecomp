@@ -100,7 +100,7 @@ public:
 
 // ---------- device ----------
 // ---------- loadable code ----------
-// The game-code module (MOTORACER_GAME_MODULE, docs/28-easy-install.md).
+// The game-code module (MOTORACER_GAME_MODULE, docs/notes/28-easy-install.md).
 class Modules {
 public:
     virtual ~Modules() = default;

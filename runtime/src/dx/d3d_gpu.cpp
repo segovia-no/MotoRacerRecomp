@@ -12,11 +12,11 @@
 #include <vector>
 
 #include "ddraw_internal.h"
-#include "game_hooks.h"
+#include "game/game_hooks.h"
 #include "gpu/shaders.h"
-#include "host_gpu.h"
-#include "host_video.h"
-#include "settings.h"
+#include "host/host_gpu.h"
+#include "host/host_video.h"
+#include "game/settings.h"
 
 using namespace rt;
 

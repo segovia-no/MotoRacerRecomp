@@ -1,4 +1,4 @@
-// Read-only files through a 32 KB buffer, for every platform adapter (docs/25-psp-port.md, loading
+// Read-only files through a 32 KB buffer, for every platform adapter (docs/notes/25-psp-port.md, loading
 // time). The game's loaders read field by field — the track's .trk alone is ~190,000 reads of 2-10
 // bytes — and each unbuffered read is a system call (~0.1 ms on the PSP). Reads come from the
 // buffer; seeks only move the position (the file does not change while it is open read-only); large

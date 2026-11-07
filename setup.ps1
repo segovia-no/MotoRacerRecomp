@@ -4,6 +4,8 @@ Windows setup: unpacks your GOG Moto Racer installer, builds the recompiled game
 
     powershell -ExecutionPolicy Bypass -File setup.ps1 [path\to\setup_moto_racer_2.1.0.11.exe]
 
+The PSP version: setup.cmd --psp [installer] (scripts\setup\psp.ps1, builds in WSL; docs\guides\psp-build.md).
+
 Without an argument the installer is looked for in Downloads and in this folder.
 Needs Windows 10/11 (x64) and Python 3, which is installed for your user with winget if missing.
 The C toolchain (llvm-mingw), innoextract, CMake and Ninja are downloaded into build\ (pinned
@@ -12,8 +14,14 @@ versions, SHA-256 checked); nothing else is installed. Re-running rebuilds and r
 
 Environment: GAME_DIR=<dir> puts the game files elsewhere (default %LOCALAPPDATA%\MotoRacerRecomp\game).
 #>
-param([string]$Installer = "")
+param([Parameter(ValueFromRemainingArguments = $true)][string[]]$ArgList = @())
 $ErrorActionPreference = 'Stop'
+if ($ArgList.Count -gt 0 -and $ArgList[0] -in @('--psp', '-psp', '/psp')) {
+    $rest = @($ArgList | Select-Object -Skip 1)
+    & (Join-Path $PSScriptRoot 'scripts\setup\psp.ps1') @rest
+    exit $LASTEXITCODE
+}
+$Installer = if ($ArgList.Count -gt 0) { $ArgList[0] } else { "" }
 $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest is very slow with a progress bar
 
 $Root = $PSScriptRoot
@@ -118,7 +126,7 @@ if (-not (Test-Path $venvPy)) {
     & $py.Exe @($py.Args + @('-m', 'venv', $Venv))
     if ($LASTEXITCODE) { Die "could not create a Python virtual environment" }
 }
-& $venvPy -m pip install --quiet --disable-pip-version-check -r (Join-Path $Root 'tools\recomp\requirements.txt') @PipTools
+& $venvPy -m pip install --quiet --disable-pip-version-check -r (Join-Path $Root 'recompiler\requirements.txt') @PipTools
 if ($LASTEXITCODE) { Die "pip install failed" }
 
 $llvm = Get-Tool $LlvmMingw
@@ -148,7 +156,7 @@ if ($Installer) {
 $ini = Join-Path $GameDir 'motoracer.ini'
 if ((Test-Path $ini) -and -not (Select-String -Path $ini -Pattern '^\[Recomp\]' -Quiet)) {
     Say "Writing default settings to motoracer.ini"
-    Add-Content -Path $ini -Value (Get-Content (Join-Path $Root 'tools\default_settings.ini'))
+    Add-Content -Path $ini -Value (Get-Content (Join-Path $Root 'scripts\setup\default_settings.ini'))
 }
 
 # --- build -----------------------------------------------------------------------------------------

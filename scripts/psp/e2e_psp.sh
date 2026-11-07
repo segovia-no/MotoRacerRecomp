@@ -1,0 +1,46 @@
+#!/bin/bash
+# PSP E2E run in PPSSPP (docs/notes/25-psp-port.md): stages build/psp/run (EBOOT + a copy of the game files
+# without the CD-audio WAVs), writes psp_env.txt with the dev settings, runs PPSSPP for <seconds>
+# and builds a contact sheet from the GE snapshots. Opens a PPSSPP window.
+#
+#   scripts/psp/e2e_psp.sh <name> "<keys>" [seconds] [KEY=VALUE ...]
+#
+# <keys>: MOTORACER_AUTOKEYS syntax (scripts/dev/e2e.sh). Output: build/e2e/<name>.png, build/e2e/<name>.log.
+# Runs are muted (MOTORACER_MUTE=1: audio runs at volume 0) unless WITH_SOUND=1. PSP_BUILD=<dir>
+# runs another build's EBOOT (default build/psp), e.g. one configured with MOTORACER_CHECK_ALIGN.
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+name=$1 keys=$2 secs=${3:-60}
+shift $(( $# < 3 ? $# : 3 ))
+run=build/psp/run
+game="${MOTORACER_GAME_DIR:-$HOME/Library/Application Support/MotoRacerRecomp/game}"
+mkdir -p "$run/game" build/e2e
+# WITH_MUSIC=1 adds the CD audio as MP3 (scripts/psp/cd_mp3.sh, as on a real PSP); WITH_MUSIC=wav
+# copies the WAVs (~340 MB) instead
+rm -f "$run"/game/*.wav "$run"/game/*.mp3 "$run/game/cdaudio.txt"
+rsync -a --exclude '*.wav' --exclude '__support' "$game/" "$run/game/"
+case "${WITH_MUSIC:-}" in
+    "") ;;
+    wav) rsync -a --include '*.wav' --exclude '*' "$game/" "$run/game/" ;;
+    *) scripts/psp/cd_mp3.sh "$game" "$run/game" >/dev/null ;;
+esac
+cp "${PSP_BUILD:-build/psp}/EBOOT.PBP" "$run/"
+rm -rf "$run/snap" && mkdir -p "$run/snap"
+{
+    echo "MOTORACER_AUTOKEYS=$keys"
+    echo "MOTORACER_SNAPSHOT_DIR=umd0:/snap"   # absolute: the game changes into game/
+    [ -n "${WITH_SOUND:-}" ] || echo "MOTORACER_MUTE=1"   # test runs are muted; WITH_SOUND=1 for audio
+    for kv in "$@"; do echo "$kv"; done
+} > "$run/psp_env.txt"
+rm -f "$run/motoracer.log"
+perl -e 'alarm shift; exec @ARGV' "$secs" "$HOME/Applications/PPSSPPSDL.app/Contents/MacOS/PPSSPPSDL" \
+    "$PWD/$run/EBOOT.PBP" > "$run/ppsspp.out" 2>&1 || true
+cp "$run/motoracer.log" "build/e2e/$name.log" 2>/dev/null || echo "no log"
+py=python3
+for c in .venv/bin/python python3; do "$c" -c 'import PIL' 2>/dev/null && { py=$c; break; }; done
+if ls "$run"/snap/*.bmp >/dev/null 2>&1; then
+    "$py" -I scripts/dev/e2e_sheet.py "$run/snap" "build/e2e/$name.png" "gpu_*.bmp"
+    echo "sheet: build/e2e/$name.png"
+else
+    echo "no snapshots"
+fi

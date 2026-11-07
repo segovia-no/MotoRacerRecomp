@@ -1,4 +1,4 @@
-// The SDL3 subset the runtime uses, on the PSP's own APIs (docs/25-psp-port.md, PSP-1000 memory).
+// The SDL3 subset the runtime uses, on the PSP's own APIs (docs/notes/25-psp-port.md, PSP-1000 memory).
 // Linking SDL3 statically brought its video, renderer and blitters (~1 MB code) and the PSP
 // renderer's 1 MB display list, none of which the GE backend uses. The runtime keeps calling the
 // SDL functions it uses (same declarations from SDL's headers); this file defines them:

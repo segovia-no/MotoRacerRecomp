@@ -4,8 +4,8 @@
 #include <cstdio>
 #include <string>
 
-#include "game_hooks.h"
-#include "host_audio.h"
+#include "game/game_hooks.h"
+#include "host/host_audio.h"
 #include "win32.h"
 
 using namespace rt;

@@ -27,7 +27,7 @@ constexpr uint32_t PEB_VA = 0x7FFDF000;
 constexpr uint32_t GUEST_LO = 0;              // the host block covers [GUEST_LO, GUEST_HI)
 constexpr uint64_t GUEST_HI = 1ull << 32;
 #else
-// Small hosts without virtual memory (PSP, docs/25-psp-port.md): one contiguous host block from
+// Small hosts without virtual memory (PSP, docs/notes/25-psp-port.md): one contiguous host block from
 // GUEST_LO; M = block - GUEST_LO. The image keeps its addresses; everything else is packed around it.
 // The VirtualAlloc arena comes last: the CRT reserves 4 MB there but commits only 256 KB, so the block
 // ends VALLOC_BACKED bytes into it and commits past that fail loudly. (Its reservations must not
@@ -98,7 +98,7 @@ const char *thunk_name(uint32_t va);
 RecompFn find_function(uint32_t va);                      // nullptr if not a recompiled entry
 
 // The generated game code's tables (guest_code.cpp): linked in, or from the game-code module
-// loaded at the first use (MOTORACER_GAME_MODULE, docs/28-easy-install.md).
+// loaded at the first use (MOTORACER_GAME_MODULE, docs/notes/28-easy-install.md).
 const RecompModule &guest_code();
 RecompFn guest_fallback(uint32_t va);   // f_<va>_t of a function with a native version (fatal if none)
 // Import shims by name (imp_<DLL>_<NAME>), registered by STDCALL / CDECL: a module's import

@@ -13,8 +13,8 @@ Key facts:
 - [README](https://github.com/segovia-no/MotoRacerRecomp/blob/main/README.md): install, controls, settings, troubleshooting, building from source
 - [Website](https://segovia-no.github.io/MotoRacerRecomp/): overview and FAQ
 - [Releases](https://github.com/segovia-no/MotoRacerRecomp/releases): downloads
-- [Technical notes](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/00-overview.md): reverse-engineering findings, recompiler and runtime design
-- [Easy install design](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/28-easy-install.md): how the packages build the game code on the player's machine
+- [Technical notes](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/README.md): reverse-engineering findings, recompiler and runtime design
+- [Easy install design](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/notes/28-easy-install.md): how the packages build the game code on the player's machine
 
 ## Optional
 - [Issues](https://github.com/segovia-no/MotoRacerRecomp/issues): bug reports (attach the log file named in the README)

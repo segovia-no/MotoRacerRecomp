@@ -148,38 +148,38 @@ To update after a `git pull`, run the setup again (no argument needed). Saves, b
 ### Building by hand
 ```sh
 brew install cmake sdl3 innoextract
-python3 -m venv .venv && .venv/bin/pip install -r tools/recomp/requirements.txt   # + unicorn for the tests
-tools/install_game.sh ~/Downloads/setup_moto_racer_2.1.0.11.exe
+python3 -m venv .venv && .venv/bin/pip install -r recompiler/requirements.txt   # + unicorn for the tests
+scripts/setup/install_game.sh ~/Downloads/setup_moto_racer_2.1.0.11.exe
 cmake -S . -B build/cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_ASM_COMPILER=clang \
       -DGAME_EXE="$HOME/Library/Application Support/MotoRacerRecomp/game/game.EXE"
 cmake --build build/cmake -j
 build/cmake/motoracer                          # run directly, or:
 cmake --build build/cmake --target app         # -> build/cmake/MotoRacer.app
 ```
-On Linux without containers: install cmake, a C/C++ compiler, Python 3 and innoextract from your distribution, and add `-DMOTORACER_BUNDLED_SDL=ON` if it has no SDL3 3.2+ (or see `tools/linux/sdk_build.sh` for the container build).
+On Linux without containers: install cmake, a C/C++ compiler, Python 3 and innoextract from your distribution, and add `-DMOTORACER_BUNDLED_SDL=ON` if it has no SDL3 3.2+ (or see `scripts/setup/linux/sdk_build.sh` for the container build).
 
 Game files are found in this order: `--game-dir DIR`, `$MOTORACER_GAME_DIR`, `<data dir>/MotoRacerRecomp/game` (`~/Library/Application Support` on macOS, `$XDG_DATA_HOME` or `~/.local/share` on Linux), `./extracted/app`.
 
-Developer aids: `--trace` logs every Windows API call; environment overrides `MOTORACER_SNAPSHOT_DIR` / `MOTORACER_SNAPSHOT_EVERY` (save frames as BMP), `MOTORACER_RENDERER`, `MOTORACER_RENDER_SCALE`, `MOTORACER_DRAW_DISTANCE`, `MOTORACER_D3D_DEBUG=1`, `MOTORACER_GAME_DIR`. Unattended end-to-end tests drive the menus with scripted keys: `tools/e2e.sh`, `tools/e2e_race.sh` ([docs/13-e2e-testing.md](docs/13-e2e-testing.md)). The translator is checked instruction by instruction against the Unicorn emulator: `.venv/bin/python tools/recomp/tests/difftest.py <game.EXE> <work dir>`. After editing `runtime/shaders/`, regenerate the compiled shaders with `tools/build_shaders.sh` (needs `glslang` and `spirv-cross`).
+Developer aids: `--trace` logs every Windows API call; environment overrides `MOTORACER_SNAPSHOT_DIR` / `MOTORACER_SNAPSHOT_EVERY` (save frames as BMP), `MOTORACER_RENDERER`, `MOTORACER_RENDER_SCALE`, `MOTORACER_DRAW_DISTANCE`, `MOTORACER_D3D_DEBUG=1`, `MOTORACER_GAME_DIR`. Unattended end-to-end tests drive the menus with scripted keys: `scripts/dev/e2e.sh`, `scripts/dev/e2e_race.sh` ([docs/notes/13-e2e-testing.md](docs/notes/13-e2e-testing.md)). The translator is checked instruction by instruction against the Unicorn emulator: `.venv/bin/python recompiler/tests/difftest.py <game.EXE> <work dir>`. After editing `runtime/shaders/`, regenerate the compiled shaders with `scripts/dev/build_shaders.sh` (needs `glslang` and `spirv-cross`).
 
 ## PSP
 A PSP version runs on real hardware with custom firmware (every model, PSP-1000 included; about 25–30
 fps in races). It is built from your GOG installer on macOS, Linux or Windows:
 ```sh
-./setup_psp.sh ~/Downloads/setup_moto_racer_2.1.0.11.exe     # macOS / Linux
+./setup.sh --psp ~/Downloads/setup_moto_racer_2.1.0.11.exe     # macOS / Linux
 ```
-On Windows, double-click **`setup_psp.cmd`** (it builds in WSL). Then copy `build/psp-hw/PSP` to the
-memory stick. Details, requirements and controls: [docs/30-psp-build.md](docs/30-psp-build.md).
+On Windows, double-click **`setup.cmd --psp`** (it builds in WSL). Then copy `build/psp-hw/PSP` to the
+memory stick. Details, requirements and controls: [docs/guides/psp-build.md](docs/guides/psp-build.md).
 
 ## How it works
-1. `tools/recomp/` finds every function in `game.EXE` (recursive descent, relocations, MSVC switch tables and exception-handling patterns) and translates each x86 instruction to C — integer operations with exact flags, the x87 FPU, MMX and the software rasterizer's self-modifying code.
+1. `recompiler/` finds every function in `game.EXE` (recursive descent, relocations, MSVC switch tables and exception-handling patterns) and translates each x86 instruction to C — integer operations with exact flags, the x87 FPU, MMX and the software rasterizer's self-modifying code.
 2. `runtime/` provides the guest address space, Win32 (KERNEL32/USER32 with MFC-compatible window management, GDI, registry, files), C++/SEH exceptions, DirectDraw, Direct3D (execute buffers → SDL_GPU/Metal), DirectSound, an emulated CD-audio drive backed by the GOG audio tracks, joysticks via SDL gamepads, and presentation.
 3. A few game-specific fixes are applied at translation time or through small hooks — e.g. relocating the 3D engine's 480-row tables so it can render above 480 lines, the widescreen mode list, HUD scaling and draw distance.
 
-The reverse-engineering notes and design decisions are in [docs/](docs/00-overview.md).
+The reverse-engineering notes and design decisions are in [docs/](docs/README.md).
 
 ## Roadmap
-See [docs/12-roadmap.md](docs/12-roadmap.md) and [docs/15-ports-plan.md](docs/15-ports-plan.md): 21:9, CI builds, and hand-decompiling game modules into readable C++.
+See [docs/notes/12-roadmap.md](docs/notes/12-roadmap.md) and [docs/notes/15-ports-plan.md](docs/notes/15-ports-plan.md): 21:9, CI builds, and hand-decompiling game modules into readable C++.
 
 ## Distribution and legal
 The downloads on the Releases page contain only the runtime and the build tools — no game code, no game assets and nothing translated from `game.EXE`. The game code is made on each player's computer from their own GOG copy. What that produces — the game files and the compiled game code in the data folder (`gamecode`), and for source builds the generated C in `build/cmake/gen/`, the `motoracer` binary and `MotoRacer.app` — contains code translated from your `game.EXE` and must **not** be redistributed.

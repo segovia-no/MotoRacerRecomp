@@ -650,7 +650,7 @@ Faces to clip: clip_path.
 
 0x4af570 walks the depth-sorted polygon lists and builds Direct3D execute buffers through the
 execute-buffer object [0x624afc]. Its two per-vertex loops were ~30% of the game's x86 instructions
-in a race (docs/22-hot-functions.md). The versions here do exactly
+in a race (docs/notes/22-hot-functions.md). The versions here do exactly
 what the translated x86 does — same bytes in guest memory, same registers and stack slots where
 the following code reads them — so they can be checked against it at run time:
   MOTORACER_NATIVE=0      translated code only

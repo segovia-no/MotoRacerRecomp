@@ -10,7 +10,7 @@
 
 #include "d3d_gpu.h"
 #include "ddraw_internal.h"
-#include "settings.h"
+#include "game/settings.h"
 
 using namespace rt;
 using namespace dx;

@@ -29,7 +29,7 @@ foreach(i RANGE ${_last})
   list(APPEND GEN_SOURCES "${GEN_DIR}/code_${_n}.c")
 endforeach()
 
-# Translator optimisations (docs/23-translator-speed.md): guest registers in C locals, local memory
+# Translator optimisations (docs/notes/23-translator-speed.md): guest registers in C locals, local memory
 # base. OFF builds the plain translation, for benchmarks.
 option(MOTORACER_GUEST_OPT "Optimised translation (registers in locals, local memory base)" ON)
 set(MOTORACER_TRANSLATOR_FLAGS "" CACHE STRING "Extra recomp_main.py flags (benchmarks, e.g. --no-x87-locals)")
@@ -38,24 +38,24 @@ set(RECOMP_TRANSLATOR_FLAGS ${MOTORACER_TRANSLATOR_FLAGS})
 if(NOT MOTORACER_GUEST_OPT)
   list(APPEND RECOMP_TRANSLATOR_FLAGS --no-regcache)
 endif()
-# Game code as a module (docs/28-easy-install.md): the program (runtime, SDL) contains no translated
+# Game code as a module (docs/notes/28-easy-install.md): the program (runtime, SDL) contains no translated
 # code and loads gamecode.so / gamecode.dll from its own folder at start.
 option(MOTORACER_GAME_MODULE "Build the game code as a module the program loads at start" OFF)
 if(MOTORACER_GAME_MODULE)
   list(APPEND RECOMP_TRANSLATOR_FLAGS --module)
 endif()
-# Without game.EXE a module build makes the program only (CI, releases: docs/28-easy-install.md);
-# the player's machine builds the module with tools/build_gamecode.py.
+# Without game.EXE a module build makes the program only (CI, releases: docs/notes/28-easy-install.md);
+# the player's machine builds the module with recompiler/build_gamecode.py.
 set(MOTORACER_HAVE_GAME ON)
 if(MOTORACER_GAME_MODULE AND NOT EXISTS "${GAME_EXE}")
   set(MOTORACER_HAVE_GAME OFF)
-  message(STATUS "No game.EXE: building the program only (game code: tools/build_gamecode.py)")
+  message(STATUS "No game.EXE: building the program only (game code: recompiler/build_gamecode.py)")
 endif()
 if(MOTORACER_HAVE_GAME)
-file(GLOB RECOMP_TOOL_SOURCES "${CMAKE_SOURCE_DIR}/tools/recomp/*.py" "${CMAKE_SOURCE_DIR}/tools/recomp/recomp/*.py")
+file(GLOB RECOMP_TOOL_SOURCES "${CMAKE_SOURCE_DIR}/recompiler/*.py" "${CMAKE_SOURCE_DIR}/recompiler/recomp/*.py")
 add_custom_command(
   OUTPUT ${GEN_SOURCES} "${GEN_DIR}/recomp_funcs.h" "${GEN_DIR}/imports.h"
-  COMMAND "${RECOMP_PYTHON}" -I "${CMAKE_SOURCE_DIR}/tools/recomp/recomp_main.py"
+  COMMAND "${RECOMP_PYTHON}" -I "${CMAKE_SOURCE_DIR}/recompiler/recomp_main.py"
           "${GAME_EXE}" "${GEN_DIR}" --files ${GEN_FILE_COUNT} ${RECOMP_TRANSLATOR_FLAGS}
   DEPENDS "${GAME_EXE}" ${RECOMP_TOOL_SOURCES}
   COMMENT "Recompiling game.EXE to C"
@@ -68,7 +68,7 @@ set(MOTORACER_GUEST_OPT_LEVEL "-O2" CACHE STRING "Optimisation level for the gen
 target_compile_options(gamecode PRIVATE -w ${MOTORACER_GUEST_OPT_LEVEL} -fno-strict-aliasing)
 # Profile-guided game code (PSP: the translated functions are larger than the 16 KB instruction cache;
 # GCC moves the code a run never took out of the hot paths and orders functions by use).
-# MOTORACER_PGO=gen: instrumented build (training run: tools/psp/pgo.sh); =use: built with the counts
+# MOTORACER_PGO=gen: instrumented build (training run: scripts/psp/pgo.sh); =use: built with the counts
 # found next to the objects (the same build directory, after the training run's .gcda files are copied in).
 set(MOTORACER_PGO "" CACHE STRING "Profile-guided game code: gen or use (empty: off)")
 # Link-time optimisation of the game code: GCC inlines small translated functions (vector helpers,
@@ -109,12 +109,12 @@ endif()  # MOTORACER_HAVE_GAME
 
 # SDL3: the system package by default. MOTORACER_BUNDLED_SDL builds a pinned release and links it
 # statically; SDL then loads X11/Wayland/Vulkan/audio libraries at run time, so the binary needs
-# only glibc (Steam Deck / any Linux, see docs/15-ports-plan.md).
+# only glibc (Steam Deck / any Linux, see docs/notes/15-ports-plan.md).
 option(MOTORACER_BUNDLED_SDL "Build SDL3 from source and link it statically" OFF)
-# Profiling for small targets (docs/21-psp-feasibility.md): x87 in single precision, and a counter of
+# Profiling for small targets (docs/notes/21-psp-feasibility.md): x87 in single precision, and a counter of
 # executed x86 instructions (MOTORACER_ICOUNT=1 logs them per frame).
 option(MOTORACER_FPU_FLOAT "Emulate the x87 FPU in single precision" OFF)
-# PSP (docs/25-psp-port.md; configure with psp-cmake from pspdev): single-precision x87 (the
+# PSP (docs/notes/25-psp-port.md; configure with psp-cmake from pspdev): single-precision x87 (the
 # Allegrex FPU has no doubles), the compact guest address space (no virtual memory), small data
 # section off (-G0: the game has more globals than gp-relative addressing reaches).
 if(PSP)
@@ -174,8 +174,12 @@ else()
   set(SDL3_TARGET SDL3::SDL3)
 endif()
 
+# runtime/src: core/ (loader, memory, exceptions, dispatch), win32/ dx/ gpu/ (Windows / DirectX),
+# host/ (SDL window, audio, video), game/ (Moto Racer: hooks, menu, settings, installer, natives/),
+# platform/ and psp/ (OS adapters, added below)
 file(GLOB RUNTIME_SOURCES CONFIGURE_DEPENDS
-  runtime/src/*.cpp runtime/src/*.c runtime/src/win32/*.cpp runtime/src/dx/*.cpp runtime/src/gpu/*.cpp)
+  runtime/src/core/*.cpp runtime/src/core/*.c runtime/src/win32/*.cpp runtime/src/dx/*.cpp runtime/src/gpu/*.cpp
+  runtime/src/host/*.cpp runtime/src/game/*.cpp runtime/src/game/natives/*.cpp)
 
 # Host platform adapters (runtime/src/platform/platform.h): exactly one set per OS / CPU.
 set(PLAT runtime/src/platform)
@@ -186,7 +190,7 @@ elseif(WIN32)
 elseif(PSP)
   # no SDL_GPU on the PSP: the GE backend (runtime/src/psp) replaces the SDL_GPU presenter and
   # Direct3D backend
-  list(REMOVE_ITEM RUNTIME_SOURCES ${CMAKE_SOURCE_DIR}/runtime/src/host_gpu.cpp
+  list(REMOVE_ITEM RUNTIME_SOURCES ${CMAKE_SOURCE_DIR}/runtime/src/host/host_gpu.cpp
        ${CMAKE_SOURCE_DIR}/runtime/src/dx/d3d_gpu.cpp ${CMAKE_SOURCE_DIR}/runtime/src/gpu/shaders.cpp)
   list(APPEND RUNTIME_SOURCES ${PLAT}/psp.cpp ${PLAT}/stack_mips.S runtime/src/psp/ge.cpp
        runtime/src/psp/gpu_psp.cpp runtime/src/psp/d3d_ge.cpp runtime/src/psp/sdl_psp.cpp
@@ -194,7 +198,7 @@ elseif(PSP)
 elseif(UNIX)
   list(APPEND RUNTIME_SOURCES ${PLAT}/posix.cpp ${PLAT}/paths_xdg.cpp)
 else()
-  message(FATAL_ERROR "no platform adapters for ${CMAKE_SYSTEM_NAME} yet (see docs/15-ports-plan.md)")
+  message(FATAL_ERROR "no platform adapters for ${CMAKE_SYSTEM_NAME} yet (see docs/notes/15-ports-plan.md)")
 endif()
 if(WIN32 OR PSP)
   # Windows: the deep stack is a fiber (win32.cpp); PSP: stack_mips.S (above)
@@ -229,9 +233,10 @@ target_compile_options(motoracer PRIVATE
   $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wno-unused-parameter>)
 # Native replacements of guest functions must round like the translated code (one rounding per x87
 # operation): no fused multiply-add contraction of their expressions.
-set_source_files_properties(runtime/src/native_geom.cpp runtime/src/native_render.cpp runtime/src/native_load.cpp
-  runtime/src/native_race_a.cpp runtime/src/native_race_b.cpp runtime/src/native_race_c.cpp runtime/src/native_race_d.cpp
-  runtime/src/native_race_e.cpp
+set(_natives runtime/src/game/natives)
+set_source_files_properties(${_natives}/native_geom.cpp ${_natives}/native_render.cpp ${_natives}/native_load.cpp
+  ${_natives}/native_race_a.cpp ${_natives}/native_race_b.cpp ${_natives}/native_race_c.cpp ${_natives}/native_race_d.cpp
+  ${_natives}/native_race_e.cpp
   PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 target_link_libraries(motoracer PRIVATE ${SDL3_TARGET})
 if(PSP)
@@ -249,7 +254,7 @@ if(WIN32)
   # GUI program (no console window), one self-contained .exe (static C++ runtime), manifest
   # (UTF-8 code page, DPI awareness) and the game's own icon from the user's GOG files.
   enable_language(RC)
-  set(_rc "1 24 \"${CMAKE_SOURCE_DIR}/runtime/src/platform/motoracer.manifest\"\n")
+  set(_rc "1 24 \"${CMAKE_SOURCE_DIR}/packaging/windows/motoracer.manifest\"\n")
   if(EXISTS "${GAME_DIR_FOR_ICON}/goggame-1207658895.ico")
     string(APPEND _rc "1 ICON \"${GAME_DIR_FOR_ICON}/goggame-1207658895.ico\"\n")
   endif()
@@ -280,7 +285,7 @@ endif()
 # `cmake --build build/cmake --target app` -> build/cmake/MotoRacer.app
 if(APPLE)
   add_custom_target(app
-  COMMAND "${CMAKE_SOURCE_DIR}/tools/make_app.sh" "$<TARGET_FILE:motoracer>" "${CMAKE_BINARY_DIR}" "${GAME_DIR_FOR_ICON}"
+  COMMAND "${CMAKE_SOURCE_DIR}/packaging/macos/make_app.sh" "$<TARGET_FILE:motoracer>" "${CMAKE_BINARY_DIR}" "${GAME_DIR_FOR_ICON}"
   DEPENDS motoracer
   COMMENT "Assembling MotoRacer.app"
   VERBATIM)

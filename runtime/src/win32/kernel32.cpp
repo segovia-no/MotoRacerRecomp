@@ -7,7 +7,7 @@
 #include <map>
 #include <vector>
 
-#include "textio.h"
+#include "core/textio.h"
 #include "platform/platform.h"
 #include "win32.h"
 

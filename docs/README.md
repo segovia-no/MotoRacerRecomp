@@ -1,0 +1,78 @@
+# Moto Racer Recomp — Overview & Findings Log
+
+Living index of what we know. Each topic gets its own file; this one links them.
+
+## Repository layout
+
+| Folder | What is there |
+|---|---|
+| `recompiler/` | The translator (`recomp_main.py`, `recomp/`), the release builds' module builder (`build_gamecode.py`), the differential tests (`tests/`) |
+| `runtime/src/core/` | Program entry, PE loader, guest memory, exceptions, dispatch, profiler |
+| `runtime/src/win32/`, `dx/`, `gpu/` | Windows API, DirectDraw / Direct3D / DirectSound, the SDL_GPU shaders |
+| `runtime/src/host/` | SDL window, audio, video and presentation |
+| `runtime/src/game/` | Moto Racer specifics: hooks, the Recomp menu, settings, the first-run installer; `natives/`: native rewrites of game functions |
+| `runtime/src/platform/`, `psp/` | OS adapters (macOS, Linux, Windows, PSP) and the PSP's GE backend |
+| `runtime/include/` | Headers shared with the generated code |
+| `scripts/setup/` | Setup helpers (installer unpacking, Linux container build, Windows toolchain, the PSP build) |
+| `scripts/psp/`, `dev/`, `release/` | PSP packaging and tests, development tools (E2E tests, profiling, disassembly), release kits |
+| `packaging/` | Per-platform packaging (macOS app bundle, Windows manifest, Linux icon) |
+| `docs/guides/`, `notes/`, `decomp/` | Player guides, dated technical notes (below), decompilation notes |
+| `site/` | The project website (and its image generator in `site/tools/`) |
+| `setup.sh`, `setup.cmd`, `setup.ps1` | One-step builds from the GOG installer (`--psp`: the PSP version) |
+
+## Source artifact
+
+| Item | Value |
+|---|---|
+| Installer | `setup_moto_racer_2.1.0.11.exe` (GOG, Inno Setup 5.5.0 unicode) |
+| Extraction | `brew install innoextract && innoextract --gog -d extracted setup_moto_racer_2.1.0.11.exe` |
+| Game binary | `extracted/app/game.EXE` |
+| SHA-256 | `b2f921098f9ba59b076b3dd0bbd013e40b06b8481651b4a7a774757c95cb2187` |
+| Version | "Polygons version 3.22" patch, Delphine Software, PE timestamp 1998-07-09 11:15:27 UTC |
+| Launcher | `extracted/app/MotoRacer.exe` — GOG/Delphine config launcher, not the game |
+
+Game files are **not** committed (see `.gitignore`). Anyone reproducing must extract their own copy.
+
+## Status
+**Playable on macOS (Apple Silicon)** as of 2026-10-13: intro, menus (mouse, keyboard, gamepad), races (keyboard, gamepad with analog triggers), CD music, sound effects, volume sliders, clean quit. Direct3D path on Metal by default (render scale up to 4×), the game's 16/9 mode shown as true widescreen, and SCREEN MODE options from 800×600 to 2048×1536. Software renderer still available (`Renderer=software`).
+Not yet: Linux / Steam Deck, Windows, multiplayer (stubbed by decision), GDI text on surfaces.
+
+## Docs index
+
+- [01-binary.md](notes/01-binary.md) — PE layout, toolchain, imports, statically-linked libraries
+- [02-game-files.md](notes/02-game-files.md) — data directory, file formats (BKF, BPT, TRK, DEM)
+- [03-subsystems.md](notes/03-subsystems.md) — engine subsystems, source module names, command-line flags
+- [04-strategy.md](notes/04-strategy.md) — recompilation strategy, decisions, architecture, phases
+- [05-self-modifying-code.md](notes/05-self-modifying-code.md) — SMC in rasterizer span loops and how recomp handles it
+- [06-function-discovery.md](notes/06-function-discovery.md) — phase 1: our own function/jump-table discovery, coverage, MSVC patterns
+- [07-translator.md](notes/07-translator.md) — phase 2: x86→C execution model, differential tester vs Unicorn, known gaps
+- [08-runtime.md](notes/08-runtime.md) — phase 3: build/run, runtime layout, address space, Win32/MFC emulation, observed boot sequence
+- [09-ddraw-and-eh.md](notes/09-ddraw-and-eh.md) — phase 4: COM, DirectDraw software path, presentation, C++ exceptions via SEH + setjmp/longjmp
+- [10-input-audio.md](notes/10-input-audio.md) — phase 5: CD audio (MCI) emulation, DirectSound, keyboard/mouse; speedometer style (F7 / gamepad Back)
+- [11-d3d-plan.md](notes/11-d3d-plan.md) — phase 6 plan: game uses Direct3D v1 execute buffers; Metal backend + resolution scaling
+- [12-roadmap.md](notes/12-roadmap.md) — owner roadmap: QoL (options menu, controller menus, trigger buttons), widescreen, Linux/Steam Deck, Windows
+- [14-draw-distance.md](notes/14-draw-distance.md) — track sections drawn ahead, per-detail-level table (bike LOD, culling), DrawDistance
+- [16-frame-rate.md](notes/16-frame-rate.md) — game frame timing (limiter, frame time, replays), higher frame rates: measurements and engine assumptions
+- [17-recomp-menu.md](notes/17-recomp-menu.md) — Options page internals (pages, items, dispatch), Info → Recomp settings submenu plan
+- [18-main-menu-modes.md](notes/18-main-menu-modes.md) — Reverse / Pocket mode toggles (unlocks, cheat codes), keyboard/gamepad navigation fix
+- [19-engine-sounds.md](notes/19-engine-sounds.md) — race sound systems (bike engines rpm model, positional emitters), F11 developer sound menu, why opponents hum
+- [20-resource-usage.md](notes/20-resource-usage.md) — resource audit vs 1997 requirements (CPU, memory, GPU, disk) and optimisation candidates
+- [21-psp-feasibility.md](notes/21-psp-feasibility.md) — PSP homebrew port analysis (PSP-1000 memory budget, CPU estimate, GE/audio plan); step 1 desktop PSP profile: float x87, instructions per frame, guest memory, opponent count
+- [22-hot-functions.md](notes/22-hot-functions.md) — per-function instruction profile (top 9 functions = 75% of race CPU), roles of the hot functions, what native versions would take
+- [23-translator-speed.md](notes/23-translator-speed.md) — translator speed pass: guest registers in C locals, local memory base, x87 stack in C locals (static depth analysis); measured gains, benchmark method
+- [24-native-render.md](notes/24-native-render.md) — render-list flush 0x4af570 reversed (execute-buffer object, polygon records, vertex formats), native vertex loops with a check mode and same-input cost measurement (−14% instructions, −4% cycles per frame)
+- [25-psp-port.md](notes/25-psp-port.md) — PSP port: pspdev + PPSSPP setup, PSP build (compact guest address space, PSP adapter), sizes, status
+- [26-psp-profile.md](notes/26-psp-profile.md) — PSP hot functions: estimated MIPS cost per guest function, MIPS-specific overheads (parity, soft double conversion, rep movs, 64-bit division), candidates; sampling profiler (`MOTORACER_PROF`) with the PSP race frame split (game code, audio, Execute, natives)
+- [27-native-geometry.md](notes/27-native-geometry.md) — native vertex transform, face visibility loops and polygon setup (check mode, PSP timings, alignment of packed objects, local memory base fix)
+- [28-easy-install.md](notes/28-easy-install.md) — plan for installing without toolchains (option A): prebuilt host + game-code module built on the player's machine with a bundled `zig cc`, frozen translator, first-run installer, CI releases; nothing translated is distributed
+- [29-discoverability.md](notes/29-discoverability.md) — website (GitHub Pages, JSON-LD, FAQ), llms.txt, README hero, social preview, listing / launch plan
+- [guides/psp-build.md](guides/psp-build.md) — building the PSP version from the GOG installer on macOS, Linux and Windows (WSL): `./setup.sh --psp` / `setup.cmd --psp`, what it installs, installing on the PSP
+- [decomp/](decomp/README.md) — decompilation notes: functions, record layouts and globals found by the native rewrites
+- [13-e2e-testing.md](notes/13-e2e-testing.md) — unattended E2E runs: scripted keys, snapshots, contact sheets, menu navigation facts
+- [15-ports-plan.md](notes/15-ports-plan.md) — Linux / Steam Deck / Windows ports: plan, platform adapters (P0 done), shader pipeline, risks
+
+## Analysis tooling
+
+- REA MCP (Hopper provider) on `game.EXE`: 9219 procedures, 2587 strings.
+  - Evidence: `binary_overview` → `ev_9f7e453d…bfae61813`; PE resources → `ev_7be955af…cb841afe`.
+- Python venv at `.venv/` (pefile, capstone) for scripted analysis.

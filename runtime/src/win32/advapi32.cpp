@@ -3,7 +3,7 @@
 // File format, one value per line:  KEY\PATH<TAB>name<TAB>type<TAB>hex-bytes
 #include <map>
 
-#include "textio.h"
+#include "core/textio.h"
 #include "win32.h"
 
 using namespace rt;

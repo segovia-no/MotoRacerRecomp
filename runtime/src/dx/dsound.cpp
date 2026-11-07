@@ -5,7 +5,7 @@
 // stereo at the device's rate (integer mixing), each voice stepped at its frequency (SetFrequency: the engines'
 // pitch) with linear interpolation, DirectSound volume / pan applied. Until 2026-10-17 every
 // buffer was an SDL stream of its own, and SDL resampled ~24 engine sounds separately: 12-18% of a
-// PSP race frame (docs/26-psp-profile.md). The primary buffer is a formality.
+// PSP race frame (docs/notes/26-psp-profile.md). The primary buffer is a formality.
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -16,7 +16,7 @@
 #include <vector>
 
 #include "com.h"
-#include "host_audio.h"
+#include "host/host_audio.h"
 
 using namespace rt;
 using namespace dx;
@@ -86,7 +86,7 @@ float db_to_gain(int32_t hundredths) { return hundredths <= -10000 ? 0.f : std::
 // One voice into `acc` (int32 stereo, `frames` frames, added): steps through the buffer at its
 // frequency relative to the mix rate (16.16 fixed point) with linear interpolation between frames;
 // gains in Q15. Integer only: on the PSP's CPU the float version of this loop took 12-17 ms of a
-// race frame (~24 engine voices; docs/25-psp-port.md).
+// race frame (~24 engine voices; docs/notes/25-psp-port.md).
 template <int BITS, int CH>
 void mix_voice(Buffer *b, int32_t *acc, int frames, int32_t gl, int32_t gr) {
     const uint32_t bs = b->fmt.block ? b->fmt.block : 1;

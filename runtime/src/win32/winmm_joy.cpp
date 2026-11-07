@@ -16,7 +16,7 @@
 #include <cstdlib>
 #include <vector>
 
-#include "settings.h"
+#include "game/settings.h"
 #include "win32.h"
 
 using namespace rt;

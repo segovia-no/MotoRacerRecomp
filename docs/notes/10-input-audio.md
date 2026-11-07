@@ -1,0 +1,187 @@
+# Phase 5 — Input and Audio
+
+## CD audio (MCI `cdaudio`) — `runtime/src/win32/winmm_cd.cpp`
+**Problem found:** in the menu the game spun forever trying to open the CD audio device: ~590k `mciSendCommandA(MCI_OPEN)` failures, 197k `MessageBoxA` calls, and `data/delphine.err` grew to 1 MB. With no CD device it never got past this (the "CD check").
+
+**What the game does with the CD** (from the MCI log):
+1. `MCI_OPEN` type id 516 (`MCI_DEVTYPE_CD_AUDIO`), element `"c:"` — the drive letter comes from its install path (empty registry `DataPath` → current drive), flags `TYPE|TYPE_ID|ELEMENT|SHAREABLE|WAIT`.
+2. `MCI_STATUS` mode, number of tracks (13), track type (`0x4001` → `MCI_CDA_TRACK_AUDIO`), length of the track it wants.
+3. `MCI_PLAY` with `NOTIFY|FROM|TO` (track 13 jingle, then track 3 for the menu), then polls mode.
+
+**Emulation** (same idea as GOG's `winmm.dll` wrapper — no game code is patched):
+- Virtual disc answers on any drive letter. Layout in CD frames (75/s): 150-frame lead-in, track 1 = data (nominal 25 min), 150-frame pregap, tracks 2–13 from `02.wav`…`13.wav` (44.1 kHz stereo 16-bit; 2352 bytes = 1 frame, so positions map exactly to file offsets).
+- Time formats ms / MSF / TMSF; status items length, position (+start), track count, mode, media present, time format, ready, current track, track type.
+- Play from/to across track boundaries, stop/pause/resume/seek/close; `MM_MCINOTIFY` (`SUCCESSFUL`, `SUPERSEDED`, `ABORTED`) posted from the message pump.
+- Every MCI error, open and play is logged; the first 40 status queries too.
+
+Result: menu music plays (confirmed by project owner); the retry loop is gone.
+
+## Host audio — `runtime/src/host/host_audio.cpp`
+One SDL3 playback device (44.1 kHz S16 stereo requested). Each sound source is an `SDL_AudioStream` bound to the device (SDL mixes) and fed by a pull callback on SDL's audio thread.
+
+## DirectSound — `runtime/src/dx/dsound.cpp`
+- `IDirectSound` + `IDirectSoundBuffer` (21 methods). 3D sound QI is refused.
+- Secondary buffer samples live in guest memory; `Lock` returns guest pointers (with wrap-around second region).
+- A buffer gets its own SDL stream on first `Play`: 8/16-bit mono/stereo → float stereo, DirectSound volume (hundredths of dB) and pan applied per sample, `SetFrequency` → stream frequency ratio (engine pitch).
+- Looping, `GetStatus`, `GetCurrentPosition` (write cursor = play + ~10 ms), `DuplicateSoundBuffer` (shares sample memory, independent play state).
+- Thread safety: one mutex for buffer state; release stops under the lock but destroys the stream outside it (SDL waits for an in-flight callback that takes the same lock).
+- Observed: ~20 sound-effect buffers, 16-bit mono, 5–22 kHz, flags `CTRLFREQUENCY|CTRLPAN|CTRLVOLUME`.
+
+## Input
+- **Keyboard:** SDL scancodes → VK codes + PC set-1 scan codes in `WM_KEYDOWN/UP` lParam; `GetKeyState`. Works in menus (confirmed).
+- **Mouse:** SDL motion/buttons → `WM_MOUSEMOVE`, `WM_L/RBUTTONDOWN/UP` with `MK_*` flags, coordinates converted to the 640×480 frame buffer through the renderer's logical presentation (letterbox + Retina aware); `GetCursorPos` uses the same coordinates.
+- **DirectInput:** not loaded in the menus. `LoadLibrary("DINPUT.DLL")` + `GetProcAddress("DirectInputCreateA")` will need a real implementation if races use it.
+- **Joystick:** `joyGetDevCapsA` reports unplugged. TODO: SDL gamepad → WINMM joystick API.
+
+## Validation session (2026-10-13)
+Owner played through menus (mouse + keyboard) and a race (keyboard): sound effects, music and visuals correct. Session log: 0 `FATAL`, 0 unimplemented imports, clean exit (code 0). Only repeated events were the per-screen DirectDraw re-initialisation (`SetDisplayMode(640,480,16)` + refused `IDirect3D` QI).
+
+## Gamepad (WINMM joystick API) — `runtime/src/win32/winmm_joy.cpp`
+- The game polls `joyGetPosEx` with flags `0x483` (X, Y, buttons, centered) for ids 0..7, after `joyGetDevCapsA`. Code at `0x418a3f`.
+- It classifies a stick as **digital** if its resting X/Y read exactly `0`, `0x8000` or `0xFFFF`; we report centre `0x7FFF` so pads are analog.
+- Mapping: X = left stick X; Y = left stick Y − right trigger + left trigger (RT = up/accelerate, LT = down/brake); buttons 1–8 = A, B, X, Y, LB, RB, Back, Start; POV = d-pad. 4000 dead zone on sticks.
+- Any SDL-recognised controller (Xbox, PlayStation, Switch Pro, 8BitDo…), hot-plug supported; connected pads take ids 0..n.
+
+## Mixer volumes, triggers, controller menus (2026-10-13)
+- **Volumes:** `winmm_mixer.cpp` exposes one mixer: Speakers/Master (control 1 → SDL device gain), Wave (2 → DirectSound mix), CD Audio (3 → music samples). The game reads the controls at startup, then restores its saved levels via `mixerSetControlDetails` (`0x470d22`: `MulDiv(vol, max-min, scaleMax) + min`). Configs saved while the mixer reported "Not available" contain 0 for all three → silence until raised in Options (seen once during development).
+- **Fresh GOG install starts muted** (owner, first Steam Deck test, 2026-10-14): the shipped `data/CONFIG.BPT` restores MASTER VOLUME = 0. The first `mixerSetControlDetails(1, 0)` happens at startup; Wave and CD are 0xFFFF. Fix: on the first run only (`game::first_run()`, no `Defaults=1` in recomp_state.txt), the startup master value 0 is replaced by full volume. The slider then shows full and the game saves that on exit. A 0 chosen later is kept. Installs that already ran once keep their saved 0 until the slider is raised once.
+- **Audio drives animation timing:** with the device gain at 0 the 3D menu animations ran much too fast — the game paces some animations from audio progress. Keep this in mind when touching audio.
+- **Triggers:** buttons 9 (RT) / 10 (LT) past half travel; the pad reports 10 buttons. They no longer affect the Y axis. D-pad steers.
+- **Controller menus:** D-pad/left stick → arrow keys (auto-repeat 400/120 ms), A → Enter, B → Escape, Start → Escape always; suppressed while the game polled the joystick in the last 300 ms (races). `ControllerMenus=0` disables it.
+
+### How the game reads the joystick in a race (`0x411b30`)
+- `0x431190(n)` returns the action bound to joystick input `n`: `-2/-3` = X left/right, `-4/-5` = Y up/down (corrected 2026-10-14 from the factory and owner bindings), `0..k` = buttons. Actions set bits in a control mask (1, 2, 4, 8, 0x10, 0x20) and some invert the axis value (`0xFFFF - v`) so the analog strength always points the same way.
+- If the global `0x4dc11c == 2` (analog joystick mode) X/Y stay analog (X clamped per steering state); otherwise both are forced to centre `0x8000` (digital JOYPAD mode).
+- Therefore analog throttle/brake = triggers on the Y axis, bound in the game's config to "Y up"/"Y down".
+- The config screen takes whichever input it notices first, so triggers must not be buttons *and* axis at once. `TriggerMode=auto` (default) reads the mode global: 2 → triggers add `LT − RT` to Y; otherwise → buttons 9/10. `axis` / `buttons` force one.
+
+**Confirmed in play (2026-10-13):** `0x4dc11c` = 1 for the digital JOYPAD mode, 2 for the analog joystick mode. In mode 2 the game's control setup registers the triggers as "Y up"/"Y down" and races get analog throttle/brake (owner-confirmed).
+
+## Control bindings and the Xbox preset (2026-10-14)
+- Bindings: 7 × `{keyboard VK, joystick input}` at `0x53eae0`, in the order of the controls screen
+  (Options › CONTROLLER › config): Accelerate, Brake, Turn Left, Turn Right, Higher Gear, Lower Gear,
+  Turbo/Stunts. Factory: keys ↑ ↓ ← → A Z Space; joystick 0, 1, −2, −3, 2, 3, none.
+- Options keys: `InputDevice` → `0x4dc11c` (CONTROLLER: 1 when no joystick / keyboard, 2 = JOYSTICK,
+  4 = joypad type), `JoyType` → `0x4dc120`. Startup input init `0x47310b` → `0x4311c0` initialises the
+  joystick (`0x4189c0`) for mode 2 and falls back to 1 if none answers. The options are saved to
+  `data/CONFIG.BPT` when the game exits normally (also without visiting Options).
+- Runtime (`game_hooks.cpp`, `ControllerPreset=1`):
+  - first run (no `Defaults=1` in recomp_state.txt) with a gamepad connected: hook `0x42b37d` (right
+    after `InputDevice` is read, before the startup input init) sets CONTROLLER = JOYSTICK;
+  - whenever CONTROLLER is JOYSTICK and the joystick bindings are still the factory ones, they become
+    an Xbox 360 layout: Accelerate = Y up (RT, analog), Brake = Y down (LT), steering = left stick X,
+    Higher Gear = RB (button 5), Lower Gear = LB (4), Turbo/Stunts = A (0). Start already pauses
+    (sent as Escape). Custom bindings are never overwritten.
+- SDL's gamepad database maps Xbox, PlayStation, Switch Pro, 8BitDo and most pads to the same
+  positional layout, so one preset fits all of them (on Nintendo-layout pads the bottom face
+  button, labelled B, is "A").
+
+## Gamepads at startup (first Steam Deck test, 2026-10-14)
+- **Symptom:** on the Deck the pad did nothing (menus, race) until the game's joypad config page. CONTROLLER did
+  not default to JOYSTICK.
+- **Cause 1:** pads were opened only inside the WINMM joystick shim, i.e. when the game polled the joystick, and
+  SDL delivers gamepad button/axis events only for *opened* pads. So menu navigation depended on the game
+  polling first.
+  - **Fix:** `SDL_INIT_GAMEPAD` right after `SDL_Init` (main.cpp). Every `SDL_EVENT_GAMEPAD_ADDED`, including those
+    for pads present at start, opens the pad (`w32::gamepads_refresh`).
+- **Cause 2:** Steam Input creates its virtual gamepad only *after* the game process started. The game's input
+  init (`0x4311c0`) found no joystick and fell back to KEYBOARD.
+  - **Fix:** `game_hook_input_loaded` waits for a pad (`w32::wait_for_gamepad`, polling SDL device detection)
+    whenever one is expected: up to 5 s on a Steam Deck, 1 s elsewhere when CONTROLLER = JOYSTICK. It returns at
+    once if a pad is already there. The log says `gamepad: ready|none after N ms`.
+- **SDL facts** (3.4.16, `SDL_gamepad.c` `SDL_ShouldIgnoreGamepad`):
+  - Steam's virtual gamepad (Valve VID, `USB_PRODUCT_STEAM_VIRTUAL_GAMEPAD`) is ignored unless the
+    *environment variable* `SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD` is true. Steam sets it for what it
+    launches, together with `SDL_GAMECONTROLLER_IGNORE_DEVICES` for the physical controller. It is read with
+    getenv, not as a hint.
+  - The owner's test (pad works once opened) shows Steam sets it for non-Steam shortcuts too.
+- **Steam Input template:** a new non-Steam shortcut starts with Steam's "Keyboard (WASD) and Mouse" template.
+  Choose **Gamepad with Joystick Trackpad** once in the game's controller settings; Steam remembers it per game.
+
+## Speedometer style and the hidden speedometer (owner report, Steam Deck, 2026-10-16)
+- **Symptom:** after some races the speedometer/tachometer was gone, in every later race (also after restarts).
+- **Cause (original game feature):** the in-race key handler (`0x431250`, a switch on the VK code at
+  `0x431460`, jump table `0x4325c4`, index bytes `0x432668`) cycles the speedometer on **F7** (`0x432107`):
+  `CounterType` (`0x4f0dcc`) 1 (analog dials) → 2 (digital KMH readout) → hidden (`ShowCounter` `0x4f0dc8` = 0)
+  → 1. Both are options (read at `0x42b3a1`/`0x42b3c4`), saved to `CONFIG.BPT` on exit, so a hidden
+  speedometer stays hidden. The draw routine `0x484810` returns early when `ShowCounter` is 0. Only this
+  handler writes `ShowCounter` (besides the options load). How F7 reached the game on the Deck is unknown (none of
+  the runtime's gamepad mappings sends it).
+- **Other in-race keys** in the same switch (behaviour not yet documented): Tab, Shift, Ctrl, Pause, Esc,
+  Insert, A, D, F, G, H, J, K, L, P, S, T, U, V, numpad `*` `+` `-` `/`, F1–F12.
+- **Gamepad access:** a pad has no F7, so **Back** (View on Xbox / Steam Deck) sends F7 during races.
+  - "During a race": hook `game_hook_counter` at `0x484833` (in the speedometer routine, before the
+    `ShowCounter` test, every race frame) stamps the time; Back maps to F7 for 300 ms after the last stamp.
+  - Back is left alone if the player bound it to a game action (joystick input 6 in the bindings at `0x53eae0`).
+  - The hook logs each style change: `speedometer: style N` / `speedometer: hidden`.
+- **Verified (E2E, Mac):** three F7 taps in a race gave dials → digital → hidden → dials, with matching log lines.
+  `MOTORACER_AUTOKEYS` now accepts `F1`–`F10`. The Back button path is not E2E-tested (no joystick injection in
+  tests); it uses the same key injection as the menu buttons.
+
+## Typed text: TranslateMessage and the record initials (owner report, 2026-10-16)
+- **Symptom:** after a race, the TOP 5 record screen asked for initials but typing did nothing.
+- **Cause:** `TranslateMessage` was a stub, so no `WM_CHAR` was ever generated. The game is MFC:
+  `CWinThread::Run` (`0x4c670e`) runs the game in OnIdle and pumps messages with `PumpMessage`
+  (`0x4c6d18`: GetMessage → PreTranslateMessage → TranslateMessage → DispatchMessage). The window
+  procedure `0x432980` stores the last `WM_CHAR` in `0x51be90` (scancode in `0x50bbb0`); the record page
+  (page 9, TOP 5, per frame `0x44d540`) takes up to 3 initials from it in solo races (`0x4dbffc`):
+  count `0x540070` (3 = nothing to enter), rows being entered `0x5401c4` (bit per row), names at
+  `0x5cf509 + row·0xf9`, Backspace deletes, Enter confirms, letters are upper-cased (`0x4b55a0`). Page 8
+  (`0x44aee0`) reads it the same way for longer text (up to 0x3fe). The startup ENTER YOUR NAME screen
+  uses WM_KEYDOWN (and an arrow-key letter grid), so it always worked.
+- **Fix:** `TranslateMessage` posts `WM_CHAR` (`WM_SYSCHAR` for WM_SYSKEYDOWN) for keys that type a
+  character, US layout: letters (Shift / Caps Lock), digits and their shifted symbols, numpad digits and
+  operators, punctuation, Space, Backspace, Tab, Enter, Esc; nothing while Ctrl is held.
+- **Gamepad (no keyboard on a Steam Deck):** while page 9 is active in a solo race, D-pad up/down
+  cycles the current letter (A–Z, 0–9) in place, right or A keeps it, left or B deletes, Start (or A with
+  no letter pending) confirms. The game keeps only the last WM_CHAR, so the runtime queues characters
+  and posts one every 60 ms (Backspace + new letter when cycling). Normal menu mapping is suspended there.
+- **Verified:** E2E on the startup name screen: typing still adds each letter once ("DSI" + "ABC").
+  Page 9 test (temporary harness: jump to page 9, mark row 1 as a new record after the page's init):
+  typing "mac" took the count from 0 to 3; owner confirmed typing initials works. The gamepad path is not
+  E2E-tested (no joystick injection in tests).
+- **Bug (owner, PSP, 2026-11-05): no way to press Continue on TOP 5 after a race with the pad.** TOP 5 is
+  page 9 too, and "page 9 in a solo race" was the whole test, so the pad stayed in initials mode on every
+  TOP 5 (Cross typed Enter as a character, the D-pad cycled letters). Now initials mode needs a row being
+  entered (`0x5401c4` ≠ 0) and fewer than 3 initials (`0x540070` < 3); otherwise the normal menu mapping
+  applies (D-pad to Continue, Cross). Affected desktop gamepads the same way.
+- `MOTORACER_AUTOKEYS` `PAD:A|B|X|Y|UP|DOWN|LEFT|RIGHT|START|BACK|LB|RB` taps a gamepad button as an
+  event (the runtime's menu mapping; the game's own joystick polling still reads the device), and a
+  `nav: key … skipped (game reads the pad)` line shows when the menu mapping holds back. PSP E2E with pad
+  events only: quit race → TOP 5 → D-pad Down, Cross → race selection.
+
+## Mouse offset in the menus — GitHub issue #2 (2026-11-04)
+- Report (Linux player), confirmed by the owner on macOS: the pointer had to be above a menu item
+  (e.g. above DIFFICULTY / EASY in Options) to highlight or click it.
+- Cause: the game's window is `WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX` (`0x80CA0000`),
+  so our `ClientToScreen` adds the caption and border, (3, 22). The game takes the mouse from
+  `WM_MOUSEMOVE` (window procedure, `0x433637` / `0x43440c`), converts it with `ClientToScreen` and
+  hit-tests the menus with those screen coordinates (`[0x51be94]`, `[0x53eb60]`). On Windows the
+  message carries client coordinates and the conversion gives back the position on the fullscreen
+  picture; the runtime put picture coordinates straight into the message, so the game shifted them
+  a second time: hit tests 22 pixels low (3 right).
+- Fix (`user32.cpp`, `pump_host_events`): mouse messages carry client coordinates (picture position
+  minus the target window's `client_offset`); `GetCursorPos` keeps returning screen (= picture)
+  coordinates. Owner-tested: "perfect".
+- Also changed on the way (not the cause): the letterbox used for the mouse (`host_gpu.cpp`) converts
+  pixels to points per axis instead of with the horizontal ratio for both.
+- Test aid: `MOTORACER_AUTOKEYS` takes `MOUSE:fx,fy` (move the pointer to a fraction of the window).
+
+## In-race keys (game's own F1 help) and GitHub issue #4 (2026-11-05)
+- F1 shows the game's key help during a race. From it: Shift+F1 on-screen info (resolution, mode),
+  F2/F3 lower/upper screen resolution, F4 16/9 on/off, F5 change view, Shift+F5 link: track next
+  bike, F6 first-person view, F7 counter type, F8 signals (turn signs) on/off, F9 map type (debug-like
+  red arrow trail on the track), F11 on-screen sound menu, F12 on-screen display menu, Esc abort,
+  Tab rear view, Ctrl+V/S/A voices / sound FX / audio track, Ctrl+J/K joystick / keyboard mode,
+  Ctrl+F font size. Dispatch: byte index table `0x432668` (code − 9) → jump table `0x43260c`; the
+  codes are the VK minus 0x2a for F keys (F6 → `0x4320b8`, F7 → `0x432107`, F9 → `0x432169`
+  toggles `0x4f0e14`, F11 → `0x4321ca`).
+- Issue #4 (Linux reporter): a red "1 COMPUTER" tag with a down arrow, which should sit above an
+  opponent, floats elsewhere on screen. Likely cause: the HUD scaler (docs/notes/11-d3d-plan.md, HUD
+  scaling) treats it as a screen-space sprite (rhw 1, z 0) and remaps its position like a centred
+  message, while it is placed at a projected 3D point. Not reproduced yet: no tag with one opponent
+  (`MOTORACER_OPPONENTS=1`, short and long race), in the attract demo, with F8, F9, Shift+F1 or
+  Shift+F5. The localized word "Computer" is string id 0xb7 of the table at `0x4e28e8` (7-dword
+  records: id + 6 languages); its user is not found yet. Next: ask the reporter how the tag appears
+  and whether it lands correctly with RECOMP › HUD SCALE = 1.
+- `MOTORACER_AUTOKEYS` now knows `SHIFT` and `CTRL` (`+SHIFT F5 -SHIFT`).

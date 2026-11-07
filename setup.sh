@@ -3,6 +3,8 @@
 # MotoRacer.app with sensible defaults.
 #
 #   ./setup.sh [path/to/setup_moto_racer_2.1.0.11.exe]
+#   ./setup.sh --psp [path/to/setup_moto_racer_2.1.0.11.exe]    the PSP version (scripts/setup/psp.sh,
+#                                                               docs/guides/psp-build.md)
 #
 # Without an argument the installer is looked for in ~/Downloads and the current folder.
 # Re-running the script rebuilds and replaces the app (it asks first); game files, saves and
@@ -19,6 +21,8 @@ GAME_DIR=${GAME_DIR:-"$HOME/Library/Application Support/MotoRacerRecomp/game"}
 APP_DIR=${APP_DIR:-"$HOME/Applications"}
 BUILD="$HERE/build/cmake"
 
+[ "${1:-}" = --psp ] && { shift; exec bash "$HERE/scripts/setup/psp.sh" "$@"; }
+
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nerror: %s\n' "$*" >&2; exit 1; }
 # Re-running setup updates an existing install in place (same location, shortcuts keep working).
@@ -30,7 +34,7 @@ confirm_update() {
 }
 
 # --- platform -------------------------------------------------------------------------------
-[ "$(uname -s)" = Linux ] && exec "$HERE/tools/linux/setup_linux.sh" "$@"   # Linux / Steam Deck
+[ "$(uname -s)" = Linux ] && exec "$HERE/scripts/setup/linux/setup_linux.sh" "$@"   # Linux / Steam Deck
 [ "$(uname -s)" = Darwin ] || die "this setup is for macOS and Linux; on Windows run setup.cmd"
 [ "$(uname -m)" = arm64 ] || die "an Apple Silicon Mac (arm64) is required for now"
 xcode-select -p >/dev/null 2>&1 || die "Xcode Command Line Tools are missing: run 'xcode-select --install' and re-run this script"
@@ -62,12 +66,12 @@ fi
 
 say "Preparing the recompiler (Python virtual environment)"
 [ -x "$HERE/.venv/bin/python" ] || python3 -m venv "$HERE/.venv"
-"$HERE/.venv/bin/python" -m pip install --quiet --disable-pip-version-check -r "$HERE/tools/recomp/requirements.txt"
+"$HERE/.venv/bin/python" -m pip install --quiet --disable-pip-version-check -r "$HERE/recompiler/requirements.txt"
 
 # --- game files ----------------------------------------------------------------------------------
 if [ -n "$SETUP" ]; then
     say "Unpacking $(basename "$SETUP") to $GAME_DIR"
-    "$HERE/tools/install_game.sh" "$SETUP" "$GAME_DIR"
+    "$HERE/scripts/setup/install_game.sh" "$SETUP" "$GAME_DIR"
 else
     say "Game files already installed in $GAME_DIR"
 fi
@@ -76,7 +80,7 @@ fi
 INI="$GAME_DIR/motoracer.ini"
 if [ -f "$INI" ] && ! grep -q '^\[Recomp\]' "$INI"; then
     say "Writing default settings to motoracer.ini"
-    cat "$HERE/tools/default_settings.ini" >>"$INI"
+    cat "$HERE/scripts/setup/default_settings.ini" >>"$INI"
 fi
 
 # --- build -----------------------------------------------------------------------------------------

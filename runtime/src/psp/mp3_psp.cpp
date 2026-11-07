@@ -1,5 +1,5 @@
 // CD-audio tracks as MP3 on the PSP (host::open_mp3_track): the firmware's sceMp3 library decodes on
-// the Media Engine, so the main CPU only copies PCM. tools/psp/cd_mp3.sh writes the files (CBR, no
+// the Media Engine, so the main CPU only copies PCM. scripts/psp/cd_mp3.sh writes the files (CBR, no
 // ID3 / Xing header). The first track loads the AV modules (avcodec, mp3) and the decoder resource.
 //
 // Everything here runs on the audio thread, which has ~46 ms per block: it never waits for the
@@ -18,7 +18,7 @@
 #include <pspmp3.h>
 #include <psputility.h>
 
-#include "host_audio.h"
+#include "host/host_audio.h"
 #include "runtime.h"
 
 namespace {

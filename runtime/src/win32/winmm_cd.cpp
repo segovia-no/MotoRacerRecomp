@@ -3,7 +3,7 @@
 //
 // Disc layout (CD frames, 75 per second): 2 s lead-in, track 1 = data, 2 s pregap, then the
 // audio tracks back to back. Track lengths come from the WAV sizes (2352 bytes per frame). The PSP
-// package has NN.mp3 instead (tools/psp/cd_mp3.sh), with the WAV lengths in cdaudio.txt.
+// package has NN.mp3 instead (scripts/psp/cd_mp3.sh), with the WAV lengths in cdaudio.txt.
 #include <SDL3/SDL.h>
 
 #include <atomic>
@@ -14,8 +14,8 @@
 #include <string>
 #include <vector>
 
-#include "host_audio.h"
-#include "textio.h"
+#include "host/host_audio.h"
+#include "core/textio.h"
 #include "user32.h"
 #include "win32.h"
 

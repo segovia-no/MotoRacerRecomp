@@ -16,8 +16,8 @@
 #include "ddraw.h"
 #include "d3d_gpu.h"
 #include "ddraw_internal.h"
-#include "host_video.h"
-#include "settings.h"
+#include "host/host_video.h"
+#include "game/settings.h"
 #include "win32.h"
 
 using namespace rt;

@@ -1,4 +1,4 @@
-// dx::gpu on the PSP (docs/25-psp-port.md): the game's Direct3D triangles drawn by the GE.
+// dx::gpu on the PSP (docs/notes/25-psp-port.md): the game's Direct3D triangles drawn by the GE.
 //
 // The render target is the GE draw buffer itself (480x360, 1:1 with the game's PSP-profile mode);
 // TLVERTEX screen positions are used directly in the GE's 2D ("through") mode: colour ARGB -> ABGR,
@@ -19,9 +19,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../dx/d3d_gpu.h"
-#include "../dx/ddraw_internal.h"
-#include "game_hooks.h"
+#include "dx/d3d_gpu.h"
+#include "dx/ddraw_internal.h"
+#include "game/game_hooks.h"
 #include "runtime.h"
 #include "ge.h"
 

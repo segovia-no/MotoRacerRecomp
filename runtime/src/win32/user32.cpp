@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "ddraw.h"
-#include "host_video.h"
+#include "host/host_video.h"
 #include "user32.h"
 #include "win32.h"
 

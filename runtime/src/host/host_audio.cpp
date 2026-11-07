@@ -1,0 +1,107 @@
+#include "host/host_audio.h"
+
+#include <SDL3/SDL.h>
+
+#include <atomic>
+#include <cstdlib>
+#include <map>
+#include <memory>
+#include <vector>
+
+#include "runtime.h"
+
+using namespace rt;
+
+namespace host {
+
+namespace {
+SDL_AudioDeviceID device = 0;
+bool tried = false;
+std::atomic<float> g_master{1.f}, g_sfx{1.f}, g_music{1.f};
+// MOTORACER_MUTE=1 (test runs): everything plays at volume 0, so the audio path still runs. Read when
+// audio starts, not at static init: the PSP sets its environment from psp_env.txt in main().
+bool g_mute = false;
+
+struct Source {
+    std::function<int(uint8_t *, int)> pull;
+    std::vector<uint8_t> scratch;
+};
+std::map<SDL_AudioStream *, std::unique_ptr<Source>> sources;
+
+void SDLCALL feed(void *userdata, SDL_AudioStream *stream, int additional, int) {
+    auto *src = static_cast<Source *>(userdata);
+    prof::audio_mixing(true);   // until the post-mix callback (the profiler)
+    if (additional <= 0) return;
+    src->scratch.resize(static_cast<size_t>(additional));
+    int n = src->pull(src->scratch.data(), additional);
+    if (n > 0) SDL_PutAudioStreamData(stream, src->scratch.data(), n);
+}
+}  // namespace
+
+bool audio_init() {
+    if (tried) return device != 0;
+    tried = true;
+    g_mute = getenv("MOTORACER_MUTE") != nullptr;
+    if (g_mute) log("audio: muted (MOTORACER_MUTE)\n");
+    if (getenv("MOTORACER_NO_AUDIO")) {   // dev: measure the cost of audio (e.g. on the PSP)
+        log("audio: off (MOTORACER_NO_AUDIO)\n");
+        return false;
+    }
+    if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+        log("audio: SDL audio init failed: %s\n", SDL_GetError());
+        return false;
+    }
+    SDL_AudioSpec spec{SDL_AUDIO_S16LE, 2, 44100};
+    device = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
+    if (!device) {
+        log("audio: cannot open playback device: %s\n", SDL_GetError());
+        return false;
+    }
+    log("audio: device opened (%s)\n", SDL_GetAudioDeviceName(device));
+    SDL_SetAudioPostmixCallback(device, [](void *, const SDL_AudioSpec *, float *, int) { prof::audio_mixing(false); },
+                                nullptr);
+    SDL_SetAudioDeviceGain(device, g_mute ? 0.f : g_master.load());
+    return true;
+}
+
+SDL_AudioStream *audio_open_source(const SDL_AudioSpec &spec, std::function<int(uint8_t *, int)> pull) {
+    if (!audio_init()) return nullptr;
+    SDL_AudioSpec out{};
+    SDL_GetAudioDeviceFormat(device, &out, nullptr);
+    SDL_AudioStream *s = SDL_CreateAudioStream(&spec, &out);
+    if (!s) return nullptr;
+    auto src = std::make_unique<Source>();
+    src->pull = std::move(pull);
+    SDL_SetAudioStreamGetCallback(s, feed, src.get());
+    sources[s] = std::move(src);
+    SDL_BindAudioStream(device, s);
+    return s;
+}
+
+void set_master_gain(float g) {
+    g_master = g;
+    if (device) SDL_SetAudioDeviceGain(device, g_mute ? 0.f : g);
+}
+void set_sfx_gain(float g) { g_sfx = g; }
+void set_music_gain(float g) { g_music = g; }
+float sfx_gain() { return g_sfx; }
+float music_gain() { return g_music; }
+
+uint32_t audio_device_rate() {
+    SDL_AudioSpec out{};
+    if (!audio_init() || !SDL_GetAudioDeviceFormat(device, &out, nullptr) || out.freq <= 0) return 44100;
+    return static_cast<uint32_t>(out.freq);
+}
+
+void audio_close_source(SDL_AudioStream *s) {
+    if (!s) return;
+    SDL_UnbindAudioStream(s);
+    SDL_DestroyAudioStream(s);
+    sources.erase(s);
+}
+
+#ifndef __PSP__
+std::unique_ptr<TrackDecoder> open_mp3_track(const std::string &) { return nullptr; }
+#endif
+
+}  // namespace host

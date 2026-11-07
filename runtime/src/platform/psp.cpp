@@ -1,4 +1,4 @@
-// PSP adapters (docs/25-psp-port.md): no virtual memory, newlib files, folders next to the EBOOT.
+// PSP adapters (docs/notes/25-psp-port.md): no virtual memory, newlib files, folders next to the EBOOT.
 #include <algorithm>
 #include <dirent.h>
 #include <fcntl.h>
@@ -15,7 +15,7 @@
 #include "platform.h"
 #include "runtime.h"
 #include "buffered_file.h"
-#include "../psp/fpu.h"
+#include "psp/fpu.h"
 
 extern "C" void call_on_stack(void *stack_top, void (*fn)(void));   // stack_mips.S
 

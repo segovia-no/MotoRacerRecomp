@@ -1,7 +1,7 @@
 // Shader programs for SDL_GPU, independent of the host GPU API.
 //
 // The programs are written once in GLSL (runtime/shaders/) and compiled offline by
-// tools/build_shaders.sh into every bytecode format we ship. Each format is a ShaderBackend
+// scripts/dev/build_shaders.sh into every bytecode format we ship. Each format is a ShaderBackend
 // adapter in shaders.cpp; create() picks the one the device accepts (Metal: MSL, Vulkan: SPIR-V).
 #pragma once
 #include <SDL3/SDL.h>
