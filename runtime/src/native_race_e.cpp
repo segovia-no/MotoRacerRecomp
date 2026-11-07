@@ -23,6 +23,8 @@ extern "C" void f_0040d3b0_t(void);
 extern "C" void f_0049a160_t(void);
 extern "C" void f_0046e8b0_t(void);
 extern "C" void f_00422540_t(void);
+extern "C" void f_00464190_t(void);
+extern "C" void f_00403710_t(void);
 extern "C" void f_00476700(void);
 extern "C" void f_004767b0(void);
 extern "C" void f_004b2bb0(void);
@@ -509,7 +511,82 @@ void vertex_light() {
     }
 }
 
-uint32_t n_473a90, n_495bd0, n_4b32d0, n_4039c0, n_403a20, n_403740, n_458b80, n_41e1b0, n_490b90, n_40d3b0, n_49a160, n_46e8b0, n_422540;
+// ---- 0x403710: identity 4x3 matrix (thiscall: ecx = out); eax = out, edx = 1.0f ----
+void mat_identity() {
+    MEM_LOCAL();
+    const uint32_t m = R.ecx;
+    for (uint32_t k = 0; k < 12; k++) WR32(m + 4 * k, (k == 0 || k == 4 || k == 8) ? 0x3f800000u : 0);
+    R.eax = m;
+    R.edx = 0x3f800000;
+    R.esp += 4;
+}
+
+// 0x40fd40 (rotation from three angles, the sine table 0x5fcb80; translation 0), as native_race_a.cpp
+void euler_at(uint32_t ang, float out[12]) {
+    MEM_LOCAL();
+    const fpu_t k = static_cast<fpu_t>(0x1.45f306dc9ce2bp+11);
+    auto idx = [&](uint32_t a) { return static_cast<uint32_t>(FTOL(static_cast<fpu_t>(RDF32(a)) * k)); };
+    auto T = [&](uint32_t i) { return static_cast<fpu_t>(RDF32A(SIN_TABLE + (i & 0x3fff) * 4)); };
+    const uint32_t i0 = idx(ang), i1 = idx(ang + 4), i2 = idx(ang + 8);
+    const fpu_t A0 = T(i0), B0 = T(i0 - 0x1000), A1 = T(i1), B1 = T(i1 - 0x1000), A2 = T(i2), B2 = T(i2 - 0x1000);
+    const fpu_t Q = B1 * B0;
+    const fpu_t L10 = rnd(Q);
+    const fpu_t U = Q * A2 + B2 * A0;
+    const fpu_t L0c = rnd(B1 * A0);
+    const fpu_t Y1 = B2 * B0 - L0c * A2;
+    const fpu_t nZ = -(B2 * A1);
+    const fpu_t I = A0 * A2 - L10 * B2;
+    const fpu_t J = A2 * B0;
+    const fpu_t O = J + L0c * B2;
+    const fpu_t nN = -(A1 * B0);
+    const fpu_t P = A1 * A0;
+    const float r[12] = {rnd(A1 * A2), rnd(U), rnd(Y1), rnd(nZ), rnd(I), rnd(O), rnd(B1), rnd(nN), rnd(P), 0.f, 0.f, 0.f};
+    memcpy(out, r, sizeof r);
+}
+
+// ---- 0x464190: world matrices of a node tree (thiscall: ecx = first node; recursive) ----
+// For each node of the sibling list ([+8]): the local matrix = rotation from the angles at +0xc about
+// the pivot +0x48 (translation R (-p) + p, 0x410010 / 0x40ffc0); its world matrix +0x18 = the local
+// one, under a parent ([+4]) combined with the parent's world matrix as the x86 orders the products;
+// then the children ([+0]). Callers read no register afterwards.
+void node_matrices(uint32_t s) {
+    MEM_LOCAL();
+    auto F_ = [](float v) { return static_cast<fpu_t>(v); };
+    for (; s; s = RD32(s + 8)) {
+        float L[12];
+        euler_at(s + 0xc, L);
+        const float t[3] = {RDF32(s + 0x48), RDF32(s + 0x4c), RDF32(s + 0x50)};
+        const float v[3] = {rnd(-F_(t[0])), rnd(-F_(t[1])), rnd(-F_(t[2]))};
+        auto l = [&](int k) { return F_(L[k]); };
+        const float o[3] = {rnd(((l(6) * F_(v[2]) + l(3) * F_(v[1])) + l(0) * F_(v[0])) + l(9)),
+                            rnd(((l(1) * F_(v[0]) + l(4) * F_(v[1])) + l(7) * F_(v[2])) + l(10)),
+                            rnd(((l(8) * F_(v[2]) + l(5) * F_(v[1])) + l(2) * F_(v[0])) + l(11))};
+        for (int i = 0; i < 3; i++) L[9 + i] = rnd(F_(t[i]) + F_(o[i]));
+        float W[12];
+        const uint32_t parent = RD32(s + 4);
+        if (parent) {
+            float Pm[12];
+            for (int k = 0; k < 12; k++) Pm[k] = RDF32(parent + 0x18 + 4 * k);
+            auto p = [&](int k) { return F_(Pm[k]); };
+            for (int c = 0; c < 3; c++) {
+                W[c] = rnd((p(2) * l(6 + c) + p(1) * l(3 + c)) + p(0) * l(c));
+                W[3 + c] = rnd((p(3) * l(c) + p(5) * l(6 + c)) + p(4) * l(3 + c));
+                W[6 + c] = rnd((p(7) * l(3 + c) + p(6) * l(c)) + p(8) * l(6 + c));
+                W[9 + c] = rnd(((p(9) * l(c) + p(10) * l(3 + c)) + p(11) * l(6 + c)) + l(9 + c));
+            }
+        } else {
+            memcpy(W, L, sizeof W);
+        }
+        for (int k = 0; k < 12; k++) WRF32(s + 0x18 + 4 * k, W[k]);
+        if (RD32(s)) node_matrices(RD32(s));
+    }
+}
+void node_matrices_call() {
+    node_matrices(R.ecx);
+    R.esp += 4;
+}
+
+uint32_t n_473a90, n_495bd0, n_4b32d0, n_4039c0, n_403a20, n_403740, n_458b80, n_41e1b0, n_490b90, n_40d3b0, n_49a160, n_46e8b0, n_422540, n_464190, n_403710;
 }  // namespace
 
 extern "C" int native_hot_473a90(void) {
@@ -650,5 +727,35 @@ extern "C" int native_hot_422540(void) {
     if (n < 0x10000 && RD32(model + 0x10)) regions.push_back({out, 0x1c * n});
     check_abi("vertex light 0x422540", vertex_light, f_00422540_t, regions);
     counted("vertex light 0x422540", n_422540);
+    return 1;
+}
+
+extern "C" int native_hot_403710(void) {
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { mat_identity(); return 1; }
+    check("identity 0x403710", mat_identity, f_00403710_t, {{R.ecx, 48}});
+    counted("identity 0x403710", n_403710);
+    return 1;
+}
+
+extern "C" int native_hot_464190(void) {
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { node_matrices_call(); return 1; }
+    // compared: the world matrix of every node of the tree (collected first, as the walk visits them)
+    std::vector<Region> regions;
+    std::vector<uint32_t> todo{R.ecx};
+    MEM_LOCAL();
+    while (!todo.empty() && regions.size() < 4096) {
+        uint32_t n = todo.back();
+        todo.pop_back();
+        for (; n && regions.size() < 4096; n = RD32(n + 8)) {
+            regions.push_back({n + 0x18, 48});
+            if (RD32(n)) todo.push_back(RD32(n));
+        }
+    }
+    check_abi("node matrices 0x464190", node_matrices_call, f_00464190_t, regions);
+    counted("node matrices 0x464190", n_464190);
     return 1;
 }
