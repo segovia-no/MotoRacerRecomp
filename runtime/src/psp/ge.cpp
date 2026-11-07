@@ -420,7 +420,11 @@ void draw_array(int prim, int vtype, int count, const void *indices, const void 
     *c++ = (0x04u << 24) | ((static_cast<unsigned int>(prim) << 16 | static_cast<unsigned int>(count)) & 0xffffffu);
     gu_list->current = c;
     if (c - stall_at >= stall_step_words()) {
+        static const uint8_t region = prof_register("ge: stall address (kernel call)");
+        const uint8_t prev = prof_region;
+        prof_region = region;
         sceGeListUpdateStallAddr(ge_list_executed[0], c);
+        prof_region = prev;
         stall_at = c;
     }
 }

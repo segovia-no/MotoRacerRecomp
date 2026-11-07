@@ -698,6 +698,30 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   0x760010 (`RELOCATED_TABLES`); at 480 rows and more the writes ran past it into the following
   globals. The PSP's 272 rows stayed inside it. Check mode had logged the mismatches.
 
+### Per-draw costs on hardware; text and printf (2026-11-07; owner: "do items 2->4")
+- Hardware race (prof build): 46–53 ms per frame. PPSSPP has no cache model: its vertex loops cost
+  1.7 ms against 5 ms on the PSP, so PPSSPP timings under-rate memory work (~79 cycles per cache-line
+  miss, 16 KB instruction and data caches).
+- A race frame has ~1,300 GE draws of ~2.5 triangles each, and consecutive draws share a texture only
+  ~1% of the time (the game draws back to front): merging draws would need reordering, which changes
+  blending / painter's order — not done.
+- Per draw, two `std::map` lookups (texture handle -> surface in Execute, surface -> GE texture) walked
+  tree nodes that miss the data cache: a vector indexed by handle and the GE record cached on the
+  surface (`Surface::gpu_texture`).
+- `draw_array` moves the GE stall address with a kernel call after every draw (~1,300 per frame); a
+  4 KB step once starved the GE. Now in its own profiler region ("ge: stall address (kernel call)") so
+  the hardware profile shows its cost; `MOTORACER_GE_STALL_STEP=512` is the A/B (a few draws per call).
+- `0x493820` (font print) native: its translated body (14 KB of code for ~480 x86 instructions) was
+  refetched into the instruction cache at every HUD string (~1 ms per frame on hardware). Word wrap and
+  a lost font texture stay translated.
+- `_output` formats through `cfmt.h` instead of newlib's `snprintf` (0.8 ms per frame on hardware);
+  fuzzed against the host libc (3.1 M specs, 0 differences). PPSSPP 0.13 -> 0.05 ms.
+- Not done: writing the GE's 3D vertices once at flush time. The conversion's division only moves, and
+  the GE would read vertex memory the next execute buffer overwrites (needs GE progress tracking or a
+  second 48 KB array: the PSP-1000 has ~0.19 MB of C heap left). Expected gain < 0.5 ms.
+- `package_hw.sh` takes up to three profiling apps (`PROFILE_BUILD_B` / `_C`) for hardware A/Bs: here
+  -O2 vs -Os game code (`build/psp-pf-os`) and the stall step.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and
