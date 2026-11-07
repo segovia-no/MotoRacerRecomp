@@ -377,6 +377,9 @@ void nearest_types() {
 // reset ([0x53469c] += the pool count) and the span table rebuilt: [0x68b008] entries of 8 bytes at
 // 0x60d3d0 (0, [0x62e448] + 1, 0), pointers at 0x623bd8 ([0x65e1d4] counts them). Last 0x4099a0 on
 // [0x4dc0c4] when it holds something. Callers read no register afterwards.
+// The pointer table holds 480 rows in the image; the translator relocates it (RELOCATED_TABLES in
+// translate.py) so taller viewports fit: written there, or rows past 480 overwrite the globals after it.
+constexpr uint32_t SPAN_HEADS = 0x760010;   // 0x623bd8 relocated
 void render_begin() {
     MEM_LOCAL();
     const uint32_t sp = R.esp, keep = RD32A(sp + 4), no_lock = RD32A(sp + 8);
@@ -411,7 +414,7 @@ void render_begin() {
             do {
                 i = RD32A(0x65e1d4);
                 const uint32_t e = 0x60d3d0 + 8 * i;
-                WR32A(0x623bd8 + 4 * i, e);
+                WR32A(SPAN_HEADS + 4 * i, e);
                 WR16A(e, 0);
                 WR16A(e + 2, static_cast<uint16_t>(RD32A(0x62e448) + 1));
                 WR32A(e + 4, 0);
@@ -841,7 +844,7 @@ extern "C" int native_hot_49a160(void) {
     // check mode: the back-buffer lock (host state) cannot run twice, so only calls without it compare
     if (md == ON || !RD32A(R.esp + 8)) { render_begin(); return 1; }
     const uint32_t lo = 0x4db000, hi = 0x70c568;
-    check_abi("render begin 0x49a160", render_begin, f_0049a160_t, {{lo, hi - lo}});
+    check_abi("render begin 0x49a160", render_begin, f_0049a160_t, {{lo, hi - lo}, {SPAN_HEADS, 4 * 4096}});
     counted("render begin 0x49a160", n_49a160);
     return 1;
 }

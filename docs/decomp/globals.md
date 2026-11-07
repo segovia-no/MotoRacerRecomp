@@ -39,6 +39,7 @@
 | 0x60d1a0 | 32-entry gradient palette (0x490b90) |
 | 0x60d3c4 / 0x624f88 | screen centre x / y |
 | 0x60d3d0 | span table (8-byte entries, pointers at 0x623bd8, count [0x65e1d4]) |
+| 0x623bd8 | per-row span-list heads, 480 dwords (0x624358 is the next global: taller viewports overflow it; the recomp relocates it to 0x760010) |
 | 0x624374 / 0x62e448 | screen x max / min |
 | 0x6d1040 / 0x625784 | screen y max / min |
 | 0x624afc | execute buffer / back buffer object |
