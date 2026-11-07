@@ -88,7 +88,9 @@ struct Device : ComObj {
 };
 
 uint32_t vt_d3d, vt_dev, vt_eb, vt_vp, vt_mat, vt_tex, vt_light;
-std::map<uint32_t, Surface *> texture_handles;   // D3DTEXTUREHANDLE -> surface
+// D3DTEXTUREHANDLE -> surface: handles are small consecutive numbers, so a vector indexed by them
+// (a std::map lookup per draw walked tree nodes that miss the PSP's data cache)
+std::vector<Surface *> texture_handles;
 std::map<Surface *, uint32_t> surface_texture_handle;
 std::map<uint32_t, Material *> material_handles;
 uint32_t next_handle = 1;
@@ -142,9 +144,8 @@ Surface *last_handle_surface = nullptr;
 
 Surface *texture_from_handle(uint32_t h) {
     if (h == last_handle && last_handle) return last_handle_surface;
-    auto it = texture_handles.find(h);
     last_handle = h;
-    last_handle_surface = it == texture_handles.end() ? nullptr : it->second;
+    last_handle_surface = h < texture_handles.size() ? texture_handles[h] : nullptr;
     return last_handle_surface;
 }
 
@@ -300,6 +301,7 @@ uint32_t ensure_texture_handle(Surface *s) {
     if (it != surface_texture_handle.end()) return it->second;
     uint32_t h = next_handle++;
     surface_texture_handle[s] = h;
+    if (texture_handles.size() <= h) texture_handles.resize(h + 1, nullptr);
     texture_handles[h] = s;
     last_handle = 0;
     return h;
@@ -667,8 +669,8 @@ bool d3d_query_surface(Surface *s, const Guid &g, uint32_t *out, uint32_t *hr) {
         dev->target = s;
         on_destroy = [](Surface *gone) {
             gpu::surface_destroyed(gone);
-            for (auto it = texture_handles.begin(); it != texture_handles.end();)
-                it = it->second == gone ? texture_handles.erase(it) : std::next(it);
+            for (Surface *&t : texture_handles)
+                if (t == gone) t = nullptr;
             last_handle = 0;
             surface_texture_handle.erase(gone);
         };

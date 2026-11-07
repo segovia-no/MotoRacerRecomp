@@ -312,7 +312,10 @@ Texture *texture_for(Surface *s) {
     // most draws use the same texture as the one before: skip the map lookup
     if (last_tex_surface == s && last_tex->data && last_tex->version == s->version && last_tex->pal_version == pal_version)
         return last_tex;
-    Texture &t = textures[s];
+    // the record is cached on the surface: a std::map lookup per draw (the texture changes almost every
+    // draw) walked tree nodes that miss the data cache
+    if (!s->gpu_texture) s->gpu_texture = &textures[s];
+    Texture &t = *static_cast<Texture *>(s->gpu_texture);
     last_tex_surface = s;
     last_tex = &t;
     if (t.data && t.version == s->version && t.pal_version == pal_version) return &t;
@@ -1153,6 +1156,7 @@ void surface_destroyed(Surface *s) {
         if (gs.clut == it->second.clut) gs.clut = nullptr;
         textures.erase(it);
     }
+    s->gpu_texture = nullptr;
     if (last_tex_surface == s) last_tex_surface = nullptr, last_tex = nullptr;
     if (s == target) target = nullptr;
 }

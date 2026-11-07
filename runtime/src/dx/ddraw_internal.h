@@ -51,6 +51,7 @@ struct Surface : ComObj {
     std::vector<Surface *> attached;   // flip chain back buffers / z-buffer
     Palette *palette = nullptr;
     Clipper *clipper = nullptr;
+    void *gpu_texture = nullptr;   // the GPU backend's texture record for this surface (its own lookup cache)
     bool primary() const { return caps & DDSCAPS_PRIMARYSURFACE; }
     uint32_t bytes() const { return bpp / 8; }
     ~Surface() override {
