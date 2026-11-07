@@ -16,6 +16,7 @@ Key facts:
 - [Troubleshooting](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/guides/troubleshooting.md): logs, reinstalling, resetting settings
 - [PSP guide](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/guides/psp-build.md): building the PSP version (custom firmware) from the GOG installer
 - [Building from source](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/dev/building.md): setup scripts, building by hand
+- [PSP development](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/dev/psp.md): the PSP port, testing in PPSSPP and on hardware, profiling
 - [Website](https://segovia-no.github.io/MotoRacerRecomp/): overview and FAQ
 - [Releases](https://github.com/segovia-no/MotoRacerRecomp/releases): downloads
 - [Technical notes](https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/README.md): reverse-engineering findings, recompiler and runtime design

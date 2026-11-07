@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Moto Racer Recomp: play Moto Racer on Mac, Windows 11, Linux and Steam Deck</title>
-<meta name="description" content="Unofficial native port of Moto Racer (1997) for macOS, Windows 10/11, Linux and the Steam Deck. True widescreen up to 4K, gamepad support, high frame rates. Built from your own GOG copy, no emulator.">
+<title>Moto Racer Recomp: play Moto Racer on Mac, Windows 11, Linux, Steam Deck and PSP</title>
+<meta name="description" content="Unofficial native port of Moto Racer (1997) for macOS, Windows 10/11, Linux, the Steam Deck and the PSP. True widescreen up to 4K, gamepad support, high frame rates. Built from your own GOG copy, no emulator.">
 <link rel="canonical" href="https://segovia-no.github.io/MotoRacerRecomp/">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Moto Racer Recomp: Moto Racer on Mac, Windows 11, Linux and Steam Deck">
-<meta property="og:description" content="Native port of the 1997 classic: true widescreen up to 4K, gamepads, high frame rates. Made from your own GOG copy.">
+<meta property="og:title" content="Moto Racer Recomp: Moto Racer on Mac, Windows 11, Linux, Steam Deck and PSP">
+<meta property="og:description" content="Native port of the 1997 classic: true widescreen up to 4K, gamepads, high frame rates, and a PSP version. Made from your own GOG copy.">
 <meta property="og:url" content="https://segovia-no.github.io/MotoRacerRecomp/">
 <meta property="og:image" content="https://segovia-no.github.io/MotoRacerRecomp/img/social-preview.png">
 <meta property="og:image:width" content="1280">
@@ -21,9 +21,9 @@
   "@type": "SoftwareApplication",
   "name": "Moto Racer Recomp",
   "alternateName": ["MotoRacerRecomp", "Moto Racer native port"],
-  "description": "Unofficial native port (static recompilation) of the 1997 PC game Moto Racer for macOS, Windows, Linux and the Steam Deck, built from the player's own GOG copy.",
+  "description": "Unofficial native port (static recompilation) of the 1997 PC game Moto Racer for macOS, Windows, Linux, the Steam Deck and the PSP, built from the player's own GOG copy.",
   "applicationCategory": "GameApplication",
-  "operatingSystem": "macOS 12+ (Apple Silicon), Windows 10, Windows 11, Linux (x86-64), SteamOS",
+  "operatingSystem": "macOS 12+ (Apple Silicon), Windows 10, Windows 11, Linux (x86-64), SteamOS, PSP (custom firmware)",
   "url": "https://segovia-no.github.io/MotoRacerRecomp/",
   "downloadUrl": "https://github.com/segovia-no/MotoRacerRecomp/releases",
   "codeRepository": "https://github.com/segovia-no/MotoRacerRecomp",
@@ -53,6 +53,8 @@
      "acceptedAnswer": {"@type": "Answer", "text": "In Desktop Mode, download the GOG installer and MotoRacer-linux-x86_64.tar.xz, extract it, add MotoRacer/motoracer to Steam as a non-Steam game and start it once. Then play it from Game Mode at the Deck's native 1280x800 with the controller layout 'Gamepad with Joystick Trackpad'."}},
     {"@type": "Question", "name": "Does Moto Racer work on Windows 10 and Windows 11?",
      "acceptedAnswer": {"@type": "Answer", "text": "Yes. Moto Racer Recomp is a native 64-bit Windows program: download MotoRacer-windows-x86_64.zip, extract it and run motoracer.exe. It does not need DirectX 5 or compatibility modes."}},
+    {"@type": "Question", "name": "Can I play Moto Racer on a PSP?",
+     "acceptedAnswer": {"@type": "Answer", "text": "Yes, on every PSP model with custom firmware, PSP-1000 included. The PSP package is built on a Mac, Linux or Windows PC from your GOG installer with one command (./setup.sh --psp, or setup.cmd --psp on Windows) and copied to the memory stick. Races run at about 25-30 fps with the full field of opponents and the CD music."}},
     {"@type": "Question", "name": "Can Moto Racer run in widescreen or 4K?",
      "acceptedAnswer": {"@type": "Answer", "text": "Yes. Moto Racer Recomp shows the game's own 16/9 mode as a true widescreen picture at native 1280x720, 1920x1080, 2560x1440 or 3840x2160, and 16:10 at 1280x800, 1920x1200 or 2560x1600."}},
     {"@type": "Question", "name": "Do I need to own Moto Racer?",
@@ -121,6 +123,7 @@ section { padding-block: 0 48px; }
 
 /* mode cards */
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 22px; }
+.card.wide { grid-column: 1 / -1; }
 .card { background: var(--navy); border: 3px solid var(--black); box-shadow: 7px 7px 0 var(--black); display: flex; flex-direction: column; }
 .card h3 { margin: 0; background: var(--black); font: italic 700 1.12rem/1.1 var(--f-body); padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .card p { margin: 0; padding: 14px 14px 16px; color: var(--dim); }
@@ -178,6 +181,7 @@ footer p { margin: 0; max-width: 80ch; }
   <symbol id="i-pad" viewBox="0 0 24 24"><path d="M7.5 8h9A4.5 4.5 0 0 1 21 12.5v1.8a2.7 2.7 0 0 1-4.9 1.6L14.6 14H9.4l-1.5 1.9A2.7 2.7 0 0 1 3 14.3v-1.8A4.5 4.5 0 0 1 7.5 8z"/><path d="M8 10.2v3.2M6.4 11.8h3.2"/><circle cx="15.6" cy="11" r=".6"/><circle cx="17.4" cy="12.8" r=".6"/></symbol>
   <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M3.5 17a8.5 8.5 0 1 1 17 0"/><path d="M12 17l4.2-5.2"/><path d="M6.2 13.4l1.2.7M12 8.5v1.4M17.8 13.4l-1.2.7"/></symbol>
   <symbol id="i-cd" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/></symbol>
+  <symbol id="i-handheld" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="5"/><rect x="7.5" y="9" width="9" height="6" rx=".8"/><path d="M4.6 12h1.6M5.4 11.2v1.6"/><circle cx="18.6" cy="11.4" r=".55"/><circle cx="18.6" cy="12.8" r=".55"/></symbol>
   <symbol id="i-pixels" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><rect x="14" y="14" width="6" height="6"/></symbol>
 </svg>
 
@@ -194,7 +198,7 @@ footer p { margin: 0; max-width: 80ch; }
     <div class="inner">
       <img class="shot" src="img/race.jpg" width="1600" height="1000" alt="Moto Racer Recomp: the start of a race on Speed Bay in widescreen at 2560x1600">
       <div>
-        <h1>Moto Racer, <em>native</em> on Mac, Windows, Linux and Steam Deck</h1>
+        <h1>Moto Racer, <em>native</em> on Mac, Windows, Linux, Steam Deck and PSP</h1>
         <p class="lead">The 1997 Delphine classic in widescreen up to 4K, with gamepads and 120 Hz. Built from your own GOG copy on the first start. No emulator, no Wine.</p>
         <div class="btns">
           <a class="pill go" href="https://github.com/segovia-no/MotoRacerRecomp/releases">Download</a>
@@ -214,6 +218,7 @@ footer p { margin: 0; max-width: 80ch; }
       <article class="card"><h3>Smoother, further <svg class="ico" aria-hidden="true"><use href="#i-gauge"/></svg></h3><p>Frame rates above 60 (<b>120 or 144 Hz</b>) at the original game speed, a longer draw distance and a HUD scaled to the resolution.</p></article>
       <article class="card"><h3>CD music <svg class="ico" aria-hidden="true"><use href="#i-cd"/></svg></h3><p>The GOG audio tracks play as the <b>original CD soundtrack</b>; sound effects and volume sliders work.</p></article>
       <article class="card"><h3>Original renderer too <svg class="ico" aria-hidden="true"><use href="#i-pixels"/></svg></h3><p>Prefer the 1997 look? The game's <b>software renderer</b> is still there: Options › D3D: OFF.</p></article>
+      <article class="card wide"><h3>On the PSP too <svg class="ico" aria-hidden="true"><use href="#i-handheld"/></svg></h3><p>The same recompiled game runs on a <b>real PSP</b>, every model with custom firmware (PSP-1000 included), drawn by the PSP's own graphics chip: full field of opponents, CD music, PSP controls, about <b>25–30 fps</b> in races. One command builds the memory-stick package from your GOG installer on a Mac, Linux or Windows PC.</p></article>
     </div>
     <div class="gallery">
       <figure><img src="img/race2.jpg" width="1600" height="1000" loading="lazy" alt="A bike leaning into a corner past a castle, widescreen"><figcaption>Longer draw distance and a HUD scaled to the resolution.</figcaption></figure>
@@ -238,10 +243,12 @@ footer p { margin: 0; max-width: 80ch; }
               <tr><td>Mac (Apple Silicon)</td><td><code>MotoRacer-macos-arm64.zip</code></td><td>macOS 12 or later</td></tr>
               <tr><td>Windows</td><td><code>MotoRacer-windows-x86_64.zip</code></td><td>Windows 10 or 11, 64-bit</td></tr>
               <tr><td>Steam Deck / Linux</td><td><code>MotoRacer-linux-x86_64.tar.xz</code></td><td>x86-64, glibc 2.29 or later</td></tr>
+              <tr><td>PSP</td><td>built from the <a href="https://github.com/segovia-no/MotoRacerRecomp">source</a></td><td>any model, custom firmware</td></tr>
             </tbody>
           </table>
         </div>
         <p style="margin:0">Step-by-step notes for macOS (Gatekeeper), Windows (SmartScreen) and the Steam Deck (adding it to Steam, controller layout) are in the <a href="https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/guides/install.md">install guide</a>.</p>
+        <p style="margin:12px 0 0"><strong>PSP:</strong> get the source, put the GOG installer in Downloads and run <code>./setup.sh --psp</code> (Mac, Linux) or <code>setup.cmd --psp</code> (Windows); copy the <code>PSP</code> folder it makes to the memory stick. Details in the <a href="https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/guides/psp-build.md">PSP guide</a>.</p>
       </div>
       <figure><img src="img/setup.png" width="1280" height="720" loading="lazy" alt="Moto Racer Recomp first-start setup screen"><figcaption>The first-start setup screen.</figcaption></figure>
     </div>
@@ -251,6 +258,7 @@ footer p { margin: 0; max-width: 80ch; }
     <div class="sec-head"><h2>FAQ</h2></div>
     <details><summary>How do I play Moto Racer on a Mac?</summary><p>Download <code>MotoRacer-macos-arm64.zip</code>, put the GOG installer in Downloads and open <strong>MotoRacer.app</strong>. It runs natively on Apple Silicon (macOS 12 or later). The app is not notarized, so the first time use System Settings › Privacy &amp; Security › Open Anyway.</p></details>
     <details><summary>How do I play Moto Racer on the Steam Deck?</summary><p>In Desktop Mode, download the GOG installer and <code>MotoRacer-linux-x86_64.tar.xz</code>, extract it, add <code>MotoRacer/motoracer</code> to Steam as a non-Steam game and start it once. Then play from Game Mode at the native 1280×800; pick the Steam controller layout "Gamepad with Joystick Trackpad".</p></details>
+    <details><summary>Can I play Moto Racer on a PSP?</summary><p>Yes, on every PSP model with custom firmware, PSP-1000 included. Build the package on a Mac, Linux or Windows PC from your GOG installer with <code>./setup.sh --psp</code> (or <code>setup.cmd --psp</code> on Windows) and copy it to the memory stick: see the <a href="https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/guides/psp-build.md">PSP guide</a>. Races run at about 25–30 fps with the full field and the CD music.</p></details>
     <details><summary>Does Moto Racer work on Windows 10 and 11?</summary><p>Yes: Moto Racer Recomp is a native 64-bit Windows program. Extract the zip and run <code>motoracer.exe</code>; no DirectX 5, no compatibility modes.</p></details>
     <details><summary>Can Moto Racer run in widescreen or 4K?</summary><p>Yes: the game's own 16/9 mode becomes a true 16:9 picture at up to 3840×2160, and 16:10 modes up to 2560×1600.</p></details>
     <details><summary>Do I need to own the game?</summary><p>Yes. The game is made from your GOG installer on your computer; nothing from the game is distributed here.</p></details>

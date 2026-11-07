@@ -11,6 +11,7 @@ Living index of what we know. Each topic gets its own file; this one links them.
 ## Developer docs
 - [dev/building.md](dev/building.md) — building from source (setup scripts, by hand), developer aids
 - [dev/architecture.md](dev/architecture.md) — how it works, repository layout, further reading
+- [dev/psp.md](dev/psp.md) — the PSP port: what differs, building by hand, `psp_env.txt` options, testing in PPSSPP and on hardware, profiling, PGO
 
 ## Source artifact
 

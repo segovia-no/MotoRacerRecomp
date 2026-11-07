@@ -7,4 +7,4 @@
 - **Game files not found**: they are looked for in this order: `--game-dir DIR`, `$MOTORACER_GAME_DIR`, `<data dir>/MotoRacerRecomp/game` (`~/Library/Application Support` on macOS, `$XDG_DATA_HOME` or `~/.local/share` on Linux, `%LOCALAPPDATA%` on Windows), `./extracted/app`.
 - **"Not the GOG game.EXE"**: the build only accepts the GOG `game.EXE` (checked by hash), because the recompiler's analysis is specific to that binary.
 - **Uninstall**: see [install.md](install.md#uninstall).
-- **PSP problems**: see [psp-build.md](psp-build.md#troubleshooting).
+- **PSP problems**: building (toolchain, packages) and the PSP not listing the game: [psp-build.md](psp-build.md#troubleshooting). A crash on the PSP leaves `PSP/GAME/MOTORACER/motoracer.log` on the memory stick: attach it to a [bug report](https://github.com/segovia-no/MotoRacerRecomp/issues).

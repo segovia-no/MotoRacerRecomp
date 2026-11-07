@@ -4,7 +4,7 @@
 2. `runtime/` provides the guest address space, Win32 (KERNEL32/USER32 with MFC-compatible window management, GDI, registry, files), C++/SEH exceptions, DirectDraw, Direct3D (execute buffers → SDL_GPU/Metal), DirectSound, an emulated CD-audio drive backed by the GOG audio tracks, joysticks via SDL gamepads, and presentation.
 3. A few game-specific fixes are applied at translation time or through small hooks — e.g. relocating the 3D engine's 480-row tables so it can render above 480 lines, the widescreen mode list, HUD scaling and draw distance. Hot game functions also have native C++ rewrites (`runtime/src/game/natives/`), checked against the translated code.
 
-Release packages carry the recompiler and a C compiler, so the game code is built on the player's computer from their own copy ([notes/28-easy-install.md](../notes/28-easy-install.md)). The PSP version uses the same recompiler and runtime with a GE (PSP GPU) backend ([notes/25-psp-port.md](../notes/25-psp-port.md)).
+Release packages carry the recompiler and a C compiler, so the game code is built on the player's computer from their own copy ([notes/28-easy-install.md](../notes/28-easy-install.md)). The PSP version uses the same recompiler and runtime with a GE (PSP GPU) backend ([psp.md](psp.md)).
 
 ## Repository layout
 

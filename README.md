@@ -14,23 +14,23 @@ This is a *static recompilation*: the original Windows game executable from your
 > **You need your own copy of the game.** Buy *Moto Racer* on [GOG](https://www.gog.com/game/moto_racer) and download the offline installer (`setup_moto_racer_2.1.0.11.exe`). This repository and its downloads contain no game code or assets; everything is made from your installer on your own computer.
 
 ## Quick start
-1. Download the package for your system from the [Releases page](https://github.com/segovia-no/MotoRacerRecomp/releases): Mac (Apple Silicon), Windows 10/11 or Steam Deck / Linux (x86-64).
-2. Put the GOG installer in your Downloads folder.
-3. Unpack the download and start Moto Racer. The first start unpacks the game and builds it on your computer (a minute or two, once).
+| Platform | How |
+|---|---|
+| **Mac** (Apple Silicon), **Windows** 10/11, **Steam Deck / Linux** (x86-64) | Download the package for your system from the [Releases page](https://github.com/segovia-no/MotoRacerRecomp/releases), put the GOG installer in your Downloads folder, unpack the download and start Moto Racer. The first start unpacks the game and builds it on your computer (a minute or two, once). |
+| **PSP** (every model, custom firmware) | Build the PSP package on a Mac, Linux or Windows PC from your installer — `./setup.sh --psp` (macOS / Linux) or `setup.cmd --psp` (Windows) in the source folder — then copy `build/psp-hw/PSP` to the memory stick. Races run at about 25–30 fps. |
 
-Details for each system, updating and uninstalling: **[Install guide](docs/guides/install.md)**.
-
-**PSP** (custom firmware, every model): built from your installer with `./setup.sh --psp` (macOS / Linux) or `setup.cmd --psp` (Windows) — see the **[PSP guide](docs/guides/psp-build.md)**.
+Details for each platform, updating and uninstalling: **[Install guide](docs/guides/install.md)** · PSP: **[PSP guide](docs/guides/psp-build.md)**.
 
 ## Documentation
 | | |
 |---|---|
-| [Install](docs/guides/install.md) | download, first start, Mac / Windows / Steam Deck / Linux, updating, uninstall |
-| [Playing](docs/guides/playing.md) | features, controls (keyboard, gamepad), settings |
+| [Install](docs/guides/install.md) | download, first start, Mac / Windows / Steam Deck / Linux / PSP, updating, uninstall |
+| [Playing](docs/guides/playing.md) | features, controls (keyboard, gamepad, PSP), settings |
 | [Troubleshooting](docs/guides/troubleshooting.md) | logs, reinstalling game files, resetting settings |
-| [PSP](docs/guides/psp-build.md) | building and installing the PSP version |
+| [PSP](docs/guides/psp-build.md) | building and installing the PSP version, PSP controls |
 | [Building from source](docs/dev/building.md) | setup scripts, building by hand, developer aids |
 | [Architecture](docs/dev/architecture.md) | how the recompiler and runtime work, repository layout |
+| [PSP development](docs/dev/psp.md) | the PSP port: building by hand, testing in PPSSPP and on hardware, profiling |
 | [Technical notes](docs/README.md) | reverse engineering, translator, runtime and port notes |
 
 ## Distribution and legal

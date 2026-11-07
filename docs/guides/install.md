@@ -18,7 +18,7 @@
 
 Everything needed for this comes in the download (Python, a C compiler and an installer unpacker, about 300 MB). Nothing is installed system-wide and nothing else is downloaded. Keep about 1.5 GB free.
 
-No package for your system, or you want the latest code? [Build from source](../dev/building.md). The PSP version is built from source too: [psp-build.md](psp-build.md).
+No package for your system, or you want the latest code? [Build from source](../dev/building.md). The PSP has no download: its package is built on your computer ([PSP](#psp) below).
 
 ## Mac
 - Double-click the zip, then move **MotoRacer.app** to your Applications folder and open it.
@@ -47,16 +47,27 @@ tar -xJf ~/Downloads/MotoRacer-linux-x86_64.tar.xz -C ~
 ```
 Keep `motoracer` next to its `kit` folder.
 
+## PSP
+Runs on every PSP model (PSP-1000 included) with custom firmware (e.g. ARK-4). The package is built on a Mac, Linux or Windows PC from your GOG installer:
+1. Get the source (`git clone https://github.com/segovia-no/MotoRacerRecomp.git`, or Code › Download ZIP) and put the installer in your Downloads folder.
+2. Build: `./setup.sh --psp` in a terminal in the source folder (macOS / Linux), or `setup.cmd --psp` in a Command Prompt there (Windows: builds in WSL). The first build downloads the PSP toolchain and takes several minutes.
+3. Copy `build/psp-hw/PSP` to the root of the memory stick (merge it with the `PSP` folder there).
+4. On the PSP: Game › Memory Stick › **Moto Racer Recompiled**.
+
+Requirements per system, what the script installs, controls: [psp-build.md](psp-build.md).
+
 ## Updating
 Download the new package and replace the old one (the app, or the MotoRacer folder). On the next start it rebuilds the game code once ("UPDATING"); your saves, best times and settings stay where they are (see [Settings](playing.md#settings)).
 
+PSP: `git pull`, run `./setup.sh --psp` (or `setup.cmd --psp`) again and copy `build/psp-hw/PSP/GAME/MOTORACER/EBOOT.PBP` over the one on the memory stick (keeping the stick's `game` folder keeps your best times and settings).
+
 ## Where things are
-| | macOS | Linux | Windows |
-|---|---|---|---|
-| Data folder (game files, compiled game code, saves, settings) | `~/Library/Application Support/MotoRacerRecomp` | `~/.local/share/MotoRacerRecomp` | `%LOCALAPPDATA%\MotoRacerRecomp` |
-| Log | `~/Library/Logs/MotoRacerRecomp/motoracer.log` | `~/.local/state/MotoRacerRecomp/motoracer.log` | `%LOCALAPPDATA%\MotoRacerRecomp\logs\motoracer.log` |
+| | macOS | Linux | Windows | PSP (memory stick) |
+|---|---|---|---|---|
+| Data folder (game files, compiled game code, saves, settings) | `~/Library/Application Support/MotoRacerRecomp` | `~/.local/share/MotoRacerRecomp` | `%LOCALAPPDATA%\MotoRacerRecomp` | `PSP/GAME/MOTORACER` (game files in `game/`) |
+| Log | `~/Library/Logs/MotoRacerRecomp/motoracer.log` | `~/.local/state/MotoRacerRecomp/motoracer.log` | `%LOCALAPPDATA%\MotoRacerRecomp\logs\motoracer.log` | `PSP/GAME/MOTORACER/motoracer.log` |
 
 ## Uninstall
-Delete the app (or the MotoRacer folder) and the data folder above. Source builds also made `~/Applications/MotoRacer.app` (macOS), `~/.local/share/applications/motoracer-recomp.desktop` (Linux) or a Start menu shortcut (Windows).
+Delete the app (or the MotoRacer folder) and the data folder above (PSP: the `PSP/GAME/MOTORACER` folder). Source builds also made `~/Applications/MotoRacer.app` (macOS), `~/.local/share/applications/motoracer-recomp.desktop` (Linux) or a Start menu shortcut (Windows).
 
 Problems? See [troubleshooting.md](troubleshooting.md).

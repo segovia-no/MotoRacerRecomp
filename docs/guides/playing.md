@@ -30,7 +30,16 @@ A gamepad connected on first start sets the game's CONTROLLER option to JOYSTICK
 
 **Window**: **Alt+Enter** (also **Cmd+F** on macOS) toggles fullscreen; **Cmd+Q** quits on macOS.
 
-PSP controls: see [psp-build.md](psp-build.md#install-on-the-psp).
+### PSP controls
+| Action | Button |
+|---|---|
+| Accelerate / brake | **Cross** / **Square** |
+| Steer | analog stick or d-pad |
+| Gear up / down | **R** / **L** |
+| Stunts / turbo | **Circle** |
+| Pause | **Start** |
+| Speedometer style | **Select** |
+| Menus | d-pad, **Cross** confirm, **Circle** back |
 
 ## Settings
 Most settings are the game's own, in **Options**:
@@ -40,6 +49,8 @@ Most settings are the game's own, in **Options**:
 - **DETAIL LEVELS**, opponents, volumes, controller.
 
 The port's own settings are in **Options › Recomp** (the button that was Info; it opens the Recomp settings page, in the game's look): frame rate, vsync, scaling filter, HUD scale, draw distance, widescreen crop, gamepad in menus. Enter or a click changes a value, Escape / gamepad B goes back; changes are saved at once.
+
+On the PSP the game plays in its 16/9 mode in a 480×360 screen mode whose 16/9 band (480×270) fills the PSP's screen; keep SCREEN MODE, 16/9 MODE and D3D as they start. Its `motoracer.ini` is on the memory stick in `PSP/GAME/MOTORACER/game/`; the package sets `DrawDistance=1` (the original: higher costs about a third of the frame rate) and thins the updates of opponents far out of sight (`AiLod`, on by default on the PSP), so races keep their speed at 25–30 fps.
 
 All port options live in the `[Recomp]` section of `motoracer.ini` in the game folder (`~/Library/Application Support/MotoRacerRecomp/game` on macOS, `~/.local/share/MotoRacerRecomp/game` on Linux, `%LOCALAPPDATA%\MotoRacerRecomp\game` on Windows):
 

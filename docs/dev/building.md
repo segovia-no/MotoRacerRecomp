@@ -15,7 +15,7 @@ It installs `cmake`, `sdl3` and `innoextract` with Homebrew, unpacks the install
 
 **Windows**: clone the repository (or **Code › Download ZIP**), put the GOG installer in Downloads and double-click **`setup.cmd`** (or drop the installer onto it). Python 3 is installed for your user with winget if missing; llvm-mingw, innoextract, CMake and Ninja are downloaded into the project's `build` folder (pinned, checksum-verified). The game goes to `%LOCALAPPDATA%\MotoRacerRecomp` with a Start menu entry.
 
-**PSP**: `./setup.sh --psp` (macOS / Linux) or `setup.cmd --psp` (Windows, builds in WSL): [psp-build.md](../guides/psp-build.md).
+**PSP**: `./setup.sh --psp` (macOS / Linux) or `setup.cmd --psp` (Windows, builds in WSL): downloads the pspdev toolchain into `build/pspdev`, builds `build/psp` and packages `build/psp-hw/PSP` ([psp-build.md](../guides/psp-build.md)).
 
 To update after a `git pull`, run the setup again (no argument needed). Saves, best times and settings are kept.
 
@@ -32,7 +32,7 @@ cmake --build build/cmake --target app         # -> build/cmake/MotoRacer.app
 ```
 On Linux without containers: install cmake, a C/C++ compiler, Python 3 and innoextract from your distribution, and add `-DMOTORACER_BUNDLED_SDL=ON` if it has no SDL3 3.2+ (or see `scripts/setup/linux/sdk_build.sh` for the container build).
 
-The PSP build by hand: [notes/25-psp-port.md](../notes/25-psp-port.md#build).
+The PSP build by hand, testing in PPSSPP and on hardware, profiling: [psp.md](psp.md).
 
 Game files are found in this order: `--game-dir DIR`, `$MOTORACER_GAME_DIR`, `<data dir>/MotoRacerRecomp/game` (`~/Library/Application Support` on macOS, `$XDG_DATA_HOME` or `~/.local/share` on Linux), `./extracted/app`.
 
