@@ -3,7 +3,7 @@
 # (5 MB instead of 50 MB with debug info) and the game files in game/ (the player's own GOG files;
 # the CD-audio WAVs as MP3, tools/psp/cd_mp3.sh: 31 MB instead of 345 MB). Copy build/psp-hw/PSP to the
 # memory stick root. Needs custom firmware.
-# Home-menu icon, background and music from build/psp-xmb/ when present (tools/psp/xmb_assets.sh).
+# Home-menu icon and background from build/psp-xmb/ when present (tools/psp/xmb_assets.sh).
 # Builds from build/psp as configured (MOTORACER_PSP_1000=ON: runs on every model, MEMSIZE=2).
 #
 #   tools/psp/package_hw.sh [game dir]     (default: the macOS install folder)
@@ -23,12 +23,11 @@ eboot() {   # <build dir> <out folder>
     cmake --build "$1" -j"$jobs" >/dev/null
     psp-strip "$1/motoracer" -o build/psp-hw/motoracer.elf
     mksfoex -d MEMSIZE=2 -s APP_VER=01.00 "$3" build/psp-hw/PARAM.SFO
-    # home-menu icon / background / music (tools/psp/xmb_assets.sh: made from the player's game)
-    local icon=NULL pic=NULL snd=NULL
+    # home-menu icon / background (tools/psp/xmb_assets.sh: made from the player's game)
+    local icon=NULL pic=NULL
     [ -f build/psp-xmb/ICON0.PNG ] && icon=build/psp-xmb/ICON0.PNG
     [ -f build/psp-xmb/PIC1.PNG ] && pic=build/psp-xmb/PIC1.PNG
-    [ -f build/psp-xmb/SND0.AT3 ] && snd=build/psp-xmb/SND0.AT3
-    pack-pbp "$2/EBOOT.PBP" build/psp-hw/PARAM.SFO "$icon" NULL NULL "$pic" "$snd" build/psp-hw/motoracer.elf NULL >/dev/null
+    pack-pbp "$2/EBOOT.PBP" build/psp-hw/PARAM.SFO "$icon" NULL NULL "$pic" NULL build/psp-hw/motoracer.elf NULL >/dev/null
     rm -f build/psp-hw/motoracer.elf build/psp-hw/PARAM.SFO
 }
 

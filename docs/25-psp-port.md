@@ -727,9 +727,10 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   screen with the desktop build and cuts `ICON0.PNG` (144x80, the logo) and `PIC1.PNG` (480x272) into
   `build/psp-xmb/`; `package_hw.sh` packs whatever is there. Made from the player's game at packaging
   time, like the MP3 music: nothing of the game in the repository.
-- `SND0.AT3` (the item's music) needs an ATRAC3 encoder (ffmpeg only decodes it): `ATRACDENC=<path>`
-  (github.com/dcherednik/atracdenc, built in `build/third_party/`) makes 25 s of CD track 02 at LP2
-  (~410 KB; `xmb_assets.sh [track]`, `SND0_START`, `SND0_SECONDS`).
+- No home-menu music (`SND0.AT3`), dropped after hardware tests (owner, PSP-1000): atracdenc's ATRAC3
+  LP2 (25 s / 12 s, with and without a `smpl` loop) and its ATRAC3plus re-wrapped in the RIFF layout of
+  Sony's own files (64 / 128 kbps) all stayed silent; Sony's sample SND0.AT3 (ATRAC3plus 48 kbps,
+  samples.ffmpeg.org) played. The XMB's decoder seems to need Sony's encoder (at3tool) output.
 
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
