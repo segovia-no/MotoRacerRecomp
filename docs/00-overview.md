@@ -48,6 +48,7 @@ Not yet: Linux / Steam Deck, Windows, multiplayer (stubbed by decision), GDI tex
 - [27-native-geometry.md](27-native-geometry.md) — native vertex transform, face visibility loops and polygon setup (check mode, PSP timings, alignment of packed objects, local memory base fix)
 - [28-easy-install.md](28-easy-install.md) — plan for installing without toolchains (option A): prebuilt host + game-code module built on the player's machine with a bundled `zig cc`, frozen translator, first-run installer, CI releases; nothing translated is distributed
 - [29-discoverability.md](29-discoverability.md) — website (GitHub Pages, JSON-LD, FAQ), llms.txt, README hero, social preview, listing / launch plan
+- [decomp/](decomp/README.md) — decompilation notes: functions, record layouts and globals found by the native rewrites
 - [13-e2e-testing.md](13-e2e-testing.md) — unattended E2E runs: scripted keys, snapshots, contact sheets, menu navigation facts
 - [15-ports-plan.md](15-ports-plan.md) — Linux / Steam Deck / Windows ports: plan, platform adapters (P0 done), shader pipeline, risks
 
