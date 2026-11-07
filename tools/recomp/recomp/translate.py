@@ -168,7 +168,7 @@ NATIVE_FUNCS = {
     0x46C970: "native_hot_46c970",   # hot race function, native_race_a.cpp
     0x410010: "native_hot_410010",   # hot race function, native_race_a.cpp
     0x40FD40: "native_hot_40fd40",   # hot race function, native_race_a.cpp
-    0x469C60: "native_hot_469c60",   # hot race function, native_race_b.cpp
+    0x469C60: "native_hot_469c60",   # hot race function, native_race_c.cpp (AI bikes)
     0x467930: "native_hot_467930",   # hot race function, native_race_b.cpp
     0x48E180: "native_hot_48e180",   # hot race function, native_race_b.cpp
     0x466A80: "native_hot_466a80",   # hot race function, native_race_b.cpp

@@ -10,6 +10,7 @@
 
 extern "C" void f_0046bf80_t(void);
 extern "C" void f_0046b120_t(void);
+extern "C" void f_00469c60_t(void);
 extern "C" void f_00461aa0_t(void);
 extern "C" void f_00490220_t(void);
 extern "C" void f_00403a80_t(void);
@@ -498,6 +499,24 @@ inline int32_t wrap_track(int32_t x) {   // 0x40ec30: a track position wrapped t
     return x;
 }
 
+// angles kept in 0 .. 2 pi as the bike code does it: below 0 (sign bit / a compare), add 2 pi ([0x4d0e58])
+// until >= 0 in x87 precision, then subtract it while >= 2 pi; each loop stores the float once
+float wrap_up(float v, uint32_t &fsw) {
+    MEM_LOCAL();
+    fpu_t x = F_(v);
+    do { x += static_cast<fpu_t>(RDF64(0x4d0e58)); FCOM_L(fsw, x, LD32(0x4d0e54)); } while (fsw & 0x100u);
+    return static_cast<float>(x);
+}
+float wrap_down(float v, uint32_t &fsw) {
+    MEM_LOCAL();
+    const fpu_t two_pi = static_cast<fpu_t>(RDF64(0x4d0e58));
+    FCOM_L(fsw, F_(v), two_pi);
+    if (fsw & 0x100u) return v;
+    fpu_t x = F_(v);
+    do { x -= two_pi; FCOM_L(fsw, x, two_pi); } while (!(fsw & 0x100u));
+    return static_cast<float>(x);
+}
+
 // ---- 0x46b120: a bike's heading and speed along the track (thiscall bike, arg dt; ret 4) ----
 // T = [0x509398 + 292 * model] (AI steering on), the aim point: the sector a few positions ahead
 // ([0x4dc140] * 9 / 16) moved by +0x31d5 along its x axis. Order of the x86: the acceleration of the
@@ -557,18 +576,8 @@ void bike_drive() {
             const float a1 = rnd(-angle_core(s + 0xbc, fsw, eax_unused));
             const float a2 = rnd(angle_core(B + 0x7c, fsw, eax_unused));
             const fpu_t two_pi = D(0x4d0e58), pi = D(0x4d0e60);
-            auto down = [&](float v) {   // while >= 2 pi: - 2 pi
-                FCOM_L(fsw, F_(v), two_pi);
-                if (fsw & 0x100u) return v;
-                fpu_t x = F_(v);
-                do { x -= two_pi; FCOM_L(fsw, x, two_pi); } while (!(fsw & 0x100u));
-                return rnd(x);
-            };
-            auto up = [&](float v) {   // while < 0: + 2 pi
-                fpu_t x = F_(v);
-                do { x += two_pi; FCOM_L(fsw, x, c54); } while (fsw & 0x100u);
-                return rnd(x);
-            };
+            auto down = [&](float v) { return wrap_down(v, fsw); };
+            auto up = [&](float v) { return wrap_up(v, fsw); };
             float A = a1, Bv = a2;
             if (bits32(A) > 0x80000000u) A = up(A);
             A = down(A);
@@ -770,6 +779,203 @@ void bike_drive() {
     WR32(s + 0x31c1, sector_search(B - 0x10, 0x46bccb, RD32(s + 0x31c1), s + 0x30, fsw));
     F.sw = static_cast<uint16_t>(fsw);
     R.esp = sp + 8;
+}
+
+// ---- 0x469c60: a bike's lean and front / back points (thiscall bike, no args) ----
+// T = [0x509398 + 292 * model] (the dirt bikes' flag). The look direction blends the heading +0x18c
+// (turned towards the bike's forward axis) with that axis by w (from +0x31d1, decayed by [0x581014],
+// and the speed ratio +0x124 / +0xb4); 0x46bdc0 builds its frame. T != 0: with +0x307d > 0 the front
+// point +0x1b4 swings around the back point +0x338 by sin(+0x307d) in the bike's frame; +0x2e55 = the
+// frame from the back to the front point. T == 0: the front / back points at per-model distances
+// (0x5092b0 table) along the look frame, put on the floor of their sectors (0x40c7e0, 0x40c8b0), and
+// +0x2e55 = the orthonormal frame along them (+0x307d > 0, a crash tumble, runs the translated body).
+// The lean +0x2e1d from the yaw between the look frame and the bike (0x490220 angles wrapped to
+// 0..2pi, the difference to -pi..pi): T != 0 with [+8] and [+4], atan of the yaw by the speed (at most
+// 50), clamped, smoothed with +0x2e21; else the yaw scaled and clamped, then divided by a speed term
+// (T != 0), or for the player's bike ([+8], [+4], [0x4e9834] not 1 / 2) by the steering scale
+// [0x4dc150] (at least 20 without +0x2e29) and shaped, or negated. Callers read no register afterwards.
+void bike_lean() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, s = R.ecx;
+    const uint32_t B = sp - 0x128;   // esp after the prologue
+    uint32_t fsw = F.sw;
+    auto D = [&](uint32_t a) { return static_cast<fpu_t>(RDF64(a)); };
+    auto rnd = [](fpu_t v) { return static_cast<float>(v); };
+    const fpu_t c54 = LD32(0x4d0e54), one = LD32(0x4d0e70), two_pi = D(0x4d0e58), pi = D(0x4d0e60);
+    const uint32_t T = RD32(0x509398 + 292 * RD32(s + 0x78));
+    float k = 0.f;
+    if (RD32(s + 0x31d1) & 0x7fffffffu) {
+        WRF32(s + 0x31d1, rnd(LD32(s + 0x31d1) - LD32(0x581014)));
+        if (RD32(s + 0x31d1) > 0x80000000u) WR32(s + 0x31d1, 0);
+        k = rnd(LD32(s + 0x31d1) * LD32(0x4d100c));
+    }
+    const fpu_t x = one - (LD32(s + 0x124) / LD32(s + 0xb4)) * LD32(0x4d1020);
+    FCOM_L(fsw, x, c54);
+    float w = (fsw & 0x100u) ? 0.f : rnd(x);
+    FCOM_L(fsw, F_(k), F_(w));
+    if (!(fsw & 0x4100u)) w = k;
+    float bm[12], V[3], H[3];
+    load12(s + 0xbc, bm);
+    const float fwd[3] = {0.f, 0.f, 1.f};
+    xform(fwd, bm, V);
+    load3(s + 0x18c, H);
+    FCOM_L(fsw, (F_(H[2]) * F_(V[2]) + F_(H[1]) * F_(V[1])) + F_(V[0]) * F_(H[0]), c54);   // 0x46d5e0
+    if (fsw & 0x100u)
+        for (int i = 0; i < 3; i++) H[i] = rnd(-F_(H[i]));   // 0x40ffa0
+    const float u = rnd(one - F_(w));
+    float Vw[3], Hu[3], dir[3];
+    for (int i = 0; i < 3; i++) {   // 0x46d540
+        Vw[i] = rnd(F_(V[i]) * F_(w));
+        Hu[i] = rnd(F_(H[i]) * F_(u));
+    }
+    vadd(Hu, Vw, dir);
+    const float zero[3] = {0.f, 0.f, 0.f};
+    store3(B + 0x11c, dir);
+    store3(B + 0x10, zero);
+    gcall(f_0046bdc0, B, 0x469e17, B + 0xb8, {B + 0x10, B + 0x11c}, fsw);
+
+    if (!T) {
+        const uint32_t tb = 0x5092b0 + 292 * RD32(s + 0x78);
+        float Fm[12];
+        load12(B + 0xb8, Fm);
+        auto f = [&](int i) { return F_(Fm[i]); };
+        const fpu_t a = LD32(tb + 0x20) * LD32(0x4d102c);
+        const fpu_t l = F_(rnd(LD32(tb + 8) * LD32(0x4d1030) + a));
+        const fpu_t c = LD32(tb) * LD32(0x4d0e94), cf = F_(rnd(c));
+        WRF32(s + 0x338, rnd(((c * f(6) + f(3) * l) + f(9)) + LD32(s + 0x30)));
+        WRF32(s + 0x33c, rnd(((f(7) * cf + f(4) * l) + f(10)) + LD32(s + 0x34)));
+        WRF32(s + 0x340, rnd(((f(5) * l + f(8) * cf) + f(11)) + LD32(s + 0x38)));
+        const fpu_t lb = F_(rnd(a + LD32(tb + 4) * LD32(0x4d1030)));
+        const fpu_t e = LD32(tb) * LD32(0x4d0e98), ef = F_(rnd(e));
+        WRF32(s + 0x1b4, rnd(((e * f(6) + lb * f(3)) + f(9)) + LD32(s + 0x30)));
+        WRF32(s + 0x1b8, rnd(((ef * f(7) + lb * f(4)) + f(10)) + LD32(s + 0x34)));
+        WRF32(s + 0x1bc, rnd(((lb * f(5) + ef * f(8)) + f(11)) + LD32(s + 0x38)));
+        const uint32_t i1 = sector_search(B - 0x10, 0x46a13f, RD32(s + 0x31c1), s + 0x1b4, fsw);
+        const uint32_t i2 = sector_search(B - 0x10, 0x46a15b, RD32(s + 0x31c1), s + 0x338, fsw);
+        WRF32(s + 0x1b8, rnd(sector_height(TRACK, i1, s + 0x1b4, fsw)));
+        WRF32(s + 0x33c, rnd(sector_height(TRACK, i2, s + 0x338, fsw)));
+        float p1[3], p2[3], n[3], xv[3], yv[3];
+        const float upv[3] = {0.f, 1.f, 0.f};
+        load3(s + 0x1b4, p1);
+        load3(s + 0x338, p2);
+        vsub(p1, p2, n);   // 0x4570d0, 0x40ff80
+        normalize(n, fsw);
+        cross(upv, n, xv);   // 0x46d610
+        cross(n, xv, yv);
+        normalize(xv, fsw);
+        normalize(yv, fsw);
+        store3(s + 0x2e55, xv);
+        store3(s + 0x2e61, yv);
+        store3(s + 0x2e6d, n);
+        WR32(s + 0x2e79, 0);
+        WR32(s + 0x2e7d, 0);
+        WR32(s + 0x2e81, 0);
+    } else {
+        if (static_cast<int32_t>(RD32(s + 0x307d)) > 0) {
+            float inv[12], p1[3], p2[3], d[3], l[3], rm[12], l2[3], wv[3];
+            inverse(bm, inv);
+            load3(s + 0x1b4, p1);
+            load3(s + 0x338, p2);
+            vsub(p1, p2, d);
+            xform(d, inv, l);
+            const fpu_t sn = FM(sin)(LD32(s + 0x307d));
+            fsw &= ~0x400u;
+            const float ang[3] = {rnd(sn * D(0x4d1218)), 0.f, 0.f};
+            euler(ang, rm);
+            xform(l, rm, l2);
+            xform(l2, bm, wv);
+            const float np[3] = {rnd(F_(p2[0]) + F_(wv[0])), rnd(F_(p2[1]) + F_(wv[1])), rnd(F_(p2[2]) + F_(wv[2]))};
+            store3(s + 0x1b4, np);
+        }
+        gcall(f_0046bdc0, B, 0x469f2a, B + 0x10, {s + 0x338, s + 0x1b4}, fsw);
+        for (uint32_t i = 0; i < 12; i++) WR32(s + 0x2e55 + 4 * i, RD32A(B + 0x10 + 4 * i));
+    }
+
+    uint32_t eax_unused = R.eax;
+    const float a1 = rnd(angle_core(B + 0xb8, fsw, eax_unused));
+    const float a2 = rnd(angle_core(s + 0xbc, fsw, eax_unused));
+    float A = a1, Bv = a2;
+    if (bits32(A) > 0x80000000u) A = wrap_up(A, fsw);
+    A = wrap_down(A, fsw);
+    if (bits32(Bv) > 0x80000000u) Bv = wrap_up(Bv, fsw);
+    Bv = wrap_down(Bv, fsw);
+    FCOM_L(fsw, F_(A) + pi, F_(Bv));
+    if (fsw & 0x100u) Bv = rnd(F_(Bv) - two_pi);
+    FCOM_L(fsw, F_(A) - pi, F_(Bv));
+    if (!(fsw & 0x4100u)) Bv = rnd(F_(Bv) + two_pi);
+    if (T && RD32(s + 8) && RD32(s + 4)) {
+        const fpu_t d = F_(Bv) - F_(A);
+        FCOM_L(fsw, d, c54);
+        float dv = rnd(d);
+        if (fsw & 0x100u) dv = wrap_up(dv, fsw);
+        dv = wrap_down(dv, fsw);
+        if (bits32(dv) > 0x80000000u) dv = wrap_up(dv, fsw);
+        dv = wrap_down(dv, fsw);
+        float yaw = dv;
+        FCOM_L(fsw, F_(dv), pi);
+        if (!(fsw & 0x4100u)) yaw = rnd(F_(dv) - two_pi);
+        const float spd = static_cast<int32_t>(RD32(s + 0x124)) > 0x42480000 ? 50.f : f32(RD32(s + 0x124));
+        const fpu_t y = (-F_(yaw) / LD32(0x4dc150)) * F_(spd);
+        WRF32(s + 0x2e1d, rnd(FM(atan2)(y * D(0x4d1220), static_cast<fpu_t>(1))));
+        FCOM_L(fsw, LD32(s + 0x2e1d), D(0x4d1228));
+        if (!(fsw & 0x4100u)) {
+            WR32(s + 0x2e1d, 0x3f851eb8);
+        } else {
+            FCOM_L(fsw, LD32(s + 0x2e1d), D(0x4d1238));
+            if (fsw & 0x100u) WR32(s + 0x2e1d, 0xbf851eb8);
+        }
+        const fpu_t q = LD32(0x4dc150) * D(0x4d1248);
+        FCOM_L(fsw, q, D(0x4d0ec8));
+        const float f = (fsw & 0x4100u) ? rnd(q) : 1.f;
+        WRF32(s + 0x2e1d, rnd((LD32(s + 0x2e1d) - LD32(s + 0x2e21)) * F_(f) + LD32(s + 0x2e21)));
+        WR32(s + 0x2e21, RD32(s + 0x2e1d));
+        R.eax = RD32(s + 0x2e1d);
+        R.ecx = bits32(a1);
+    } else {
+        const fpu_t d = (F_(Bv) - F_(A)) * F_(u);
+        FCOM_L(fsw, d, c54);
+        float dv = rnd(d);
+        if (fsw & 0x100u) dv = wrap_up(dv, fsw);
+        dv = wrap_down(dv, fsw);
+        const fpu_t e = F_(dv) * LD32(0x4d0f60);
+        FCOM_L(fsw, e, c54);
+        float ev = rnd(e);
+        if (fsw & 0x100u) ev = wrap_up(ev, fsw);
+        ev = wrap_down(ev, fsw);
+        FCOM_L(fsw, F_(ev), pi);
+        if (!(fsw & 0x4100u)) ev = rnd(F_(ev) - two_pi);
+        FCOM_L(fsw, F_(ev), D(0x4d1250));
+        if (!(fsw & 0x4100u)) ev = f32(0x3f860a92);
+        FCOM_L(fsw, F_(ev), D(0x4d1260));
+        if (fsw & 0x100u) ev = f32(0xbf860a92);
+        if (T) {
+            WRF32(s + 0x2e1d, rnd((F_(ev) / (D(0x4d1278) - LD32(s + 0x124) * D(0x4d1270) * D(0x4d0f08))) * D(0x4d1280)));
+        } else if (!RD32(s + 8) || !RD32(s + 4) || RD32A(0x4e9834) == 1 || RD32A(0x4e9834) == 2) {
+            WRF32(s + 0x2e1d, rnd(-F_(ev)));
+        } else {
+            float g = f32(RD32A(0x4dc150));
+            if (!RD32(s + 0x2e29) && static_cast<int32_t>(RD32A(0x4dc150)) < 0x41a00000) g = 20.f;
+            WRF32(s + 0x2e1d, rnd((F_(ev) / F_(g)) * LD32(0x4d1288)));
+            const fpu_t v = LD32(s + 0x2e1d);
+            FCOM_L(fsw, v, D(0x4d11f8));
+            if (!(fsw & 0x4100u)) {
+                WRF32(s + 0x2e1d, rnd(v * D(0x4d1290) - D(0x4d1298)));
+            } else {
+                FCOM_L(fsw, v, D(0x4d12a0));
+                if (fsw & 0x100u) WRF32(s + 0x2e1d, rnd(v * D(0x4d1290) + D(0x4d1298)));
+            }
+            const fpu_t v2 = LD32(s + 0x2e1d);
+            FCOM_L(fsw, v2, D(0x4d1228));
+            if (!(fsw & 0x4100u)) {
+                WR32(s + 0x2e1d, 0x3f851eb8);
+            } else {
+                FCOM_L(fsw, v2, D(0x4d1238));
+                if (fsw & 0x100u) WR32(s + 0x2e1d, 0xbf851eb8);
+            }
+        }
+    }
+    F.sw = static_cast<uint16_t>(fsw);
+    R.esp = sp + 4;
 }
 
 extern "C" void f_00465fa0(void);
@@ -1064,6 +1270,38 @@ Stat n_matmul, n_angle, n_seg, n_sector, n_points;
 
 }  // namespace
 
+
+Stat n_lean;
+
+extern "C" int native_hot_469c60(void) {
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    MEM_LOCAL();
+    // T == 0 with +0x307d > 0 (a crash tumble: an inlined rotation of the points): translated
+    if (!RD32(0x509398 + 292 * RD32(R.ecx + 0x78)) && static_cast<int32_t>(RD32(R.ecx + 0x307d)) > 0) return 0;
+    if (md == ON) { bike_lean(); return 1; }
+    const uint32_t s = R.ecx, lo = 0x4db000, hi = 0x70c568;
+    std::vector<Region> regions{{lo, hi - lo}};
+    if (s < lo || s + 0x3209 > hi) regions.push_back({s, 0x3209});
+    const uint64_t before = mismatches;
+    Snapshot b0 = take(regions);
+    const Snapshot stack0 = take({{R.esp - 0x4000, 0x4000}});
+    bike_lean();
+    Snapshot nat = take(regions);
+    restore(b0);
+    restore(stack0);
+    R = b0.r;
+    F = b0.f;
+    f_00469c60_t();
+    Snapshot tr = take(regions);
+    nat.r.eax = tr.r.eax;   // the callers reload eax / ecx / edx
+    nat.r.ecx = tr.r.ecx;
+    nat.r.edx = tr.r.edx;
+    compare("bike lean 0x469c60", nat, tr);
+    if (mismatches != before && mismatches < 25) rt::log("native: (bike lean mismatch: bike 0x%08x)\n", s);
+    count_check("bike lean 0x469c60", n_lean, before);
+    return 1;
+}
 
 Stat n_drive;
 
