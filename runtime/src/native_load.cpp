@@ -11,6 +11,7 @@
 #include <map>
 #include <string>
 
+#include "cfmt.h"
 #include "runtime.h"
 #include "recomp_mem_local.h"
 #include "native_check.h"
@@ -345,7 +346,8 @@ extern "C" int native_vsprintf(void) {   // vsprintf(buffer, format, args)
 // The engine behind sprintf / vsprintf (and MFC's CString::Format): ~8% of the translated game code
 // in a race (HUD strings, a per-blit debug trace). Native for the conversions whose output is the
 // C standard's: c s d i u o x X and %%, with flags, width / precision (incl. *), h / l (32-bit);
-// a NULL %s prints "(null)" as MSVC does. Each conversion goes through the host snprintf. Floats,
+// a NULL %s prints "(null)" as MSVC does. Each conversion goes through cfmt::convert (cfmt.h; not
+// the host snprintf: newlib's is large and slow on the PSP). Floats,
 // %p, %n, wide characters, I64 / L / F / N and streams that would need _flsbuf run the translated
 // code (decided before anything is written). Like the CRT, the format and argument pointers (its
 // parameters, on the stack) end up past what was used; eax = characters written.
@@ -355,87 +357,93 @@ bool output_native() {
     MEM_LOCAL();
     const uint32_t sp = R.esp, stream = RD32(sp + 4);
     uint32_t fmt = RD32(sp + 8), ap = RD32(sp + 12);
-    std::string out;
-    char spec[32], piece[512];
+    char buf[1024];   // longer output: the translated code
+    size_t len = 0;
     while (const char c = static_cast<char>(RD8(fmt))) {
         fmt++;
-        if (c != '%') { out += c; continue; }
-        size_t n = 0;
-        spec[n++] = '%';
-        while (strchr("-+ #0", static_cast<char>(RD8(fmt))) && n < 8) spec[n++] = static_cast<char>(RD8(fmt++));
-        int width = -1, prec = -1;
-        bool star_w = false, star_p = false;
-        if (RD8(fmt) == '*') { star_w = true; fmt++; }
-        else while (RD8(fmt) >= '0' && RD8(fmt) <= '9' && n < 16) spec[n++] = static_cast<char>(RD8(fmt++));
-        if (RD8(fmt) == '.') {
-            spec[n++] = '.';
-            fmt++;
-            if (RD8(fmt) == '*') { star_p = true; fmt++; }
-            else while (RD8(fmt) >= '0' && RD8(fmt) <= '9' && n < 24) spec[n++] = static_cast<char>(RD8(fmt++));
+        if (c != '%') {
+            if (len >= sizeof buf) return false;
+            buf[len++] = c;
+            continue;
         }
-        if (n >= 24) return false;
-        bool half = false;
-        if (RD8(fmt) == 'h') { half = true; fmt++; }
+        cfmt::Spec spec;
+        for (;; fmt++) {
+            const char f = static_cast<char>(RD8(fmt));
+            if (f == '-') spec.minus = true;
+            else if (f == '+') spec.plus = true;
+            else if (f == ' ') spec.space = true;
+            else if (f == '#') spec.hash = true;
+            else if (f == '0') spec.zero = true;
+            else break;
+        }
+        bool star_w = false, star_p = false, has_w = false;
+        int width = 0, prec = -1;
+        if (RD8(fmt) == '*') { star_w = true; fmt++; }
+        else while (RD8(fmt) >= '0' && RD8(fmt) <= '9') { has_w = true; width = width * 10 + (RD8(fmt++) - '0'); if (width > 1000) return false; }
+        if (RD8(fmt) == '.') {
+            fmt++;
+            prec = 0;
+            if (RD8(fmt) == '*') { star_p = true; fmt++; }
+            else while (RD8(fmt) >= '0' && RD8(fmt) <= '9') { prec = prec * 10 + (RD8(fmt++) - '0'); if (prec > 1000) return false; }
+        }
+        if (RD8(fmt) == 'h') { spec.half = true; fmt++; }
         else if (RD8(fmt) == 'l') fmt++;
         const char conv = static_cast<char>(RD8(fmt));
         if (!conv || !strchr("diouxXcs%", conv)) return false;
         fmt++;
-        if (conv == '%' && n == 1 && !star_w && !star_p) { out += '%'; continue; }
-        if (conv == '%') return false;
-        if (star_w) { width = static_cast<int32_t>(RD32(ap)); ap += 4; }
-        if (star_p) { prec = static_cast<int32_t>(RD32(ap)); ap += 4; }
-        // the host spec: '*' kept, so widths / precisions go through snprintf's own rules
-        std::string sp_str(spec, n);
-        if (star_w) {
-            const size_t at = sp_str.find_first_not_of("%-+ #0", 1);
-            if (at == std::string::npos) sp_str += '*'; else sp_str.insert(at, "*");
+        if (conv == '%') {
+            if (spec.minus || spec.plus || spec.space || spec.hash || spec.zero || has_w || star_w || prec >= 0 || spec.half) return false;
+            if (len >= sizeof buf) return false;
+            buf[len++] = '%';
+            continue;
         }
-        if (star_p) sp_str += "*";
-        int len;
+        if (star_w) {
+            const int32_t w = static_cast<int32_t>(RD32(ap));
+            ap += 4;
+            if (w < 0) { spec.minus = true; width = w == INT32_MIN ? 1001 : -w; } else width = w;
+            if (width > 1000) return false;
+            has_w = true;
+        }
+        if (star_p) {
+            const int32_t pv = static_cast<int32_t>(RD32(ap));
+            ap += 4;
+            if (pv > 1000) return false;
+            prec = pv < 0 ? -1 : pv;
+        }
+        spec.width = has_w ? width : -1;
+        spec.prec = prec;
+        spec.conv = conv;
+        const uint32_t v = RD32(ap);
+        ap += 4;
+        const char *str = nullptr;
+        size_t slen = 0;
         if (conv == 's') {
-            const uint32_t str = RD32(ap);
-            ap += 4;
-            std::string arg;
-            if (!str) arg = "(null)";
-            else for (uint32_t a = str; RD8(a) && arg.size() < 4096; a++) arg += static_cast<char>(RD8(a));
-            sp_str += 's';
-            if (star_w && star_p) len = snprintf(piece, sizeof piece, sp_str.c_str(), width, prec, arg.c_str());
-            else if (star_w) len = snprintf(piece, sizeof piece, sp_str.c_str(), width, arg.c_str());
-            else if (star_p) len = snprintf(piece, sizeof piece, sp_str.c_str(), prec, arg.c_str());
-            else len = snprintf(piece, sizeof piece, sp_str.c_str(), arg.c_str());
-        } else {
-            const uint32_t v = RD32(ap);
-            ap += 4;
-            if (half) sp_str += 'h';
-            sp_str += conv;
-            const bool is_signed = conv == 'd' || conv == 'i' || conv == 'c';
-            if (is_signed) {
-                const int iv = static_cast<int32_t>(v);
-                if (star_w && star_p) len = snprintf(piece, sizeof piece, sp_str.c_str(), width, prec, iv);
-                else if (star_w) len = snprintf(piece, sizeof piece, sp_str.c_str(), width, iv);
-                else if (star_p) len = snprintf(piece, sizeof piece, sp_str.c_str(), prec, iv);
-                else len = snprintf(piece, sizeof piece, sp_str.c_str(), iv);
+            spec.half = false;
+            if (!v) {
+                str = "(null)";
+                slen = 6;
+                if (prec >= 0 && slen > static_cast<size_t>(prec)) slen = static_cast<size_t>(prec);
             } else {
-                const unsigned uv = v;
-                if (star_w && star_p) len = snprintf(piece, sizeof piece, sp_str.c_str(), width, prec, uv);
-                else if (star_w) len = snprintf(piece, sizeof piece, sp_str.c_str(), width, uv);
-                else if (star_p) len = snprintf(piece, sizeof piece, sp_str.c_str(), prec, uv);
-                else len = snprintf(piece, sizeof piece, sp_str.c_str(), uv);
+                const size_t lim = prec >= 0 ? static_cast<size_t>(prec) : 4096;
+                while (slen < lim && RD8(v + static_cast<uint32_t>(slen))) slen++;
+                if (slen >= 4096) return false;
+                str = reinterpret_cast<const char *>(M + v);
             }
         }
-        if (len < 0 || len >= static_cast<int>(sizeof piece)) return false;
-        out.append(piece, static_cast<size_t>(len));
+        const int n = cfmt::convert(spec, v, str, slen, buf + len, sizeof buf - len);
+        if (n < 0) return false;
+        len += static_cast<size_t>(n);
     }
     // write it if the stream has room for all of it (a string stream: no _flsbuf)
     const int32_t cnt = static_cast<int32_t>(RD32(stream + 4));
-    if (cnt < static_cast<int32_t>(out.size())) return false;
+    if (cnt < static_cast<int32_t>(len)) return false;
     const uint32_t ptr = RD32(stream);
-    memcpy(M + ptr, out.data(), out.size());
-    WR32(stream, ptr + static_cast<uint32_t>(out.size()));
-    WR32(stream + 4, static_cast<uint32_t>(cnt - static_cast<int32_t>(out.size())));
+    memcpy(M + ptr, buf, len);
+    WR32(stream, ptr + static_cast<uint32_t>(len));
+    WR32(stream + 4, static_cast<uint32_t>(cnt - static_cast<int32_t>(len)));
     WR32(sp + 8, fmt + 1);   // past the terminating NUL, as the CRT leaves its format pointer
     WR32(sp + 12, ap);
-    R.eax = static_cast<uint32_t>(out.size());
+    R.eax = static_cast<uint32_t>(len);
     R.esp = sp + 4;
     return true;
 }

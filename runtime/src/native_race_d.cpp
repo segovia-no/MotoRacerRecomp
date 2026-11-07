@@ -8,9 +8,11 @@
 //   0x492b10  font: text size (width of the widest line, height)
 //   0x485e50  quad (sprite / glyph) into the render list: polygon record, 4 vertices, poly setup
 //   0x493490  font: draw a string (one virtual glyph call per character)
-// 0x493820 (print a string on a surface: SEH frame, CString, heap buffer, surface locks) stays
-// translated: mostly orchestration around calls, little work of its own per call.
+//   0x493820  font: print a string on the back buffer (orchestration around the calls above; native
+//             because its translated body, 14 KB of code for ~480 x86 instructions, was refetched
+//             into the PSP's 16 KB instruction cache at every call: ~1 ms per race frame on hardware)
 #include <algorithm>
+#include <initializer_list>
 #include <cstring>
 
 #include "runtime.h"
@@ -18,6 +20,11 @@
 #include "native_check.h"
 
 extern "C" void f_00493820_t(void);
+extern "C" void f_00492c20(void);
+extern "C" void f_0049a160(void);
+extern "C" void f_0049b0e0(void);
+extern "C" void f_0049d0f0(void);
+extern "C" void f_00493490(void);
 extern "C" void f_00493490_t(void);
 extern "C" void f_00492b10_t(void);
 extern "C" void f_00485e50_t(void);
@@ -28,6 +35,33 @@ extern "C" void f_0049c590(void);
 
 namespace {
 using namespace native;
+
+// A guest function called as the x86 does: ecx, the arguments pushed below `esp` (the caller's esp
+// after its prologue), the return address; esp restored after it, eax returned.
+uint32_t gcall(void (*fn)(void), uint32_t esp, uint32_t ret, uint32_t ecx, std::initializer_list<uint32_t> args) {
+    MEM_LOCAL();
+    const uint32_t at = esp - 4 * static_cast<uint32_t>(args.size()) - 4;
+    WR32A(at, ret);
+    uint32_t a = at + 4;
+    for (uint32_t v : args) { WR32A(a, v); a += 4; }
+    R.esp = at;
+    R.ecx = ecx;
+    fn();
+    R.esp = esp;
+    return R.eax;
+}
+// the same through a guest function pointer (a vtable entry, an import)
+void vcall(uint32_t va, uint32_t esp, uint32_t ret, uint32_t ecx, std::initializer_list<uint32_t> args) {
+    MEM_LOCAL();
+    const uint32_t at = esp - 4 * static_cast<uint32_t>(args.size()) - 4;
+    WR32A(at, ret);
+    uint32_t a = at + 4;
+    for (uint32_t v : args) { WR32A(a, v); a += 4; }
+    R.esp = at;
+    R.ecx = ecx;
+    call_indirect(va);
+    R.esp = esp;
+}
 
 // per-function check counters ("native: <name> checked N times")
 void checked(const char *name, uint32_t &n, uint32_t every) {
@@ -384,9 +418,131 @@ void draw_text() {
     R.esp = sp + 0x3c;
 }
 
+// ---------------------------------------------------------------------------------------------
+// 0x493820: font (ecx) prints a string on the back buffer; stdcall (no_scale, text, x, y, flags,
+// alpha, a7, a8, a9), ret 0x24; eax = the text draw's result (0 when nothing was drawn). Callers read
+// only eax. Nothing is drawn (eax 0) without the renderer [0x4dc0c0] or text, for the fonts of type 5 /
+// 6 when [0x4f1814] && ![0x4f1828], with [0x4f1814] and no font texture (+0xa38 / +0xa3c), and while
+// [0x4ee940] (an off-screen mode). Otherwise: begin the render lists if the back buffer is not locked
+// (0x49a160(1, 0), [0x4f1814] clear); halve x / y unless no_scale or [0x4dc0c4] holds something or
+// ([0x4f0e08] clear and [0x4dc0c8] == 2); align them (0x492c20); clip against [0x624f58] x
+// [0x68b008]; the pixel pointer at max(x, 0), max(y, 0) (0x49d0f0), moved back for negative x / y;
+// the text size (0x492b10); alpha scaled by 63/100 ([0x4dc06c] && ![0x4dc070]) or by font type (5:
+// 2048/100, 6: 57344/100, then >> 8); the draw 0x493490 when [0x4f1824] (else eax 1); end the lists
+// (0x49b0e0(1, 0)) if they were begun here. Left to the translated body (returns false first, before
+// any side effect but the IsLost query): word wrap (flags & 0x100: a heap buffer with line breaks)
+// and a lost font texture (IsLost = 0x887601c2: the texture is released and rebuilt).
+bool text_print_native() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, font = R.ecx;
+    const uint32_t B = sp - 0x5c;   // esp after the prologue (SEH record, 0x40 of locals, three pushes)
+    const uint32_t text = RD32A(sp + 8), flags = RD32A(sp + 0x14);
+    auto done = [&](uint32_t eax) {
+        R.eax = eax;
+        R.esp = sp + 0x28;
+        return true;
+    };
+    const uint32_t rend = RD32A(0x4dc0c0);
+    if (!rend || !text || !RD8(text)) return done(0);
+    if (RD32A(0x4f1814) && !RD32A(0x4f1828)) {
+        const uint32_t t = RD32(font + 4);
+        if (t == 5 || t == 6) return done(0);
+    }
+    if (RD32A(0x4f1814)) {
+        const uint32_t tex = RD32(font + 0xa3c);
+        if (!RD32(font + 0xa38) || !tex) return done(0);
+        vcall(RD32(RD32(tex) + 0x60), B, 0x4938c1, R.ecx, {tex});   // IsLost
+        if (R.eax == 0x887601c2u) return false;
+    }
+    if (RD32A(0x4ee940)) return done(0);
+    if (flags & 0x100) return false;
+    bool begun = false;
+    if (!RD32A(0x4f1814) && !RD32A(0x4f1a20)) {
+        begun = true;
+        gcall(f_0049a160, B, 0x493a64, rend, {1, 0});
+    }
+    WR32A(sp - 0x28, 0);   // the locals the x86 clears here: wrap buffer, text width / height
+    WR32A(sp - 0x2c, 0);
+    WR32A(sp - 0x4c, 0);
+    uint32_t result = 0;
+    if (!(RD32A(0x4ee940) && !RD32A(0x5d8940))) {
+        const int32_t pitch = static_cast<int32_t>(RD32A(0x62ebec)), rows = static_cast<int32_t>(RD32A(0x68b008));
+        const int32_t width = static_cast<int32_t>(RD32A(0x624f58));
+        const uint32_t g = RD32A(0x4dc0c4);
+        if (!(g && RD32(g)) && !RD32A(sp + 4) && (RD32A(0x4f0e08) || RD32A(0x4dc0c8) != 2)) {
+            WR32A(sp + 0xc, static_cast<uint32_t>(static_cast<int32_t>(RD32A(sp + 0xc)) / 2));
+            WR32A(sp + 0x10, static_cast<uint32_t>(static_cast<int32_t>(RD32A(sp + 0x10)) / 2));
+        }
+        gcall(f_00492c20, B, 0x493c30, font, {text, sp + 0xc, sp + 0x10, flags});
+        const int32_t x = static_cast<int32_t>(RD32A(sp + 0xc)), y = static_cast<int32_t>(RD32A(sp + 0x10));
+        if (width > x && rows > y) {
+            uint32_t ptr = gcall(f_0049d0f0, B, 0x493c97, RD32A(0x4dc0c0),
+                                 {static_cast<uint32_t>(x < 0 ? 0 : x), static_cast<uint32_t>(y < 0 ? 0 : y)});
+            WR32A(sp - 0x1c, ptr);
+            if (!ptr) {
+                if (!RD32A(0x4f1830)) {
+                    WR32A(0x4f1830, 1);
+                    vcall(RD32A(0x70d830), B, 0x493db7, R.ecx, {0, 0});
+                }
+            } else {
+                if (x < 0) ptr += static_cast<uint32_t>(x) * 2;
+                if (y < 0) ptr += static_cast<uint32_t>(y * pitch) * 2;
+                WR32A(sp - 0x1c, ptr);
+                gcall(f_00492b10, B, 0x493cdb, font, {text, sp - 0x2c, sp - 0x4c, 0});
+                const uint32_t a = RD32A(sp + 0x18);
+                uint32_t alpha = a;
+                if (RD32A(0x4dc06c) && !RD32A(0x4dc070)) {
+                    alpha = (((a << 6) - a) << 8) / 100u >> 8;
+                } else {
+                    const uint32_t t = RD32(font + 4);
+                    if (t == 5) alpha = (a << 11) / 100u >> 8;
+                    else if (t == 6) alpha = (((a << 3) - a) << 13) / 100u >> 8;
+                }
+                if (RD32A(0x4f1824)) {
+                    result = gcall(f_00493490, B, 0x493d8c, font,
+                                   {sp - 0x1c, static_cast<uint32_t>(pitch), static_cast<uint32_t>(rows),
+                                    static_cast<uint32_t>(width), static_cast<uint32_t>(rows), text, flags,
+                                    RD32A(sp - 0x2c), static_cast<uint32_t>(x), static_cast<uint32_t>(y), alpha,
+                                    RD32A(sp + 0x1c), RD32A(sp + 0x20), RD32A(sp + 0x24)});
+                } else {
+                    result = 1;
+                }
+            }
+        }
+    }
+    if (!RD32A(0x4f1814) && RD32A(0x4dc0c0) && RD32A(0x4f1a20) && begun)
+        gcall(f_0049b0e0, B, 0x493def, RD32A(0x4dc0c0), {1, 0});
+    return done(result);
+}
+
 }  // namespace
 
-extern "C" int native_hot_493820(void) { return 0; }   // translated (see the top of the file)
+extern "C" int native_hot_493820(void) {
+    MEM_LOCAL();
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) return text_print_native() ? 1 : 0;
+    // check: only while the back buffer is locked already (the lock is host state and cannot run twice)
+    // and for the natively handled cases
+    if (RD32A(0x4f1814) || !RD32A(0x4f1a20) || (RD32A(R.esp + 0x14) & 0x100)) return 0;
+    const uint32_t sp = R.esp;
+    std::vector<Region> regions = {{0x4db000, 0x70c568 - 0x4db000}, {sp + 4, 0x24}, {0x4f1804, 4}};
+    const uint32_t back = RD32A(0x624f5c), rows = RD32A(0x624b18), bpitch = RD32A(0x62ebec);
+    if (back && rows * bpitch < 4096 * 4096) regions.push_back({back - std::min(back - 0x400000, bpitch * 2 * 64), (rows + 128) * bpitch * 2});
+    // callers read eax only: ecx / edx are not compared
+    Snapshot before = take(regions);
+    text_print_native();
+    Snapshot nat = take(regions);
+    restore(before);
+    f_00493820_t();
+    Snapshot tr = take(regions);
+    nat.r.ecx = tr.r.ecx;
+    nat.r.edx = tr.r.edx;
+    compare("text print 0x493820", nat, tr);
+    static uint32_t n = 0;
+    checked("text print 0x493820", n, 500);
+    return 1;
+}
 
 extern "C" int native_hot_493490(void) {
     MEM_LOCAL();

@@ -521,8 +521,25 @@ Returns (eax) the last glyph call's result (1 before the first, 0 for an empty t
 
 ## 0x493820 font_print
 
-0x493820 (print a string on a surface: SEH frame, CString, heap buffer, surface locks) stays
-translated: mostly orchestration around calls, little work of its own per call.
+0x493820: print a string on the back buffer (thiscall: ecx = font; no_scale, text, x, y, flags,
+alpha, a7, a8, a9; ret 0x24); eax = 0x493490's result, 0 when nothing was drawn. Callers read eax only.
+- Returns 0 without the renderer [0x4dc0c0] or text; for font types ([font + 4]) 5 / 6 when [0x4f1814]
+  && ![0x4f1828]; with [0x4f1814] and no font texture (+0xa38, +0xa3c); while [0x4ee940].
+- With [0x4f1814]: IsLost on the font texture +0xa3c (vtable +0x60); lost (0x887601c2): Restore (+0x6c);
+  if that fails with 0x8876024b the texture handle +0x1244 is released (0x41e4c0), +0xa38 / +0xa3c /
+  +0xa24 cleared, the four allocations +0x5484 and the palette +0x549a freed, the glyph table +0x18
+  zeroed, the font rebuilt (0x492170); other failures raise an error (0x4767f0 with a CString).
+- Else: begin the render lists (0x49a160(keep 1, no_lock 0)) unless [0x4f1814] or the back buffer is
+  locked ([0x4f1a20]); x / y halved (toward zero) unless no_scale, [0x4dc0c4] holds an object, or
+  [0x4f0e08] clear and [0x4dc0c8] == 2; flags & 0x100: word wrap — a heap copy (0x4c5381 malloc) of the
+  text with '\n' inserted where a line would pass the screen width [0x624f58] (character widths
+  [font + 0x618 + 4 c] + spacing +0xa20); 0x492c20(text, &x, &y, flags) aligns x / y; drawn only when
+  x < [0x624f58] and y < [0x68b008]; pixel pointer 0x49d0f0(max(x, 0), max(y, 0)) moved back by
+  negative x / y (pitch [0x62ebec], 2 bytes per pixel); a null pointer beeps once ([0x70d830], flag
+  [0x4f1830]); text size 0x492b10; alpha: x 63/100 when [0x4dc06c] && ![0x4dc070], else font type 5:
+  x 2048/100 >> 8, type 6: x 57344/100 >> 8; draw 0x493490(&ptr, pitch, rows, width, rows, text, flags,
+  text width, x, y, alpha, a7, a8, a9) when [0x4f1824] (else result 1); end the lists 0x49b0e0(1, 0)
+  if begun here; free the wrap copy (0x4c53c1).
 
 ## 0x495bd0 palette_to_pixels
 
