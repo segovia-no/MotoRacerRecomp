@@ -11,6 +11,7 @@
 # PROFILE_BUILD=<build dir>: also PSP/GAME/MOTORACER_PROF/ with that build's EBOOT (e.g. one configured
 # with MOTORACER_PROF_FUNCS=ON), the profiler on, and the game files of MOTORACER/ (no second copy).
 # PROFILE_ENV="KEY=VALUE ...": more settings for that one (e.g. MOTORACER_OPPONENTS=7 for an A/B).
+# PROFILE_BUILD_B / _C (+ PROFILE_ENV_x, PROFILE_TITLE_x): more of them, PSP/GAME/MOTORACER_PROF_x/.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PSPDEV="${PSPDEV:-$HOME/pspdev}" PATH="$HOME/pspdev/bin:$PATH"
@@ -38,11 +39,17 @@ sed -i '' -e 's/^DrawDistance=.*/DrawDistance=1/' "$out/game/motoracer.ini" 2>/d
 if [ -n "${PROF:-}" ]; then echo "MOTORACER_PROF=1" > "$out/psp_env.txt"; fi
 echo "$out: $(du -sh "$out" | cut -f1) (EBOOT $(du -h "$out/EBOOT.PBP" | cut -f1))"
 
-if [ -n "${PROFILE_BUILD:-}" ]; then
-    pout=build/psp-hw/PSP/GAME/MOTORACER_PROF
+profile_app() {   # <build dir> <folder> <title> <extra env>
+    local pout=build/psp-hw/PSP/GAME/$2
     mkdir -p "$pout"
-    eboot "$PROFILE_BUILD" "$pout" "Moto Racer (profiling)"
+    eboot "$1" "$pout" "$3"
     printf 'MOTORACER_PROF=1\nMOTORACER_GAME_DIR=ms0:/PSP/GAME/MOTORACER/game\n' > "$pout/psp_env.txt"
-    for kv in ${PROFILE_ENV:-}; do echo "$kv" >> "$pout/psp_env.txt"; done
+    for kv in $4; do echo "$kv" >> "$pout/psp_env.txt"; done
     echo "$pout: EBOOT $(du -h "$pout/EBOOT.PBP" | cut -f1), game files from MOTORACER/"
-fi
+}
+if [ -n "${PROFILE_BUILD:-}" ]; then profile_app "$PROFILE_BUILD" MOTORACER_PROF "Moto Racer (profiling)" "${PROFILE_ENV:-}"; fi
+# PROFILE_BUILD_B / PROFILE_ENV_B / PROFILE_TITLE_B (and _C): more profiling apps (A/B tests on hardware)
+for x in B C; do
+    bvar=PROFILE_BUILD_$x evar=PROFILE_ENV_$x tvar=PROFILE_TITLE_$x
+    if [ -n "${!bvar:-}" ]; then profile_app "${!bvar}" "MOTORACER_PROF_$x" "${!tvar:-Moto Racer (profiling $x)}" "${!evar:-}"; fi
+done
