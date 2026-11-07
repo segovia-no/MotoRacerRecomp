@@ -84,8 +84,8 @@ RecompFn guest_fallback(uint32_t va) {
 }  // namespace rt
 
 #ifdef RECOMP_GAME_MODULE
-// The guest functions the runtime calls by name (native hooks and their check mode): forwarders to
-// the module's code.
+// The guest functions the runtime calls by name (the natives' translated callees and their check-mode
+// fallbacks): forwarders to the module's code, generated from the runtime sources by CMakeLists.txt.
 #define GUEST_FN(VA)                                                                           \
     extern "C" void f_##VA(void) {                                                             \
         static const RecompFn f = rt::find_function(0x##VA);                                   \
@@ -96,10 +96,5 @@ RecompFn guest_fallback(uint32_t va) {
         static const RecompFn f = rt::guest_fallback(0x##VA);                                  \
         f();                                                                                   \
     }
-GUEST_FN(00419d60) GUEST_FN(00419ee0) GUEST_FN(0041dde0) GUEST_FN(0041e000) GUEST_FN(0041e1b0)
-GUEST_FN(0041e2b0) GUEST_FN(0041e380) GUEST_FN(0042f650) GUEST_FN(0049c590) GUEST_FN(0049ca70)
-GUEST_FALLBACK(0040c7e0) GUEST_FALLBACK(00419d60) GUEST_FALLBACK(00419ee0) GUEST_FALLBACK(0041dde0)
-GUEST_FALLBACK(0041e2b0) GUEST_FALLBACK(0041e380) GUEST_FALLBACK(00422b90) GUEST_FALLBACK(0042f650)
-GUEST_FALLBACK(00497080) GUEST_FALLBACK(0049b2c0) GUEST_FALLBACK(0049b7f0) GUEST_FALLBACK(0049c110)
-GUEST_FALLBACK(0049c590) GUEST_FALLBACK(0049ca70) GUEST_FALLBACK(004b8800) GUEST_FALLBACK(004c5e9d)
+#include "guest_forwarders.inc"   // every f_<va> / f_<va>_t the runtime sources mention (CMakeLists.txt)
 #endif
