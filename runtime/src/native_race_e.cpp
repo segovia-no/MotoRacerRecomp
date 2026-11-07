@@ -20,6 +20,15 @@ extern "C" void f_00458b80_t(void);
 extern "C" void f_0041e1b0_t(void);
 extern "C" void f_00490b90_t(void);
 extern "C" void f_0040d3b0_t(void);
+extern "C" void f_0049a160_t(void);
+extern "C" void f_0046e8b0_t(void);
+extern "C" void f_00476700(void);
+extern "C" void f_004767b0(void);
+extern "C" void f_004b2bb0(void);
+extern "C" void f_00472800(void);
+extern "C" void f_00473540(void);
+extern "C" void f_004b2ea0(void);
+extern "C" void f_004099a0(void);
 extern "C" void f_0046e8b0(void);
 extern "C" void f_00462110(void);
 extern "C" void f_0045f290(void);
@@ -348,7 +357,104 @@ void nearest_types() {
     R.esp = sp + 12;
 }
 
-uint32_t n_473a90, n_495bd0, n_4b32d0, n_4039c0, n_403a20, n_403740, n_458b80, n_41e1b0, n_490b90, n_40d3b0;
+// ---- 0x49a160: begin a frame's render lists (stdcall: keep, no_lock; ret 8) ----
+// Unless no_lock: lock the back buffer (0x476700 on [0x624afc]; failing: the x86's error message and
+// exit), [0x624f5c] = its pixels at the viewport origin, unlock again when [0x4dc170] (0x4767b0);
+// [0x4f1a20] = locked. Then, when locked or no_lock and not keep: the pool / record / node counters are
+// reset ([0x53469c] += the pool count) and the span table rebuilt: [0x68b008] entries of 8 bytes at
+// 0x60d3d0 (0, [0x62e448] + 1, 0), pointers at 0x623bd8 ([0x65e1d4] counts them). Last 0x4099a0 on
+// [0x4dc0c4] when it holds something. Callers read no register afterwards.
+void render_begin() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, keep = RD32A(sp + 4), no_lock = RD32A(sp + 8);
+    const uint32_t B = sp - 0xc;   // esp after the prologue
+    const uint32_t ebx0 = R.ebx, esi0 = R.esi, ebp0 = R.ebp;
+    R.esi = no_lock;
+    WR32A(0x4f1a20, 0);
+    if (!no_lock) {
+        WR32A(0x624f5c, gcall(f_00476700, B, 0x49a17f, RD32A(0x624afc), {0x62ebec}));
+        if (!RD32A(0x624f5c)) {   // the x86's "cannot lock" message, then exit(1)
+            gcall(f_004b2bb0, B, 0x49a1a6, R.ecx, {0x5d2e00, 0x4db258, 0x4f2554, 0x4f2568, 0x516});
+            gcall(f_00472800, B, 0x49a1b3, R.ecx, {0x5d2e00});
+            WR32A(0x4ea818, 1);
+            gcall(f_00472800, B, 0x49a1c7, R.ecx, {0x4db248});
+            gcall(f_00473540, B, 0x49a1cc, R.ecx, {});
+            gcall(f_004b2ea0, B, 0x49a1d3, R.ecx, {1});
+        }
+        if (RD32A(0x624f5c)) {
+            const uint32_t off = RD32A(0x62ebec) * RD32A(0x6d1040) + RD32A(0x624374);
+            const uint32_t unlock = RD32A(0x4dc170);
+            WR32A(0x624f5c, RD32A(0x624f5c) + off * 2);
+            if (unlock) gcall(f_004767b0, B, 0x49a217, RD32A(0x624afc), {});
+            WR32A(0x4f1a20, 1);
+        }
+    }
+    if ((RD32A(0x4f1a20) || no_lock) && !keep) {
+        WR32A(0x53469c, RD32A(0x53469c) + RD32A(0x68b014));
+        for (uint32_t a : {0x655d14u, 0x65e1c8u, 0x68b014u, 0x624f60u, 0x65e1d4u}) WR32A(a, 0);
+        WR32A(0x6d20c0, 1);
+        if (static_cast<int32_t>(RD32A(0x68b008)) > 0) {
+            uint32_t i;
+            do {
+                i = RD32A(0x65e1d4);
+                const uint32_t e = 0x60d3d0 + 8 * i;
+                WR32A(0x623bd8 + 4 * i, e);
+                WR16A(e, 0);
+                WR16A(e + 2, static_cast<uint16_t>(RD32A(0x62e448) + 1));
+                WR32A(e + 4, 0);
+                WR32A(0x65e1d4, i + 1);
+            } while (static_cast<int32_t>(RD32A(0x68b008)) > static_cast<int32_t>(i + 1));
+        }
+        WR32A(0x6d1048, 0);
+        WR32A(0x6d1f78, 0);
+    }
+    const uint32_t g = RD32A(0x4dc0c4);
+    if (g && RD32(g)) gcall(f_004099a0, B, 0x49a2ed, g, {});
+    R.ebx = ebx0;
+    R.esi = esi0;
+    R.ebp = ebp0;
+    R.esp = sp + 12;
+}
+
+// ---- 0x46e8b0: is a sphere visible from a camera (thiscall: ecx = camera; centre, radius; ret 8) ----
+// Not beyond the draw distance ([0x51d1bc + 36 * [0x4dc098]] * [0x4d13b0], against the unrounded
+// distance to the camera position +0x98), then the four frustum planes (0x4b10c0: dot + d, counted at
+// [0x709378]) at +0xd4 (> r), +0xe4 (< -r), +0x104 and +0xf4 (both > r), r = radius * [0x4d13b8]
+// (stored over the radius argument, as the x86 does). eax = 1 when visible; ecx = the last plane.
+void sphere_visible() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, cam = R.ecx, p = RD32A(sp + 4);
+    uint32_t fsw = F.sw;
+    auto ld = [&](uint32_t a) { return static_cast<fpu_t>(RDF32(a)); };
+    const float dx = static_cast<float>(ld(p) - ld(cam + 0x98)), dy = static_cast<float>(ld(p + 4) - ld(cam + 0x9c)),
+                dz = static_cast<float>(ld(p + 8) - ld(cam + 0xa0));
+    const fpu_t dist = FM(sqrt)((static_cast<fpu_t>(dy) * dy + static_cast<fpu_t>(dz) * dz) + static_cast<fpu_t>(dx) * dx);
+    const fpu_t lim = ld(0x51d1bc + 36 * RD32A(0x4dc098)) * ld(0x4d13b0);
+    FCOM_L(fsw, lim, dist);
+    R.esp = sp + 12;
+    R.eax = 0;
+    if (fsw & 0x100u) { F.sw = static_cast<uint16_t>(fsw); return; }
+    const float r = static_cast<float>(ld(sp + 8) * static_cast<fpu_t>(RDF64(0x4d13b8)));
+    WRF32A(sp + 8, r);
+    auto plane = [&](uint32_t pl) {
+        WR32A(0x709378, RD32A(0x709378) + 1);
+        R.ecx = pl;
+        return ((ld(pl + 4) * ld(p + 4) + ld(pl + 8) * ld(p + 8)) + ld(pl) * ld(p)) + ld(pl + 0xc);
+    };
+    FCOM_L(fsw, plane(cam + 0xd4), static_cast<fpu_t>(r));
+    if (fsw & 0x4100u) { F.sw = static_cast<uint16_t>(fsw); return; }
+    const fpu_t p2 = plane(cam + 0xe4);
+    FCOM_L(fsw, -static_cast<fpu_t>(r), p2);
+    if (fsw & 0x4100u) { F.sw = static_cast<uint16_t>(fsw); return; }
+    FCOM_L(fsw, plane(cam + 0x104), static_cast<fpu_t>(r));
+    const bool a = !(fsw & 0x4100u);
+    FCOM_L(fsw, plane(cam + 0xf4), static_cast<fpu_t>(r));
+    const bool b = !(fsw & 0x4100u);
+    F.sw = static_cast<uint16_t>(fsw);
+    R.eax = (a && b) ? 1 : 0;
+}
+
+uint32_t n_473a90, n_495bd0, n_4b32d0, n_4039c0, n_403a20, n_403740, n_458b80, n_41e1b0, n_490b90, n_40d3b0, n_49a160, n_46e8b0;
 }  // namespace
 
 extern "C" int native_hot_473a90(void) {
@@ -455,5 +561,26 @@ extern "C" int native_hot_40d3b0(void) {
     if (md == ON) { nearest_types(); return 1; }
     check("nearest types 0x40d3b0", nearest_types, f_0040d3b0_t, {{RD32A(R.esp + 4), 28}});
     counted("nearest types 0x40d3b0", n_40d3b0);
+    return 1;
+}
+
+extern "C" int native_hot_49a160(void) {
+    MEM_LOCAL();
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    // check mode: the back-buffer lock (host state) cannot run twice, so only calls without it compare
+    if (md == ON || !RD32A(R.esp + 8)) { render_begin(); return 1; }
+    const uint32_t lo = 0x4db000, hi = 0x70c568;
+    check_abi("render begin 0x49a160", render_begin, f_0049a160_t, {{lo, hi - lo}});
+    counted("render begin 0x49a160", n_49a160);
+    return 1;
+}
+
+extern "C" int native_hot_46e8b0(void) {
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { sphere_visible(); return 1; }
+    check("sphere visible 0x46e8b0", sphere_visible, f_0046e8b0_t, {{0x709378, 4}, {R.esp + 8, 4}});
+    counted("sphere visible 0x46e8b0", n_46e8b0);
     return 1;
 }
