@@ -722,6 +722,14 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
 - `package_hw.sh` takes up to three profiling apps (`PROFILE_BUILD_B` / `_C`) for hardware A/Bs: here
   -O2 vs -Os game code (`build/psp-pf-os`) and the stall step.
 
+### Home-menu icon, background, title (2026-11-07)
+- The EBOOT's title is "Moto Racer Recompiled" (owner). `tools/psp/xmb_assets.sh` renders the title
+  screen with the desktop build and cuts `ICON0.PNG` (144x80, the logo) and `PIC1.PNG` (480x272) into
+  `build/psp-xmb/`; `package_hw.sh` packs whatever is there. Made from the player's game at packaging
+  time, like the MP3 music: nothing of the game in the repository.
+- `SND0.AT3` (the item's music) needs an ATRAC3 encoder (ffmpeg only decodes it): `ATRACDENC=<path>`
+  (github.com/dcherednik/atracdenc) makes 30 s of CD track 02 (`xmb_assets.sh [track]`, `SND0_START`).
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and
