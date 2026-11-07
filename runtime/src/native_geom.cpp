@@ -9,6 +9,7 @@
 //   (default)               native
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 #include <vector>
 
 #include <SDL3/SDL_timer.h>
@@ -27,6 +28,8 @@ extern "C" void f_0049ca70(void);
 extern "C" void f_00497080_t(void);
 extern "C" void f_0049ca70_t(void);
 extern "C" void f_00422b90_t(void);
+extern "C" void f_00497e40(void);
+extern "C" void f_00497080(void);
 extern "C" void f_0040c7e0_t(void);
 
 namespace {
@@ -345,7 +348,7 @@ void faces(Variant var, bool dry, std::vector<PolyCall> *calls) {
 // bit 0x20 (per [0x4dc098] mode, depth < 3072 / 6144) and lose 0x85, and face+0x3a =
 // [0x624b58 + flags*4]. Then (pool [0x655d14] < 0x1d4b) a 24-byte render node (face, depth, next,
 // verts, 0, -1) is pushed onto the bucket's list [0x655d38 + bucket*4]. Faces to clip (flags with
-// [0x4dc06c] set, [0x4dc070] clear) go through the clipper: left to the translated code.
+// [0x4dc06c] set, [0x4dc070] clear) go through the clipper (clip_path).
 constexpr uint32_t BUCKET_SCALE = 0x4d1f9c, BUCKET_MAX = 0x65e1d0, BUCKET_MIN = 0x68b030, MATERIALS = 0x6d1f88,
                    MAT_OVERRIDE = 0x4dc0c4, MAT_OVERRIDE_OFF = 0x4f1a18, MAT_MODE = 0x4dc098, MAT_JUMPS = 0x49ca54,
                    MAT_REMAP = 0x624b58, NODES = 0x65f0e0, NODE_COUNT = 0x655d14, HEADS = 0x655d38;
@@ -373,12 +376,14 @@ bool poly_supported() {
     return ok;
 }
 
+void clip_path(bool special, uint32_t sp, uint32_t face, uint32_t depth, uint32_t verts, uint32_t flags, uint32_t var,
+               uint32_t bucket);   // below
+
 // Returns false (nothing done) for the clipping path.
 bool poly_setup() {
     MEM_LOCAL();
     const uint32_t sp = R.esp, face = RD32A(sp + 4), depth = RD32A(sp + 8), verts = RD32A(sp + 12), flags = RD32A(sp + 16),
                    mode = RD32A(sp + 20);
-    if (flags && RD32A(CLIP_ON) && !RD32A(CLIP_OFF)) return false;
     R.esp = sp + 0x18;   // ret 0x14
     uint32_t bucket;
     if (mode == 1) {
@@ -430,6 +435,10 @@ bool poly_setup() {
         R.eax = n;
         R.ecx = mat;
         R.edx = edx;
+        return true;
+    }
+    if (flags && RD32A(CLIP_ON) && !RD32A(CLIP_OFF)) {
+        clip_path(false, sp, face, depth, verts, flags, 0, bucket);
         return true;
     }
     const uint32_t node = NODES + n * 24u, head = HEADS + bucket * 4u;
@@ -573,12 +582,183 @@ void clip_triangle() {
 }
 
 
+// ---- the clipping path of 0x49c590 / 0x49ca70 (faces crossing the screen's edges) ----
+// The face is split into up to four triangle records on the stack (0x422b90 initialises them): by the
+// near-plane splitter 0x497e40 (flags bit 0) or 0x499460 (copy of three vertex slots), triangles
+// (0, 1, 2) and, for a quad, (0, 2, 3). Each record goes through the screen clipper 0x497080; its
+// vertices (28 bytes) are appended to the transformed-vertex pool (screen x / y, light, z, rhw), and
+// the clipped polygon becomes a fan of triangles: per triangle a 64-byte record in the table
+// 0x62ebf0 (counter [0x65e1c8]; 0x423060 fills it from the clipped record and copies it to a stack
+// buffer), its indexes / uv pairs, the record's flags (+0x38), opaque alpha with [0x4dc1bc] or
+// [0x4dc1c0], and a render node on the bucket's list (no pool limit check here, as in the x86).
+// 0x49ca70's nodes carry the face's texture handle [0x4f9304 + 4 (id * 206 + variant)] and the variant.
+// Registers at the end as the x86 leaves them (eax = ecx = record count; edx: the last bucket /
+// texture written, else the last clipped vertex count, else from the split calls).
+constexpr uint32_t CLIP_POOL = 0x6d20d8, CLIP_POOL_USED = 0x68b014, TRI_RECORDS = 0x62ebf0, TRI_COUNT = 0x65e1c8;
+
+// a guest stdcall / thiscall: arguments pushed below `esp` (the caller's esp), the return address under
+// them, the callee pops its arguments; the x87 status word through F.sw; returns eax
+uint32_t gcall_geom(void (*fn)(void), uint32_t esp, uint32_t ret, uint32_t ecx, std::initializer_list<uint32_t> args,
+                    uint32_t &fsw) {
+    MEM_LOCAL();
+    const uint32_t at = esp - 4 * static_cast<uint32_t>(args.size()) - 4;
+    WR32A(at, ret);
+    uint32_t a = at + 4;
+    for (uint32_t v : args) { WR32A(a, v); a += 4; }
+    R.esp = at;
+    R.ecx = ecx;
+    F.sw = static_cast<uint16_t>(fsw);
+    fn();
+    fsw = F.sw;
+    R.esp = esp;
+    return R.eax;
+}
+
+// 0x499460(a, b, c, verts, face, record, &count): the triangle of vertex slots a, b, c as a record
+// (material / texture / colour / flags of the face, index 0xffff after the closing repeat of a);
+// count + 1; returns record + 0x40 (ecx = &count, edx = the new count).
+uint32_t slot_triangle(uint32_t a, uint32_t b, uint32_t c, uint32_t face, uint32_t rec, uint32_t pcount) {
+    MEM_LOCAL();
+    const uint16_t ia = RD16(face + 0x2c + 2 * a), ib = RD16(face + 0x2c + 2 * b), ic = RD16(face + 0x2c + 2 * c);
+    const uint32_t ua = RD32(face + 4 + 8 * a), va = RD32(face + 8 + 8 * a), ub = RD32(face + 4 + 8 * b),
+                   vb = RD32(face + 8 + 8 * b), uc = RD32(face + 4 + 8 * c), vc = RD32(face + 8 + 8 * c);
+    const uint16_t mat = RD16(face + 0x3a);
+    WR16(rec, mat);
+    WR16(rec + 0x3a, mat);
+    WR16(rec + 0x36, RD16(face + 0x36));
+    WR16(rec + 2, RD16(face + 2));
+    WR16(rec + 0x2c, ia);
+    WR16(rec + 0x2e, ib);
+    WR16(rec + 0x30, ic);
+    WR16(rec + 0x32, ia);
+    WR16(rec + 0x34, 0xffff);
+    WR32(rec + 4, ua);
+    WR32(rec + 8, va);
+    WR32(rec + 0xc, ub);
+    WR32(rec + 0x10, vb);
+    WR32(rec + 0x14, uc);
+    WR32(rec + 0x18, vc);
+    WR32(rec + 0x1c, ua);
+    WR32(rec + 0x20, va);
+    WR16(rec + 0x38, RD16(face + 0x38));
+    WR32(rec + 0x3c, RD32(face + 0x3c));   // (the x86 first stores the 16-bit colour expanded, then this)
+    const uint32_t n = RD32(pcount) + 1;
+    WR32(pcount, n);
+    R.ecx = pcount;
+    R.edx = n;
+    return rec + 0x40;
+}
+
+void clip_path(bool special, uint32_t sp, uint32_t face, uint32_t depth, uint32_t verts, uint32_t flags, uint32_t var,
+               uint32_t bucket) {
+    MEM_LOCAL();
+    const uint32_t B = sp - 0x160;   // esp in the x86 body
+    const uint32_t recs = B + 0x20, pcount = B + 0x14, tmp = B + 0x120;
+    uint32_t fsw = F.sw;
+    for (uint32_t k = 0; k < 4; k++) {   // 0x422b90
+        const uint32_t r = recs + 0x40 * k;
+        WR16(r + 0x2c, 0xea60);
+        WR16(r + 0x2e, 0xea60);
+        WR32(r + 0x3c, 0xffffffffu);
+        WR16(r + 0x30, 0xea60);
+        WR16(r + 0x32, 0xea60);
+        WR16(r + 0x34, 0xea60);
+        WR16(r + 0x36, 0);
+        WR16(r + 0x38, 0);
+    }
+    WR32A(pcount, 0);
+    const bool quad = RD16(face + 0x34) != 0xffff;
+    uint32_t r;
+    if (flags & 1) {
+        r = gcall_geom(f_00497e40, B, special ? 0x49cb9bu : 0x49c766u, recs, {0, 1, 2, verts, face, recs, pcount}, fsw);
+        if (quad) r = gcall_geom(f_00497e40, B, special ? 0x49cbcbu : 0x49c788u, R.ecx, {0, 2, 3, verts, face, r, pcount}, fsw);
+    } else {
+        r = slot_triangle(0, 1, 2, face, recs, pcount);
+        if (quad) r = slot_triangle(0, 2, 3, face, r, pcount);
+    }
+    WR32A(B + 0x18, 0);
+    const uint32_t count = RD32A(pcount);
+    uint32_t edx = R.edx;
+    if (static_cast<int32_t>(count) <= 0) {
+        R.eax = count;
+        R.esp = sp + 0x18;
+        F.sw = static_cast<uint16_t>(fsw);
+        return;
+    }
+    const uint32_t tex = special ? RD32(0x4f9304 + 4 * (RD16(face + 0x36) * 206u + var)) : 0;
+    const bool opaque = RD32A(0x4dc1bc) || RD32A(0x4dc1c0);
+    for (uint32_t k = 0; static_cast<int32_t>(k) < static_cast<int32_t>(count); k++) {
+        const uint32_t rec = recs + 0x40 * k;
+        WR32A(B + 0x18, k);
+        const uint32_t clip = gcall_geom(f_00497080, B, special ? 0x49cc28u : 0x49c7d7u, R.ecx, {rec, verts}, fsw);
+        const uint32_t used = RD32A(CLIP_POOL_USED), pool = CLIP_POOL + used * 28u;
+        WR32A(B + 0x1c, pool);
+        const uint32_t n = RD32A(clip + 0xe0);
+        for (uint32_t v = 0; static_cast<int32_t>(v) < static_cast<int32_t>(n); v++) {
+            const uint32_t src = clip + 0x1c * v, dst = pool + 0x1c * v;
+            WR32A(dst + 0x10, RD32A(src));
+            WR32A(dst + 0x14, RD32A(src + 4));
+            WR32A(dst + 0x18, RD32A(src + 0x14));
+            WR32A(dst + 0xc, RD32A(src + 8));
+            WR32A(dst + 8, RD32A(src + 0x18));
+        }
+        edx = static_cast<int32_t>(n) > 0 ? n : 0;
+        WR32A(CLIP_POOL_USED, used + n);
+        for (uint32_t j = 0; static_cast<int32_t>(j) < static_cast<int32_t>(n) - 2; j++) {
+            const uint32_t dst = TRI_RECORDS + RD32A(TRI_COUNT) * 64u;
+            // 0x423060(tmp, rec): the record's fields into dst, then dst copied to tmp
+            WR16(dst, RD16(rec));
+            WR16(dst + 0x3a, RD16(rec));
+            WR16(dst + 0x36, RD16(rec + 0x36));
+            WR16(dst + 2, RD16(rec + 2));
+            WR32(dst + 0x3c, RD32(rec + 0x3c));
+            for (uint32_t o = 0x2c; o <= 0x34; o += 2) WR16(dst + o, RD16(rec + o));
+            for (uint32_t o = 4; o <= 0x28; o += 4) WR32(dst + o, RD32(rec + o));
+            WR16(dst + 0x38, 0);
+            memcpy(M + tmp, M + dst, 64);
+            // the triangle (0, j + 1, j + 2) of the fan
+            const uint32_t v1 = clip + 0x1c * (j + 1), v2 = clip + 0x1c * (j + 2);
+            WR16(dst + 0x2c, 0);
+            WR16(dst + 0x2e, static_cast<uint16_t>(j + 1));
+            WR16(dst + 0x30, static_cast<uint16_t>(j + 2));
+            WR16(dst + 0x32, 0);
+            WR16(dst + 0x34, 0xffff);
+            WR32(dst + 4, RD32A(clip + 0xc));
+            WR32(dst + 8, RD32A(clip + 0x10));
+            WR32(dst + 0xc, RD32A(v1 + 0xc));
+            WR32(dst + 0x10, RD32A(v1 + 0x10));
+            WR32(dst + 0x14, RD32A(v2 + 0xc));
+            WR32(dst + 0x18, RD32A(v2 + 0x10));
+            WR32(dst + 0x1c, RD32(dst + 4));
+            WR32(dst + 0x20, RD32(dst + 8));
+            WR16(dst + 0x38, RD16(rec + 0x38));
+            if (opaque) WR32(dst + 0x3c, RD32(dst + 0x3c) | 0xff000000u);
+            const uint32_t nn = RD32A(NODE_COUNT), node = NODES + nn * 24u, head = HEADS + bucket * 4u;
+            WR32A(node, dst);
+            WR32A(node + 8, RD32A(head));
+            WR32A(node + 12, pool);
+            WR32A(node + 4, depth);
+            WR32A(node + 16, special ? tex : 0);
+            WR32A(node + 20, special ? var : 0xffffffffu);
+            WR32A(TRI_COUNT, RD32A(TRI_COUNT) + 1);
+            WR32A(head, node);
+            WR32A(NODE_COUNT, nn + 1);
+            edx = special ? tex : bucket;
+        }
+    }
+    R.eax = count;
+    R.ecx = count;
+    R.edx = edx;
+    R.esp = sp + 0x18;   // ret 0x14
+    F.sw = static_cast<uint16_t>(fsw);
+}
+
 // ---- 0x49ca70: polygon setup for "special" faces (from 0x49c110) — fast path ----
 // stdcall (face, depth, verts, variant, flags). Bucket _ftol(depth * [0x4d1f9c]) (negative: nothing),
 // at most 0x1f3e; min / max bucket; face+0x3a = material, or with an override active
 // ([0x4dc0c4] -> 0 and [0x4dc098] <= 1) 0, or 0x2a for materials with flags 9; then (pool not full)
 // a render node (face, depth, next, verts, texture [0x4f9304 + 4 * (id * 206 + variant)], variant).
-// Faces to clip go through the translated code.
+// Faces to clip: clip_path.
 uint32_t special_bucket() {   // the bucket poly_special would use (check mode)
     MEM_LOCAL();
     const int32_t lo = static_cast<int32_t>(FTOL(static_cast<fpu_t>(RDF32(R.esp + 8)) * static_cast<fpu_t>(RDF32(BUCKET_SCALE))));
@@ -589,7 +769,6 @@ bool poly_special() {
     MEM_LOCAL();
     const uint32_t sp = R.esp, face = RD32(sp + 4), depth = RD32(sp + 8), verts = RD32(sp + 12), var = RD32(sp + 16),
                    flags = RD32(sp + 20);
-    if (flags && RD32(CLIP_ON) && !RD32(CLIP_OFF)) return false;
     R.esp = sp + 0x18;   // ret 0x14
     const int64_t r = FTOL(static_cast<fpu_t>(RDF32(sp + 8)) * static_cast<fpu_t>(RDF32(BUCKET_SCALE)));
     uint32_t bucket = static_cast<uint32_t>(r), edx = static_cast<uint32_t>(static_cast<uint64_t>(r) >> 32);
@@ -619,6 +798,10 @@ bool poly_special() {
         R.eax = n;
         R.ecx = ecx;
         R.edx = edx;
+        return true;
+    }
+    if (flags && RD32(CLIP_ON) && !RD32(CLIP_OFF)) {
+        clip_path(true, sp, face, depth, verts, flags, var, bucket);
         return true;
     }
     const uint32_t id = RD16(face + 0x36);
@@ -653,13 +836,20 @@ extern "C" int native_poly_setup(void) {   // 0x49c590
         if (timed.t) { f_0049c590_t(); return 1; }
         return 0;
     }
-    const uint32_t face = RD32A(R.esp + 4), n = RD32A(NODE_COUNT);
-    const std::vector<Region> regions = {{BUCKET_MIN, 4}, {BUCKET_MAX, 4}, {NODE_COUNT, 4}, {face + 0x3a, 2},
-                                         {NODES + n * 24u, 24}, {HEADS + poly_bucket() * 4u, 4}};
+    const uint32_t face = RD32A(R.esp + 4), n = RD32A(NODE_COUNT), flags = RD32A(R.esp + 16);
+    const bool clips = flags && RD32A(CLIP_ON) && !RD32A(CLIP_OFF);
+    // the clipping path writes records, pool vertices and nodes: the whole writable image is compared
+    const std::vector<Region> regions = clips ? std::vector<Region>{{0x4db000, 0x70c568 - 0x4db000}}
+                                              : std::vector<Region>{{BUCKET_MIN, 4}, {BUCKET_MAX, 4}, {NODE_COUNT, 4}, {face + 0x3a, 2},
+                                                                    {NODES + n * 24u, 24}, {HEADS + poly_bucket() * 4u, 4}};
     Snapshot before = take(regions);
-    if (!poly_setup()) return 0;   // clipping: translated only
+    const Snapshot stack0 = take({{R.esp - 0x400, 0x400}});   // the frame below: restored, not compared
+    if (!poly_setup()) return 0;
     Snapshot native = take(regions);
     restore(before);
+    restore(stack0);
+    R = before.r;
+    F = before.f;
     f_0049c590_t();
     compare("poly setup 0x49c590", native, take(regions));
     return 1;
@@ -722,13 +912,19 @@ extern "C" int native_poly_special(void) {   // 0x49ca70
     const Mode md = mode();
     if (md == OFF) return 0;
     if (md == ON) return poly_special() ? 1 : 0;
-    const uint32_t face = RD32A(R.esp + 4), n = RD32A(NODE_COUNT);
-    const std::vector<Region> regions = {{BUCKET_MIN, 4}, {BUCKET_MAX, 4}, {NODE_COUNT, 4}, {face + 0x3a, 2},
-                                         {NODES + n * 24u, 24}, {HEADS + special_bucket() * 4u, 4}};
+    const uint32_t face = RD32A(R.esp + 4), n = RD32A(NODE_COUNT), flags = RD32A(R.esp + 20);
+    const bool clips = flags && RD32A(CLIP_ON) && !RD32A(CLIP_OFF);
+    const std::vector<Region> regions = clips ? std::vector<Region>{{0x4db000, 0x70c568 - 0x4db000}}
+                                              : std::vector<Region>{{BUCKET_MIN, 4}, {BUCKET_MAX, 4}, {NODE_COUNT, 4}, {face + 0x3a, 2},
+                                                                    {NODES + n * 24u, 24}, {HEADS + special_bucket() * 4u, 4}};
     Snapshot before = take(regions);
+    const Snapshot stack0 = take({{R.esp - 0x400, 0x400}});   // the frame below: restored, not compared
     if (!poly_special()) return 0;
     Snapshot nat = take(regions);
     restore(before);
+    restore(stack0);
+    R = before.r;
+    F = before.f;
     f_0049ca70_t();
     compare("poly special 0x49ca70", nat, take(regions));
     return 1;

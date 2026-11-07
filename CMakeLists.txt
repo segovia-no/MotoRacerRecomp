@@ -71,6 +71,23 @@ target_compile_options(gamecode PRIVATE -w ${MOTORACER_GUEST_OPT_LEVEL} -fno-str
 # MOTORACER_PGO=gen: instrumented build (training run: tools/psp/pgo.sh); =use: built with the counts
 # found next to the objects (the same build directory, after the training run's .gcda files are copied in).
 set(MOTORACER_PGO "" CACHE STRING "Profile-guided game code: gen or use (empty: off)")
+# Link-time optimisation of the game code: GCC inlines small translated functions (vector helpers,
+# matrix copies: a call costs the x86 calling convention through guest registers and the guest stack)
+# into their callers across the generated files. The optimisation flags go to the link as well.
+option(MOTORACER_LTO "Link-time optimisation of the game code" OFF)
+# (the translated helpers carry the guest-register prologue / epilogue: beyond -O2's default size limit
+# for inlining functions not declared inline; LTO takes these limits from the compile options)
+set(MOTORACER_LTO_INLINE "--param=max-inline-insns-auto=150" CACHE STRING "LTO inlining limits")
+if(MOTORACER_LTO)
+  target_compile_options(gamecode PRIVATE -flto ${MOTORACER_LTO_INLINE})
+  add_link_options(-flto=auto ${MOTORACER_GUEST_OPT_LEVEL} -fno-strict-aliasing ${MOTORACER_LTO_INLINE})
+  if(PSP)
+    add_link_options(-G0 -fno-math-errno)
+  endif()
+  if(MOTORACER_PGO STREQUAL "use")
+    add_link_options(-fprofile-use -fprofile-partial-training -Wno-missing-profile)
+  endif()
+endif()
 if(MOTORACER_PGO STREQUAL "gen")
   target_compile_options(gamecode PRIVATE -fprofile-generate -fprofile-update=single)
   add_compile_definitions(RECOMP_PGO_GEN)
