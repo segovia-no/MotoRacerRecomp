@@ -652,8 +652,18 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   pack, ~1.9 M calls in a check race), `0x4039c0` / `0x403a20` matrix copy, `0x403740` rotation +
   translation from the sine table, `0x4b32d0` byte swap (the sort). Check mode: 0 mismatches.
   Translated x86 per race frame 0.156 M → 0.111 M.
-- Next by the ranking: near-plane splitter `0x497e40` / `0x497d60` (12% together), `0x458b80`,
-  `0x45f290`, `0x47ecd0`, `0x49a160`, `0x40ce60`, `0x40d3b0`.
+- Per bike: `0x46b120` (heading / speed towards two aim points ahead on the track; `native_race_c.cpp`)
+  and `0x469c60` (the lean, the front / back points on the floor, the frame between them; a crash
+  tumble, an inlined constant rotation, still runs translated), plus the opponent draw loop
+  `0x458b80` (its skip-list scan was bikes x list length). `0x469c60` has a road-bike and a dirt-bike
+  path ([0x509398 + 292 * model]): checked on Speed Bay and on Dirt Arena (menu keys: `+LEFT 20 -LEFT
+  2500 +DOWN 20 -DOWN 1500 ENTER` on the race selection; plain taps there sometimes move twice).
+  0.111 M -> 0.096 M.
+- Near-plane splitter `0x497e40` and its edge split `0x497d60` (`native_geom.cpp`; the native
+  clipping path calls it directly): 8 cases (none / one / two / three vertices behind the plane) in
+  two shapes, the x86's screen outcode sums and its exit registers per path. 0.096 M -> 0.084 M.
+- Next by the ranking: `0x45f290` (the bike model draw, 6%), `0x47ecd0`, `0x49a160`, `0x40ce60`,
+  `0x40d3b0`, `0x490b90`, `0x464190`, `0x422540`, `0x4961d0`.
 
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
