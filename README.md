@@ -162,6 +162,15 @@ Game files are found in this order: `--game-dir DIR`, `$MOTORACER_GAME_DIR`, `<d
 
 Developer aids: `--trace` logs every Windows API call; environment overrides `MOTORACER_SNAPSHOT_DIR` / `MOTORACER_SNAPSHOT_EVERY` (save frames as BMP), `MOTORACER_RENDERER`, `MOTORACER_RENDER_SCALE`, `MOTORACER_DRAW_DISTANCE`, `MOTORACER_D3D_DEBUG=1`, `MOTORACER_GAME_DIR`. Unattended end-to-end tests drive the menus with scripted keys: `tools/e2e.sh`, `tools/e2e_race.sh` ([docs/13-e2e-testing.md](docs/13-e2e-testing.md)). The translator is checked instruction by instruction against the Unicorn emulator: `.venv/bin/python tools/recomp/tests/difftest.py <game.EXE> <work dir>`. After editing `runtime/shaders/`, regenerate the compiled shaders with `tools/build_shaders.sh` (needs `glslang` and `spirv-cross`).
 
+## PSP
+A PSP version runs on real hardware with custom firmware (every model, PSP-1000 included; about 25–30
+fps in races). It is built from your GOG installer on macOS, Linux or Windows:
+```sh
+./setup_psp.sh ~/Downloads/setup_moto_racer_2.1.0.11.exe     # macOS / Linux
+```
+On Windows, double-click **`setup_psp.cmd`** (it builds in WSL). Then copy `build/psp-hw/PSP` to the
+memory stick. Details, requirements and controls: [docs/30-psp-build.md](docs/30-psp-build.md).
+
 ## How it works
 1. `tools/recomp/` finds every function in `game.EXE` (recursive descent, relocations, MSVC switch tables and exception-handling patterns) and translates each x86 instruction to C — integer operations with exact flags, the x87 FPU, MMX and the software rasterizer's self-modifying code.
 2. `runtime/` provides the guest address space, Win32 (KERNEL32/USER32 with MFC-compatible window management, GDI, registry, files), C++/SEH exceptions, DirectDraw, Direct3D (execute buffers → SDL_GPU/Metal), DirectSound, an emulated CD-audio drive backed by the GOG audio tracks, joysticks via SDL gamepads, and presentation.

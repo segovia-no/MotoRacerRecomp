@@ -17,6 +17,7 @@ rendering, then the native vertex loops writing GE vertices).
   memory).
 
 ## Build
+Players: `./setup_psp.sh` / `setup_psp.cmd` does all of this ([30-psp-build.md](30-psp-build.md)). By hand:
 ```
 export PSPDEV=$HOME/pspdev PATH=$HOME/pspdev/bin:$PATH
 psp-cmake -S . -B build/psp -DGAME_EXE=<game.EXE> -DRECOMP_PYTHON=$PWD/.venv/bin/python
