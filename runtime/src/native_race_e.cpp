@@ -22,6 +22,7 @@ extern "C" void f_00490b90_t(void);
 extern "C" void f_0040d3b0_t(void);
 extern "C" void f_0049a160_t(void);
 extern "C" void f_0046e8b0_t(void);
+extern "C" void f_00422540_t(void);
 extern "C" void f_00476700(void);
 extern "C" void f_004767b0(void);
 extern "C" void f_004b2bb0(void);
@@ -454,7 +455,61 @@ void sphere_visible() {
     R.eax = (a && b) ? 1 : 0;
 }
 
-uint32_t n_473a90, n_495bd0, n_4b32d0, n_4039c0, n_403a20, n_403740, n_458b80, n_41e1b0, n_490b90, n_40d3b0, n_49a160, n_46e8b0;
+// ---- 0x422540: per-vertex light of a model (thiscall: ecx = model; ? , light (3), matrix (12), out; ret 0x50) ----
+// The light vector goes through the matrix's inverse (rotation transposed, translation -R^T t, applied
+// with the translation as the x86 does) and is normalized (unless its length is [0x4d0664]); for each of
+// the model's [+0x30] normals ([+0x10], 12 bytes): t = _ftol(K - (n . -l) * K) (K = [0x4d069c]),
+// _ftol((t + [0x4d06a0]) * [0x4d0680]) + 8, at most 31 (signed), << 13 into the light field (+0xc) of
+// the output vertices (28 bytes). Nothing without normals ([+0x10] == 0). Callers read no register.
+void vertex_light() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, model = R.ecx;
+    R.esp = sp + 0x54;
+    if (!RD32(model + 0x10)) return;
+    auto ld = [&](uint32_t a) { return static_cast<fpu_t>(RDF32(a)); };
+    auto rnd = [](fpu_t v) { return static_cast<float>(v); };
+    auto F_ = [](float v) { return static_cast<fpu_t>(v); };
+    const uint32_t m = sp + 0x14;   // matrix by value: 9 rotation, 3 translation
+    float mi[12];
+    const int tr[9] = {0, 3, 6, 1, 4, 7, 2, 5, 8};
+    for (int k = 0; k < 9; k++) mi[k] = RDF32(m + 4 * tr[k]);
+    auto M = [&](int k) { return ld(m + 4 * k); };
+    mi[9] = rnd(-((M(1) * M(10) + M(2) * M(11)) + M(9) * M(0)));
+    mi[10] = rnd(-((M(5) * M(11) + M(9) * M(3)) + M(10) * M(4)));
+    mi[11] = rnd(-((M(9) * M(6) + M(11) * M(8)) + M(10) * M(7)));
+    const fpu_t L0 = ld(sp + 8), L1 = ld(sp + 0xc), L2 = ld(sp + 0x10);
+    auto I = [&](int k) { return F_(mi[k]); };
+    const float X = rnd(((I(6) * L2 + I(3) * L1) + I(0) * L0) + I(9));
+    const float Y = rnd(((I(7) * L2 + I(4) * L1) + I(1) * L0) + I(10));
+    const float Z = rnd(((I(5) * L1 + I(8) * L2) + I(2) * L0) + I(11));
+    uint32_t fsw = F.sw;
+    float lx = X, ly = Y, lz = Z;
+    const fpu_t len = FM(sqrt)((F_(Y) * F_(Y) + F_(Z) * F_(Z)) + F_(X) * F_(X));
+    FCOM_L(fsw, len, ld(0x4d0664));
+    if (!(fsw & 0x4000u)) {
+        const fpu_t r = static_cast<fpu_t>(1) / F_(rnd(len));
+        lx = rnd(F_(X) * r);
+        ly = rnd(F_(Y) * r);
+        lz = rnd(r * F_(Z));
+    }
+    F.sw = static_cast<uint16_t>(fsw);
+    const int32_t n = static_cast<int32_t>(RD32(model + 0x30));
+    if (n <= 0) return;
+    const fpu_t nx = -F_(lx), ny = -F_(ly), nz = -F_(lz);
+    const fpu_t nxf = F_(rnd(nx)), nyf = F_(rnd(ny)), nzf = F_(rnd(nz));
+    const fpu_t K = ld(0x4d069c), add = ld(0x4d06a0), mul = ld(0x4d0680);
+    const uint32_t normals = RD32(model + 0x10), out = RD32A(sp + 0x44);
+    for (int32_t i = 0; i < n; i++) {
+        const uint32_t N = normals + 12u * static_cast<uint32_t>(i);
+        const fpu_t d = (ld(N + 8) * nzf + ld(N + 4) * nyf) + ld(N) * nxf;
+        const int32_t t = static_cast<int32_t>(FTOL(K - d * K));
+        int32_t v = static_cast<int32_t>(FTOL((static_cast<fpu_t>(t) + add) * mul)) + 8;
+        if (v >= 0x20) v = 0x1f;
+        WR32(out + 0xc + 0x1c * static_cast<uint32_t>(i), static_cast<uint32_t>(v) << 13);
+    }
+}
+
+uint32_t n_473a90, n_495bd0, n_4b32d0, n_4039c0, n_403a20, n_403740, n_458b80, n_41e1b0, n_490b90, n_40d3b0, n_49a160, n_46e8b0, n_422540;
 }  // namespace
 
 extern "C" int native_hot_473a90(void) {
@@ -582,5 +637,18 @@ extern "C" int native_hot_46e8b0(void) {
     if (md == ON) { sphere_visible(); return 1; }
     check("sphere visible 0x46e8b0", sphere_visible, f_0046e8b0_t, {{0x709378, 4}, {R.esp + 8, 4}});
     counted("sphere visible 0x46e8b0", n_46e8b0);
+    return 1;
+}
+
+extern "C" int native_hot_422540(void) {
+    MEM_LOCAL();
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { vertex_light(); return 1; }
+    const uint32_t model = R.ecx, n = RD32(model + 0x30), out = RD32A(R.esp + 0x44);
+    std::vector<Region> regions;
+    if (n < 0x10000 && RD32(model + 0x10)) regions.push_back({out, 0x1c * n});
+    check_abi("vertex light 0x422540", vertex_light, f_00422540_t, regions);
+    counted("vertex light 0x422540", n_422540);
     return 1;
 }
