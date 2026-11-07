@@ -682,6 +682,22 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   `0x47ecd0` (6.7%, physics, 390 x87 instructions), `0x4961d0` (font palettes), `0x493100` /
   `0x495840` (glyph draws), `0x493820`, `0x478990`, `0x45d810`, `0x4221d0`.
 
+### Heap exhausted after a second race; desktop race drawn black (2026-11-07)
+- Hardware (owner): leaving the second race, `FATAL: guest heap exhausted (request 614432; ...)`
+  — a 640x480 16-bit surface for the menus, with enough free bytes but no 600 KB block left
+  (fragmentation). Reproduced in PPSSPP only with the full sequence: Speed Bay race, quit, TOP 5
+  (`PAD:DOWN 1000 PAD:A`: plain key taps do not leave it), Dirt Arena race, quit — `largest free
+  570 KB`.
+- Fix (compact layout only, `ddraw.cpp`): a Z-buffer surface gets its guest pixels only when the game
+  locks, blits or GetDCs it (`surface_mem`); the GE keeps its own depth buffer and the game clears the
+  Z-buffer with DDBLT_DEPTHFILL, done by the GPU. Saves 600 KB in the menus and 340 KB in a race.
+  Same sequence: heap peak 12.9 -> 11.9 MB, largest free block back in the menus 1230 KB, no failure.
+  `MOTORACER_MEM_STATS=1` now logs the largest free block with every heap line.
+- The desktop race showed only the HUD (black world) since the native `0x49a160`: it wrote the
+  span-list heads to the image's 480-row table at 0x623bd8, which the translator relocates to
+  0x760010 (`RELOCATED_TABLES`); at 480 rows and more the writes ran past it into the following
+  globals. The PSP's 272 rows stayed inside it. Check mode had logged the mismatches.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and

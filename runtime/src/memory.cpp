@@ -349,10 +349,13 @@ void memory_stats_log() {
             for (int i = 0; i < 512; i++)
                 if (q[i]) { touched++; break; }
         }
+    uint64_t free_max = 0;   // fragmentation: a 640x480 surface needs one 600 KB block
+    for (auto &[fa, fs] : heap.free_by_addr) free_max = std::max<uint64_t>(free_max, fs);
     log("memstats: heap %.1f MB (peak %.1f, %zu blocks), VirtualAlloc %.1f MB (peak %.1f, %.2f MB non-zero, "
-        "highest commit %u KB); largest:%s\n",
+        "highest commit %u KB); largest:%s; largest free %u KB\n",
         heap.in_use / 1048576.0, heap.peak / 1048576.0, heap.live.size(), varena.in_use / 1048576.0,
-        varena.peak / 1048576.0, touched * 4096 / 1048576.0, valloc_commit_top >> 10, top.c_str());
+        varena.peak / 1048576.0, touched * 4096 / 1048576.0, valloc_commit_top >> 10, top.c_str(),
+        static_cast<unsigned>(free_max >> 10));
     // guest stack high-water mark: the stack region is zero at start; lowest non-zero dword
     uint32_t low = STACK_HI;
     for (uint32_t a = STACK_LO; a < STACK_HI; a += 64)

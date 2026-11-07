@@ -100,12 +100,29 @@ Surface *new_surface(DDraw *dd, uint32_t w, uint32_t h, uint32_t bpp, uint32_t c
     s->caps = caps;
     if (bpp == 8) { s->pf_flags = DDPF_PALETTEINDEXED8 | DDPF_RGB; s->rmask = s->gmask = s->bmask = 0; }
     s->pitch = (w * (bpp / 8) + 3) & ~3u;
+#ifdef RECOMP_COMPACT_GUEST
+    // PSP-1000: the GE keeps its own depth buffer, so a Z-buffer surface's pixels are only needed if
+    // the game locks or blits it (it clears it with DDBLT_DEPTHFILL, done by the GPU): allocated then
+    // (surface_mem). Saves a 600 KB block in the menus and 340 KB in a race, where the guest heap
+    // needs every large free block (the 640x480 surfaces after a race).
+    s->mem = (caps & DDSCAPS_ZBUFFER) ? 0 : heap_alloc(s->pitch * h + 16, true);
+#else
     s->mem = heap_alloc(s->pitch * h + 16, true);
+#endif
     s->storage = std::shared_ptr<uint32_t>(new uint32_t(s->mem), [](uint32_t *va) {
         heap_free(*va);
         delete va;
     });
     return s;
+}
+
+// a surface's guest pixels, allocated now if they were deferred (Z-buffers in the compact layout)
+uint32_t surface_mem(Surface *s) {
+    if (!s->mem) {
+        s->mem = heap_alloc(s->pitch * s->h + 16, true);
+        *s->storage = s->mem;
+    }
+    return s->mem;
 }
 
 void present(Surface *s) {
@@ -319,7 +336,7 @@ COM_METHOD(DD_DuplicateSurface, 2) {
     d->dd = src->dd;
     d->w = src->w; d->h = src->h; d->pitch = src->pitch; d->bpp = src->bpp;
     d->caps = src->caps & ~(DDSCAPS_PRIMARYSURFACE | DDSCAPS_FRONTBUFFER | DDSCAPS_BACKBUFFER);
-    d->mem = src->mem;
+    d->mem = surface_mem(src);   // (a deferred Z-buffer gets its pixels before they are shared)
     d->storage = src->storage;
     d->rmask = src->rmask; d->gmask = src->gmask; d->bmask = src->bmask; d->amask = src->amask;
     d->pf_flags = src->pf_flags;
@@ -507,6 +524,8 @@ COM_METHOD(S_Blt, 5) {
         gpu::clear(2, 0, fx ? static_cast<float>(RD32(fx + 80) & 0xFFFF) / 65535.f : 1.f);
         return S_OK;
     }
+    surface_mem(d);   // other blits touch the pixels
+    if (s) surface_mem(s);
     if (getenv("MOTORACER_D3D_DEBUG")) {
         static std::map<std::string, uint64_t> seen;
         static uint64_t last = 0;
@@ -649,6 +668,7 @@ COM_METHOD(S_GetColorKey, 2) {
 }
 COM_METHOD(S_GetDC, 1) {
     gpu::sync_to_cpu(obj<Surface>(self));
+    surface_mem(obj<Surface>(self));
     if (!gdc_warned) { log("IDirectDrawSurface::GetDC: GDI drawing on surfaces is not rendered\n"); gdc_warned = true; }
     WR32(arg(1), 0x0F7F0000u);
     return S_OK;
@@ -669,7 +689,7 @@ COM_METHOD(S_IsLost, 0) { return S_OK; }
 COM_METHOD(S_Lock, 4) {
     Surface *s = obj<Surface>(self);
     gpu::sync_to_cpu(s);
-    uint32_t ptr = s->mem;
+    uint32_t ptr = surface_mem(s);
     if (arg(1)) ptr += RD32(arg(1) + 4) * s->pitch + RD32(arg(1)) * s->bytes();
     write_desc(arg(2), *s, ptr);
     return S_OK;
