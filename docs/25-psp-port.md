@@ -728,7 +728,8 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   `build/psp-xmb/`; `package_hw.sh` packs whatever is there. Made from the player's game at packaging
   time, like the MP3 music: nothing of the game in the repository.
 - `SND0.AT3` (the item's music) needs an ATRAC3 encoder (ffmpeg only decodes it): `ATRACDENC=<path>`
-  (github.com/dcherednik/atracdenc) makes 30 s of CD track 02 (`xmb_assets.sh [track]`, `SND0_START`).
+  (github.com/dcherednik/atracdenc, built in `build/third_party/`) makes 25 s of CD track 02 at LP2
+  (~410 KB; `xmb_assets.sh [track]`, `SND0_START`, `SND0_SECONDS`).
 
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the

@@ -3,10 +3,10 @@
 # the repository): the title screen is rendered by the desktop build (tools/e2e.sh) and cut into
 #   ICON0.PNG  144x80   the item icon (the Moto Racer logo)
 #   PIC1.PNG   480x272  the background (the title picture)
-#   SND0.AT3            the item's music: a CD-audio track as ATRAC3 (needs atracdenc, see below)
+#   SND0.AT3            the item's music: 25 s of a CD-audio track as ATRAC3 (needs atracdenc)
 # in build/psp-xmb/. tools/psp/package_hw.sh puts whatever is there into the EBOOTs.
 #
-#   tools/psp/xmb_assets.sh [track]     (default track 02: the title music; 30 s from SND0_START s)
+#   tools/psp/xmb_assets.sh [track]     (default track 02; SND0_START / SND0_SECONDS: the clip)
 #
 # Opens a game window for ~16 s. ATRAC3 encoder: ATRACDENC=<path to atracdenc> (built from
 # https://github.com/dcherednik/atracdenc); without it there is no SND0.AT3.
@@ -39,9 +39,11 @@ rm -rf build/e2e/xmb_title build/e2e/xmb_title.png build/e2e/xmb_title.log
 track="${1:-02}"
 if [ -n "${ATRACDENC:-}" ] && [ -f "$game/$track.wav" ]; then
     tmp=$(mktemp -d)
-    # 30 s, 44.1 kHz 16-bit stereo (atracdenc's input), faded in and out
-    ffmpeg -v error -y -ss "${SND0_START:-0}" -t 30 -i "$game/$track.wav" -ar 44100 -ac 2 -sample_fmt s16 \
-        -af "afade=t=in:d=1,afade=t=out:st=28:d=2" "$tmp/snd0.wav"
+    # SND0_SECONDS (25: ~410 KB at ATRAC3 LP2, 132 kbps; the home menu wants a small clip), 44.1 kHz
+    # 16-bit stereo (atracdenc's input), faded in and out
+    secs=${SND0_SECONDS:-25}
+    ffmpeg -v error -y -ss "${SND0_START:-0}" -t "$secs" -i "$game/$track.wav" -ar 44100 -ac 2 -sample_fmt s16 \
+        -af "afade=t=in:d=1,afade=t=out:st=$((secs - 3)):d=3" "$tmp/snd0.wav"
     "$ATRACDENC" -e atrac3 --container riff -i "$tmp/snd0.wav" -o "$out/SND0.AT3" >/dev/null
     rm -rf "$tmp"
 else
