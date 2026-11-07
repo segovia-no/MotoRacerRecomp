@@ -9,6 +9,7 @@
 #include "native_check.h"
 
 extern "C" void f_0046bf80_t(void);
+extern "C" void f_0046b120_t(void);
 extern "C" void f_00461aa0_t(void);
 extern "C" void f_00490220_t(void);
 extern "C" void f_00403a80_t(void);
@@ -485,6 +486,292 @@ void cross(const float a[3], const float b[3], float o[3]) {
     memcpy(o, r, sizeof r);
 }
 
+
+extern "C" void f_0046cd20(void);
+extern "C" void f_0046bdc0(void);
+extern "C" void f_0045cb00(void);
+
+inline int32_t wrap_track(int32_t x) {   // 0x40ec30: a track position wrapped to 0 .. [0x52c10c) - 1
+    MEM_LOCAL();
+    while (x < 0) x += static_cast<int32_t>(RD32A(0x52c10c));
+    for (int32_t n = static_cast<int32_t>(RD32A(0x52c10c)); x >= n; n = static_cast<int32_t>(RD32A(0x52c10c))) x -= n;
+    return x;
+}
+
+// ---- 0x46b120: a bike's heading and speed along the track (thiscall bike, arg dt; ret 4) ----
+// T = [0x509398 + 292 * model] (AI steering on), the aim point: the sector a few positions ahead
+// ([0x4dc140] * 9 / 16) moved by +0x31d5 along its x axis. Order of the x86: the acceleration of the
+// target speed +0x1a4 (capped by +0xb4 scaled by +0x31d9) and 0x46cd20 (the bike it follows); on the
+// track (+0x30c1 == 0) the yaw towards the aim point (0x46bdc0, its inverse, 0x490220 angles wrapped to
+// 0..2pi, the difference to -pi..pi) sets the steering +0x110 (AI: scaled, clamped to +-pi/4) and the
+// rotation 0x45cb00 (matrix by value); the forward vector +0x198 (= +0xd4 + +0xe0, normalized; the
+// heading +0x18c flips with it when they point apart); the speed +0xec towards the cap; the direction
+// to a second aim point; the sector search 0x40c7e0; the heading: AI bikes on the ground steer it by dt
+// and rebuild the orientation (+0xbc..+0xe8) around it, the others blend it towards the aim (+0x31d1);
+// the move pos += heading * speed * dt * [0x4d1010] unless [0x4dc0b4]; the sector search again.
+// Ends with that call's registers. Stack locals as the x86 keeps them where a callee reads them.
+void bike_drive() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, s = R.ecx, dtb = RD32A(sp + 4);
+    const uint32_t B = sp - 0xc4;   // esp after the prologue
+    uint32_t fsw = F.sw;
+    const fpu_t dt = F_(f32(dtb)), c54 = LD32(0x4d0e54), one = LD32(0x4d0e70);
+    auto D = [&](uint32_t a) { return static_cast<fpu_t>(RDF64(a)); };
+    auto rnd = [](fpu_t v) { return static_cast<float>(v); };
+    auto cap = [&] {
+        return static_cast<fpu_t>(static_cast<int32_t>(RD32(s + 0x31d9))) * LD32(s + 0xb4) * D(0x4d12b8) + LD32(s + 0xb4);
+    };
+    const uint32_t T = RD32(0x509398 + 292 * RD32(s + 0x78));
+    WR32(s + 0x2dc8, 1);
+    bool pick = true;
+    if (!RD32A(0x4dc0b4) && (RD32(s + 0x2db8) || !T)) {
+        if (RD32(s + 0x30c1)) pick = false;
+        else {
+            WRF32(s + 0x1a4, rnd(dt * D(0x4d12b0) + LD32(s + 0x1a4)));
+            const fpu_t x = cap();
+            FCOM_L(fsw, x, LD32(s + 0x1a4));
+            if (fsw & 0x100u) WRF32(s + 0x1a4, rnd(x));
+        }
+    }
+    if (pick && !RD32(s + 0x30c1)) gcall(f_0046cd20, B, 0x46b1d5, s, {dtb}, fsw);
+    const int32_t g = static_cast<int32_t>(RD32A(0x4dc140));
+    const int32_t ahead1 = T ? g * 9 : g * 16, ahead2 = T ? g * 2 : g * 4;
+
+    // the first aim point P = sector + its matrix * (h, 0, 0)
+    {
+        const uint32_t S = RD32A(TRACK) + static_cast<uint32_t>(wrap_track(static_cast<int32_t>(RD32(s + 0x31c1)) + ahead1)) * 252u;
+        const float hv[3] = {rnd(LD32(S + 0xb0) + LD32(s + 0x31d5)), 0.f, 0.f};
+        float m[12], o[3], sv[3], P[3];
+        load12(S + 0xc, m);
+        xform(hv, m, o);
+        load3(S, sv);
+        vadd(sv, o, P);
+        if (!RD32(s + 0x30c1)) {
+            store3(B + 0x28, P);
+            gcall(f_0046bdc0, B, 0x46b286, B + 0x7c, {s + 0x30, B + 0x28}, fsw);
+            float lf[12], inv[12];
+            load12(B + 0x7c, lf);
+            inverse(lf, inv);
+            for (int i = 0; i < 12; i++) WRF32(B + 0x7c + 4 * i, inv[i]);
+            uint32_t eax_unused = R.eax;
+            const float a1 = rnd(-angle_core(s + 0xbc, fsw, eax_unused));
+            const float a2 = rnd(angle_core(B + 0x7c, fsw, eax_unused));
+            const fpu_t two_pi = D(0x4d0e58), pi = D(0x4d0e60);
+            auto down = [&](float v) {   // while >= 2 pi: - 2 pi
+                FCOM_L(fsw, F_(v), two_pi);
+                if (fsw & 0x100u) return v;
+                fpu_t x = F_(v);
+                do { x -= two_pi; FCOM_L(fsw, x, two_pi); } while (!(fsw & 0x100u));
+                return rnd(x);
+            };
+            auto up = [&](float v) {   // while < 0: + 2 pi
+                fpu_t x = F_(v);
+                do { x += two_pi; FCOM_L(fsw, x, c54); } while (fsw & 0x100u);
+                return rnd(x);
+            };
+            float A = a1, Bv = a2;
+            if (bits32(A) > 0x80000000u) A = up(A);
+            A = down(A);
+            if (bits32(Bv) > 0x80000000u) Bv = up(Bv);
+            Bv = down(Bv);
+            FCOM_L(fsw, F_(A) + pi, F_(Bv));
+            if (fsw & 0x100u) Bv = rnd(F_(Bv) - two_pi);
+            FCOM_L(fsw, F_(A) - pi, F_(Bv));
+            if (!(fsw & 0x4100u)) Bv = rnd(F_(Bv) + two_pi);
+            const fpu_t d = (F_(Bv) - F_(A)) * LD32(0x4d0f88);
+            FCOM_L(fsw, d, c54);
+            float dv = rnd(d);
+            if (fsw & 0x100u) dv = up(dv);
+            dv = down(dv);
+            float yaw = dv;
+            FCOM_L(fsw, F_(dv), pi);
+            if (!(fsw & 0x4100u)) yaw = rnd(F_(dv) - two_pi);
+            WR32A(B + 0x10, bits32(yaw));
+            if (T) {
+                const fpu_t p = F_(yaw) * LD32(0x4d1148);
+                FCOM_L(fsw, p, D(0x4d1218));
+                float t = (fsw & 0x100u) ? f32(0xbf490fdb) : rnd(p);
+                FCOM_L(fsw, F_(t), D(0x4d12c8));
+                if (!(fsw & 0x4100u)) t = f32(0x3f490fdb);
+                WRF32(s + 0x110, rnd(F_(t) * D(0x4d12d8)));
+            } else {
+                WR32(s + 0x110, 0);
+            }
+            const float ang[3] = {0.f, yaw, 0.f};
+            float r[12];
+            euler(ang, r);
+            gcall(f_0045cb00, B, 0x46b4f1, s,
+                  {bits32(r[0]), bits32(r[1]), bits32(r[2]), bits32(r[3]), bits32(r[4]), bits32(r[5]), bits32(r[6]),
+                   bits32(r[7]), bits32(r[8]), bits32(r[9]), bits32(r[10]), bits32(r[11])},
+                  fsw);
+        }
+    }
+
+    // forward vector +0x198 = +0xd4 + +0xe0, normalized
+    {
+        const float v[3] = {rnd(LD32(s + 0xe0) + LD32(s + 0xd4)), rnd(LD32(s + 0xe4) + LD32(s + 0xd8)),
+                            rnd(LD32(s + 0xe8) + LD32(s + 0xdc))};
+        store3(s + 0x198, v);
+        const fpu_t len = length(v);
+        FCOM_L(fsw, len, c54);
+        if (!(fsw & 0x4000u)) {
+            const fpu_t r = static_cast<fpu_t>(1) / F_(rnd(len));
+            WRF32(s + 0x198, rnd(F_(v[0]) * r));
+            WRF32(s + 0x19c, rnd(F_(v[1]) * r));
+            WRF32(s + 0x1a0, rnd(r * F_(v[2])));
+        }
+    }
+    auto dot = [&] {
+        return (LD32(s + 0x1a0) * LD32(s + 0x194) + LD32(s + 0x19c) * LD32(s + 0x190)) + LD32(s + 0x18c) * LD32(s + 0x198);
+    };
+    FCOM_L(fsw, dot(), c54);
+    if (fsw & 0x100u)
+        for (uint32_t off : {0x18cu, 0x190u, 0x194u, 0xecu}) WRF32(s + off, rnd(-LD32(s + off)));
+
+    // the second aim point Q
+    float Q[3];
+    {
+        const uint32_t S = RD32A(TRACK) + static_cast<uint32_t>(wrap_track(static_cast<int32_t>(RD32(s + 0x31c1)) + ahead2)) * 252u;
+        const fpu_t h = LD32(S + 0xb0) + LD32(s + 0x31d5);
+        const fpu_t hf = F_(rnd(h));
+        const fpu_t x0 = h * LD32(S + 0xc) + LD32(S + 0x30);
+        const fpu_t y0 = LD32(S + 0x10) * hf + LD32(S + 0x34);
+        const fpu_t z0 = LD32(S + 0x14) * hf + LD32(S + 0x38);
+        Q[0] = rnd(x0 + LD32(S));
+        Q[1] = rnd(y0 + LD32(S + 4));
+        Q[2] = rnd(z0 + LD32(S + 8));
+    }
+
+    // the speed +0xec
+    if ((!(RD32(s + 0x31d1) & 0x7fffffffu) && (RD32(s + 0xec) & 0x7fffffffu)) || RD32(s + 0x30c1)) {
+        if (static_cast<int32_t>(RD32(s + 0xec)) > 0) {
+            WRF32(s + 0xec, rnd(dt * D(0x4d12e0) + LD32(s + 0xec)));
+            if (RD32(s + 0xec) > 0x80000000u) WR32(s + 0xec, 0);
+        } else {
+            WRF32(s + 0xec, rnd(dt * D(0x4d12e8) + LD32(s + 0xec)));
+            if (static_cast<int32_t>(RD32(s + 0xec)) > 0) WR32(s + 0xec, 0);
+        }
+    }
+    const fpu_t kk = LD32(s + 0x31d1) * LD32(0x4d100c);
+    FCOM_L(fsw, kk, D(0x4d0ed8));
+    const float blend = (fsw & 0x100u) ? f32(0x3c23d70a) : rnd(kk);
+    if (RD32(s + 0xec) > 0x80000000u) {
+        WR32(s + 0x1a4, 0);
+    } else if (RD32(s + 0x2db8) || !T) {
+        const uint32_t ab = bits32(rnd(dot())) & 0x7fffffffu;
+        const float f = static_cast<int32_t>(ab) < 0x3f000000 ? 0.5f : f32(ab);
+        const fpu_t p = LD32(s + 0x1a4) * F_(f);
+        const fpu_t G = (one - F_(f)) * LD32(s + 0xec);
+        const fpu_t A0 = LD32(s + 0x198) * p, A1 = LD32(s + 0x19c) * p, A2 = p * LD32(s + 0x1a0);
+        const fpu_t H0 = LD32(s + 0x18c) * G, H1 = LD32(s + 0x190) * G, H2 = G * LD32(s + 0x194);
+        const float X = rnd(H0 + A0);
+        const float Y = rnd(A1 + F_(rnd(H1)));
+        const fpu_t Z = H2 + A2;
+        float L = rnd(FM(sqrt)((Z * F_(rnd(Z)) + F_(Y) * F_(Y)) + F_(X) * F_(X)));
+        const fpu_t c = cap();
+        FCOM_L(fsw, c, F_(L));
+        if (fsw & 0x100u) L = rnd(c);
+        WRF32(s + 0xec, rnd(LD32(s + 0xec) * F_(blend) + (one - F_(blend)) * F_(L)));
+    }
+
+    // the direction to Q
+    float Dv[3];
+    {
+        Dv[0] = rnd(F_(Q[0]) - LD32(s + 0x30));
+        Dv[1] = rnd(F_(Q[1]) - LD32(s + 0x34));
+        Dv[2] = rnd(F_(Q[2]) - LD32(s + 0x38));
+        const fpu_t l = FM(sqrt)((F_(Dv[1]) * F_(Dv[1]) + F_(Dv[2]) * F_(Dv[2])) + F_(Dv[0]) * F_(Dv[0]));
+        FCOM_L(fsw, l, c54);
+        if (!(fsw & 0x4000u)) {
+            const fpu_t r = static_cast<fpu_t>(1) / F_(rnd(l));
+            Dv[0] = rnd(F_(Dv[0]) * r);
+            Dv[1] = rnd(F_(Dv[1]) * r);
+            Dv[2] = rnd(r * F_(Dv[2]));
+        }
+    }
+    WR32(s + 0x31c1, sector_search(B - 0x10, 0x46b8e9, RD32(s + 0x31c1), s + 0x30, fsw));
+
+    if (!RD32(s + 0x2db8) && T) {
+        // AI on the ground: heading * speed, steered by dt; the orientation rebuilt around the forward vector
+        const fpu_t e = LD32(s + 0xec);
+        WRF32(s + 0x18c, rnd(LD32(s + 0x18c) * e));
+        const fpu_t be = LD32(s + 0x190) * e;
+        const fpu_t k = dt * D(0x4d12f8);
+        WRF32(s + 0x190, rnd(be));
+        WRF32(s + 0x194, rnd(e * LD32(s + 0x194)));
+        WRF32(s + 0x190, rnd(LD32(s + 0x190) - k));
+        const float l = rnd(FM(sqrt)((LD32(s + 0x190) * LD32(s + 0x190) + LD32(s + 0x18c) * LD32(s + 0x18c)) +
+                                     LD32(s + 0x194) * LD32(s + 0x194)));
+        WRF32(s + 0xec, l);
+        if (bits32(l) & 0x7fffffffu) {
+            const fpu_t r = static_cast<fpu_t>(1) / F_(l);
+            WRF32(s + 0x18c, rnd(LD32(s + 0x18c) * r));
+            WRF32(s + 0x190, rnd(LD32(s + 0x190) * r));
+            WRF32(s + 0x194, rnd(r * LD32(s + 0x194)));
+        }
+        WRF32(s + 0x19c, rnd(LD32(s + 0x190)));
+        const fpu_t l2 = FM(sqrt)((LD32(s + 0x19c) * LD32(s + 0x19c) + LD32(s + 0x1a0) * LD32(s + 0x1a0)) +
+                                  LD32(s + 0x198) * LD32(s + 0x198));
+        FCOM_L(fsw, l2, c54);
+        if (!(fsw & 0x4000u)) {
+            const fpu_t r = static_cast<fpu_t>(1) / F_(rnd(l2));
+            WRF32(s + 0x198, rnd(LD32(s + 0x198) * r));
+            WRF32(s + 0x19c, rnd(LD32(s + 0x19c) * r));
+            WRF32(s + 0x1a0, rnd(r * LD32(s + 0x1a0)));
+        }
+        float fw[3], n[3], x[3], y[3];
+        const float zero[3] = {0.f, 0.f, 0.f}, upv[3] = {0.f, 1.f, 0.f};
+        load3(s + 0x198, fw);
+        vsub(fw, zero, n);   // 0x4570d0, 0x40ff80
+        normalize(n, fsw);   // 0x40fcd0
+        cross(upv, n, x);    // 0x46d610
+        cross(n, x, y);
+        normalize(x, fsw);
+        normalize(y, fsw);
+        store3(s + 0xbc, x);
+        store3(s + 0xc8, y);
+        store3(s + 0xd4, n);
+        WR32(s + 0xe0, 0);
+        WR32(s + 0xe4, 0);
+        WR32(s + 0xe8, 0);
+        FCOM_L(fsw, LD32(s + 0xb4), LD32(s + 0xec));
+        if (fsw & 0x100u) WR32(s + 0xec, RD32(s + 0xb4));
+    } else {
+        if (!RD32(s + 0x30c1)) {   // the heading blended towards Q
+            const fpu_t u = one - F_(blend), kb = F_(blend);
+            const fpu_t DX = F_(Dv[0]) * u, DY = F_(Dv[1]) * u, DZ = u * F_(Dv[2]);
+            const fpu_t a = LD32(s + 0x18c) * kb, b = LD32(s + 0x190) * kb, c = LD32(s + 0x194) * kb;
+            WRF32(s + 0x18c, rnd(a + DX));
+            WRF32(s + 0x190, rnd(b + DY));
+            WRF32(s + 0x194, rnd(c + DZ));
+        }
+        if (T) WR32(s + 0x190, RD32(s + 0x19c));
+        const fpu_t l = FM(sqrt)((LD32(s + 0x190) * LD32(s + 0x190) + LD32(s + 0x18c) * LD32(s + 0x18c)) +
+                                 LD32(s + 0x194) * LD32(s + 0x194));
+        FCOM_L(fsw, l, c54);
+        if (!(fsw & 0x4000u)) {
+            const fpu_t r = static_cast<fpu_t>(1) / F_(rnd(l));
+            WRF32(s + 0x18c, rnd(LD32(s + 0x18c) * r));
+            WRF32(s + 0x190, rnd(LD32(s + 0x190) * r));
+            WRF32(s + 0x194, rnd(r * LD32(s + 0x194)));
+        }
+    }
+
+    if (!RD32A(0x4dc0b4)) {
+        const fpu_t M = LD32(s + 0xec) * dt * D(0x4d1010);
+        const fpu_t aM = LD32(s + 0x18c) * M, bM = LD32(s + 0x190) * M, cM = M * LD32(s + 0x194);
+        WRF32(s + 0x30, rnd(aM + LD32(s + 0x30)));
+        WRF32(s + 0x34, rnd(bM + LD32(s + 0x34)));
+        WRF32(s + 0x38, rnd(cM + LD32(s + 0x38)));
+    } else {
+        WR32(s + 0xec, 0);
+        WR32(s + 0x1a4, 0);
+    }
+    WR32(s + 0x31c1, sector_search(B - 0x10, 0x46bccb, RD32(s + 0x31c1), s + 0x30, fsw));
+    F.sw = static_cast<uint16_t>(fsw);
+    R.esp = sp + 8;
+}
+
 extern "C" void f_00465fa0(void);
 extern "C" void f_0046b120(void);
 extern "C" void f_0040ca80(void);
@@ -777,6 +1064,50 @@ Stat n_matmul, n_angle, n_seg, n_sector, n_points;
 
 }  // namespace
 
+
+Stat n_drive;
+
+// rand()'s seed: [_getptd() + 0x14], the CRT's per-thread data on the heap (restored in check mode)
+uint32_t rand_seed_addr() {
+    static uint32_t seed = 0;
+    if (!seed) {
+        const X86Regs r0 = R;
+        const X87State f0 = F;
+        R.esp -= 0x200;
+        MEM_LOCAL();
+        WR32A(R.esp, 0);
+        f_004b85c0();
+        seed = R.eax + 0x14;
+        R = r0;
+        F = f0;
+    }
+    return seed;
+}
+
+extern "C" int native_hot_46b120(void) {
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { bike_drive(); return 1; }
+    // check: the callees (0x46cd20, 0x46bdc0, 0x45cb00, the sector search) read and write globals: the
+    // whole writable image, rand()'s seed and the bike are restored between the runs and compared
+    const uint32_t s = R.ecx, lo = 0x4db000, hi = 0x70c568;
+    std::vector<Region> regions{{lo, hi - lo}, {rand_seed_addr(), 4}};
+    if (s < lo || s + 0x3209 > hi) regions.push_back({s, 0x3209});
+    const uint64_t before = mismatches;
+    Snapshot b0 = take(regions);
+    const Snapshot stack0 = take({{R.esp - 0x4000, 0x4000}});   // callees' stack, restored only
+    bike_drive();
+    Snapshot nat = take(regions);
+    restore(b0);
+    restore(stack0);
+    R = b0.r;
+    F = b0.f;
+    f_0046b120_t();
+    compare("bike drive 0x46b120", nat, take(regions));
+    if (mismatches != before && mismatches < 25) rt::log("native: (bike drive mismatch: bike 0x%08x)\n", s);
+    count_check("bike drive 0x46b120", n_drive, before);
+    return 1;
+}
 Stat n_step;
 
 extern "C" int native_hot_46bf80(void) {

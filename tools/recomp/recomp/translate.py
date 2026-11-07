@@ -162,7 +162,7 @@ NATIVE_FUNCS = {
     0x4B8800: "native_output",      # CRT _output (printf engine)
     0x43EDE0: "native_sprite_blit", # menu sprite blitter (native_menu.cpp)
     0x43F0F0: "native_tile_fill",   # menu tiled background
-    0x46B120: "native_hot_46b120",   # hot race function, native_race_a.cpp
+    0x46B120: "native_hot_46b120",   # hot race function, native_race_c.cpp
     0x46BDC0: "native_hot_46bdc0",   # hot race function, native_race_a.cpp
     0x46CD20: "native_hot_46cd20",   # hot race function, native_race_a.cpp
     0x46C970: "native_hot_46c970",   # hot race function, native_race_a.cpp
@@ -190,6 +190,7 @@ NATIVE_FUNCS = {
     0x4039C0: "native_hot_4039c0",   # hot race function, native_race_e.cpp
     0x403A20: "native_hot_403a20",   # hot race function, native_race_e.cpp
     0x403740: "native_hot_403740",   # hot race function, native_race_e.cpp
+    0x458B80: "native_hot_458b80",   # hot race function, native_race_e.cpp
 }
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function); with a

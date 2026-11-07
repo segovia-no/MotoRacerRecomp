@@ -473,7 +473,6 @@ extern "C" int native_hot_46bdc0(void) {
     return 1;
 }
 
-extern "C" int native_hot_46b120(void) { return 0; }   // not native yet: translated
 extern "C" int native_hot_46cd20(void) {
     const Mode md = mode();
     if (md == OFF) return 0;

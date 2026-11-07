@@ -374,6 +374,7 @@ int native_hot_4b32d0(void);
 int native_hot_4039c0(void);
 int native_hot_403a20(void);
 int native_hot_403740(void);
+int native_hot_458b80(void);
 void native_rgb_row_check(void);
 int native_formatv_len(void);
 void native_formatv_len_check(void);

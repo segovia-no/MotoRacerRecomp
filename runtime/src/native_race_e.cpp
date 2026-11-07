@@ -15,6 +15,14 @@ extern "C" void f_004b32d0_t(void);
 extern "C" void f_004039c0_t(void);
 extern "C" void f_00403a20_t(void);
 extern "C" void f_00403740_t(void);
+extern "C" void f_00458b80_t(void);
+extern "C" void f_0046e8b0(void);
+extern "C" void f_00462110(void);
+extern "C" void f_0045f290(void);
+extern "C" void f_00461f70(void);
+extern "C" void game_hook_bikes_begin(void);
+extern "C" void game_hook_cockpit_begin(void);
+extern "C" void game_hook_cockpit_end(void);
 
 namespace {
 using namespace native;
@@ -159,7 +167,80 @@ void rot_translate() {
     R.esp = sp + 12;
 }
 
-uint32_t n_473a90, n_495bd0, n_4b32d0, n_4039c0, n_403a20, n_403740;
+// A guest function called as the x86 does: ecx, the arguments pushed below `esp` (the caller's esp
+// before the pushes), the return address under them; the callee pops its arguments. Returns eax.
+uint32_t gcall(void (*fn)(void), uint32_t esp, uint32_t ret, uint32_t ecx, std::initializer_list<uint32_t> args) {
+    MEM_LOCAL();
+    const uint32_t at = esp - 4 * static_cast<uint32_t>(args.size()) - 4;
+    WR32A(at, ret);
+    uint32_t a = at + 4;
+    for (uint32_t v : args) { WR32A(a, v); a += 4; }
+    R.esp = at;
+    R.ecx = ecx;
+    fn();
+    R.esp = esp;
+    return R.eax;
+}
+
+// ---- 0x458b80: draw the other bikes (stdcall: skip list, its length; ret 8) ----
+// For bikes 1 .. [0x509bac] - 1 (0x3209 bytes each from 0x584421; [bike] = drawn this frame): an
+// active bike ([+0x68]) inside the camera's view (0x46e8b0, camera [0x4dc0f8] of the table 0x5161c0,
+// radius 512) is drawn by 0x462110 in the replay view ([0x4dc008] and [0x508834] == 1), else — unless
+// the skip list is given and holds none of the bike's sector [+0x31c1] — by 0x45f290 (counter
+// [0x4f0dc0]) and 0x461f70. The list scan is per bike (the translated cost: bikes x list length).
+// The callers read no register afterwards (eax / ecx / edx are not compared in check mode). The
+// translated body's GAME_HOOKS (cockpit render nodes, native_render.cpp) are called at the same points.
+constexpr uint32_t BIKES = 0x584421, BIKE_SIZE = 0x3209, CAMS = 0x5161c0;
+
+void draw_bikes() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, list = RD32A(sp + 4), n = RD32A(sp + 8);
+    const uint32_t B = sp - 0x14;   // esp after the prologue
+    const uint32_t ebx0 = R.ebx, esi0 = R.esi, edi0 = R.edi, ebp0 = R.ebp;
+    WR32A(sp - 4 - 4, ebx0);   // the saved registers, as the x86 pushes them
+    WR32A(sp - 0xc, esi0);
+    WR32A(sp - 0x10, edi0);
+    WR32A(sp - 0x14, ebp0);
+    uint32_t ebp = ebp0;
+    game_hook_bikes_begin();
+    for (uint32_t i = 1; static_cast<int32_t>(RD32A(0x509bac)) > static_cast<int32_t>(i); i++) {
+        const uint32_t s = BIKES + BIKE_SIZE * (i - 1);
+        WR32(s, 0);
+        if (!RD32(s + 0x68)) continue;
+        R.ebx = i;
+        R.esi = s;
+        R.edi = list;
+        R.ebp = ebp;
+        auto cam = [&] { return CAMS + RD32A(0x4dc0f8) * 0x238u; };
+        if (!gcall(f_0046e8b0, B, 0x458bd7, cam(), {s + 0x30, 0x44000000})) continue;
+        if (RD32A(0x4dc008) && RD32A(0x508834) == 1) {
+            game_hook_cockpit_begin();
+            gcall(f_00462110, B, 0x458c1e, s, {RD32A(0x4dc0c0), cam(), RD32(s + 0x307d)});
+            game_hook_cockpit_end();
+            continue;
+        }
+        bool found = false;
+        if (static_cast<int32_t>(n) > 0) {
+            const uint32_t sector = RD32(s + 0x31c1);
+            for (uint32_t k = 0; k < n; k++) found |= RD32(list + 4 * k) == sector;
+            WR32A(B + 0x10, i);
+            ebp = list + 4 * n;
+            R.ebp = ebp;
+        }
+        if (!found && list) continue;
+        gcall(f_0045f290, B, 0x458c80, s, {RD32A(0x4dc0c0), cam(), 0xffffffffu});
+        WR32A(0x4f0dc0, RD32A(0x4f0dc0) + 1);
+        gcall(f_00461f70, B, 0x458cac, s, {RD32A(0x4dc0c0), cam()});
+        WR32(s, 1);
+    }
+    R.ebx = ebx0;
+    R.esi = esi0;
+    R.edi = edi0;
+    R.ebp = ebp0;
+    R.esp = sp + 12;
+}
+
+uint32_t n_473a90, n_495bd0, n_4b32d0, n_4039c0, n_403a20, n_403740, n_458b80;
 }  // namespace
 
 extern "C" int native_hot_473a90(void) {
@@ -221,5 +302,17 @@ extern "C" int native_hot_403740(void) {
     if (md == ON) { rot_translate(); return 1; }
     check("rotation + translation 0x403740", rot_translate, f_00403740_t, {{R.ecx, 48}});
     counted("rotation + translation 0x403740", n_403740);
+    return 1;
+}
+
+extern "C" int native_hot_458b80(void) {
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { draw_bikes(); return 1; }
+    // the callees write the bikes, render lists and vertex pools: the whole writable image
+    // (.data / .bss) and the stack below the caller are restored between the two runs
+    const uint32_t lo = 0x4db000, hi = 0x70c568;
+    check_abi("draw bikes 0x458b80", draw_bikes, f_00458b80_t, {{lo, hi - lo}, {R.esp - 0x2000, 0x2000}});
+    counted("draw bikes 0x458b80", n_458b80);
     return 1;
 }
