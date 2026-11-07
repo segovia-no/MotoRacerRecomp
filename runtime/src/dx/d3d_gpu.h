@@ -50,13 +50,13 @@ inline void direct_put(const DirectSpan &d, uint32_t i, float sx, float sy, floa
     if (argb) d.argb[i] = *argb;
     const uint32_t c = d.argb[i];
     float z;
-    if (d.ge3d) {
+    if (d.ge3d) {   // the depth (a division) only when a through-mode draw needs it (the backend's depth_3d)
         if (sz > 1e-7f && sz < 1.f && sz < *d.min_sz) *d.min_sz = sz;
-        z = sz > 1e-12f ? 65535.f * d.s0 / sz : 65535.f;
+        z = 0.f;
     } else {
         z = 65535.f * (1.f - sz);
+        z = z < 0.f ? 0.f : z > 65535.f ? 65535.f : z;
     }
-    z = z < 0.f ? 0.f : z > 65535.f ? 65535.f : z;
     DirectVertex &o = d.v[i];
     o.u = tu;
     o.v = tv;

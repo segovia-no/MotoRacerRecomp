@@ -668,6 +668,16 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   `0x422540`, node-tree world matrices `0x464190`, identity `0x403710`, the track chunk / object draw
   driver `0x40ce60`. 0.084 M -> 0.062 M per race frame (from 0.202 M before the clipping path).
 - PGO retrained (`tools/psp/pgo.sh`) after these; PPSSPP: Speed Bay and Dirt Arena races play normally.
+- After them (PPSSPP profiling build, CPU only): translated game code ~3% of the race's samples; the
+  native render path dominates (flush vertex loops ~19%, faces ~18%, flush states / polygon ~15%,
+  poly setup ~6%, transform ~5%, clip ~4%, GE draw ~7%). Owner: native paths before the two big bike
+  functions (`0x45f290`, `0x47ecd0`: ~1% of a hardware frame for a bit-exact port of ~3,500 x86
+  instructions).
+- GE-3D frames compute a vertex's through-mode depth (`65535 * S0 / sz`, a division) only when a
+  through-mode draw takes it (`depth_3d`), not for every vertex in `direct_put` / `frame_vertex`: most
+  vertices go to 3D-mode draws, which use rhw. PPSSPP: flush vertex loops 1.96 -> 1.66 ms per frame.
+  Tried and dropped: w = z / [0x4d1f4c] instead of 1 / rhw in `ensure_3d` (95% of the vertices
+  qualify, but the test costs about what PPSSPP charges for the division; hardware unknown).
 - Next by the ranking: `0x45f290` (the bike model draw, 8%, 2400 x86 instructions, 150 calls),
   `0x47ecd0` (6.7%, physics, 390 x87 instructions), `0x4961d0` (font palettes), `0x493100` /
   `0x495840` (glyph draws), `0x493820`, `0x478990`, `0x45d810`, `0x4221d0`.

@@ -648,6 +648,20 @@ void frame_depth_tick() {
     frame_k_sample = 0.f;
 }
 
+// The GE-3D frame's depth of a vertex for a through-mode (2D) draw: 65535 * min(1, S0 / sz). Computed
+// when such a draw takes the vertex, not for every vertex (most go to 3D-mode draws, which use rhw):
+// a division per vertex less on the PSP's FPU.
+inline float depth_3d(float sz) {
+    float z = sz > 1e-12f ? 65535.f * frame_s0 / sz : 65535.f;
+    return z < 0.f ? 0.f : z > 65535.f ? 65535.f : z;
+}
+// a frame vertex with its through-mode depth filled in
+inline FrameVertex with_depth(const FrameVertex &v) {
+    FrameVertex r = v;
+    if (ge3d()) r.g.z = depth_3d(v.sz);
+    return r;
+}
+
 bool perspective() {
     static const bool on = !getenv("MOTORACER_GE_PERSPECTIVE") || strcmp(getenv("MOTORACER_GE_PERSPECTIVE"), "0");
     return on;
@@ -727,13 +741,13 @@ namespace {
 inline FrameVertex frame_vertex(float sx, float sy, float sz, float rhw, uint32_t argb, float tu, float tv) {
     rhw = rhw > 1e-12f ? rhw : 1e-12f;
     float z;
-    if (ge3d()) {
+    if (ge3d()) {   // depth_3d(sz) where a through-mode draw needs it (3D-mode draws use rhw)
         if (sz > 1e-7f && sz < 1.f) frame_min_sz = std::min(frame_min_sz, sz);
-        z = sz > 1e-12f ? 65535.f * frame_s0 / sz : 65535.f;
+        z = 0.f;
     } else {
         z = 65535.f * (1.f - sz);
+        z = z < 0.f ? 0.f : z > 65535.f ? 65535.f : z;
     }
-    z = z < 0.f ? 0.f : z > 65535.f ? 65535.f : z;
     // Direct3D 5 has pixel centres at integer coordinates, the GE at half-integers: shift by half
     // a game pixel (as the desktop backend does) so coverage and texel sampling match — otherwise
     // point-sampled HUD pieces pick the neighbouring texel (black seams in the red bars).
@@ -826,7 +840,7 @@ bool direct_process(uint32_t mem, uint32_t src, uint32_t dest, uint32_t n, uint3
                     checked++;
                     const bool flat = a.rhw == 1.f && a.g.u == 0.f && a.g.v == 0.f;   // untextured: uv, rhw unused
                     const bool tex_ok = flat || (a.g.u == b.g.u && a.g.v == b.g.v && a.rhw == b.rhw);
-                    if (memcmp(&a.g.x, &b.g.x, 12) || a.g.color != b.g.color || a.sz != b.sz || !tex_ok) {
+                    if (memcmp(&a.g.x, &b.g.x, ge3d() ? 8 : 12) || a.g.color != b.g.color || a.sz != b.sz || !tex_ok) {
                         if (++bad <= 20)
                             log("ge direct check: slot %u: xyz %g %g %g / %g %g %g colour %08x / %08x uv %g %g / %g %g rhw %g / %g\n", k,
                                 a.g.x, a.g.y, a.g.z, b.g.x, b.g.y, b.g.z, a.g.color, b.g.color, a.g.u, a.g.v, b.g.u, b.g.v, a.rhw, b.rhw);
@@ -975,8 +989,10 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
                 float c = (v[1]->g.x - v[0]->g.x) * (v[2]->g.y - v[0]->g.y) - (v[1]->g.y - v[0]->g.y) * (v[2]->g.x - v[0]->g.x);
                 if ((cull == 3 && c < 0.f) || (cull == 2 && c > 0.f)) continue;
             }
+            const bool lazy = ge3d();
             for (int j = 0; j < 3; j++) {
                 GeVertex g = v[j]->g;
+                if (lazy) g.z = depth_3d(v[j]->sz);
                 g.u = g.u * su + (tex ? 0.0625f : 0.f);
                 g.v = g.v * sv + (tex ? 0.0625f : 0.f);
                 g.color |= force_alpha;
@@ -1002,9 +1018,9 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
             if ((cull == 3 && c < 0.f) || (cull == 2 && c > 0.f)) continue;
         }
         if (tex && perspective()) {
-            subdivide(*v[0], *v[1], *v[2], 0);
+            subdivide(with_depth(*v[0]), with_depth(*v[1]), with_depth(*v[2]), 0);
         } else {
-            for (int k = 0; k < 3; k++) tri_out.push_back(*v[k]);
+            for (int k = 0; k < 3; k++) tri_out.push_back(with_depth(*v[k]));
         }
     }
     // Debug: MOTORACER_GE_DUMP=<frame> logs every draw of that presented frame (HUD investigations).
