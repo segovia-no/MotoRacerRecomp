@@ -32,6 +32,9 @@ test. Each run opens a game window for its duration.
 - Main menu: `LEFT ENTER` = Play Solo; `DOWN DOWN ENTER` = Options.
 - Select mode: `UP UP ENTER` = Single Race (`LEFT` lands on Back).
 - Select race: `UP UP UP ENTER` = Continue (Speed Bay). Choose bike: `DOWN DOWN ENTER` = Start.
+  RIGHT / LEFT change the track (Speed Bay, Snow Ride, West Way, Dirt Arena with the original best
+  scores) and move the focus to the arrow; plain taps there sometimes move twice. Dirt Arena (dirt
+  bikes): `+LEFT 20 -LEFT 2500 +DOWN 20 -DOWN 1500 ENTER` instead of `UP UP UP ENTER`.
 - Options: rows are DIFFICULTY, CONTROLLER, DETAIL LEVELS, OPPONENTS, D3D, VOICES, SOUNDS, MUSIC,
   SCREEN MODE, 16/9 MODE, ... — 9 × `DOWN` reaches SCREEN MODE. `ENTER` cycles a value (`LEFT`/
   `RIGHT` do nothing). From SCREEN MODE, 7 × `DOWN` reaches Accept.

@@ -662,8 +662,15 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
 - Near-plane splitter `0x497e40` and its edge split `0x497d60` (`native_geom.cpp`; the native
   clipping path calls it directly): 8 cases (none / one / two / three vertices behind the plane) in
   two shapes, the x86's screen outcode sums and its exit registers per path. 0.096 M -> 0.084 M.
-- Next by the ranking: `0x45f290` (the bike model draw, 6%), `0x47ecd0`, `0x49a160`, `0x40ce60`,
-  `0x40d3b0`, `0x490b90`, `0x464190`, `0x422540`, `0x4961d0`.
+- More of group E: render-state ops `0x41e1b0`, palette gradient `0x490b90`, nearest sector per
+  surface type `0x40d3b0`, render-list frame start `0x49a160` (checked only without the back-buffer
+  lock: locking twice is host state), sphere visibility `0x46e8b0`, per-vertex model light
+  `0x422540`, node-tree world matrices `0x464190`, identity `0x403710`, the track chunk / object draw
+  driver `0x40ce60`. 0.084 M -> 0.062 M per race frame (from 0.202 M before the clipping path).
+- PGO retrained (`tools/psp/pgo.sh`) after these; PPSSPP: Speed Bay and Dirt Arena races play normally.
+- Next by the ranking: `0x45f290` (the bike model draw, 8%, 2400 x86 instructions, 150 calls),
+  `0x47ecd0` (6.7%, physics, 390 x87 instructions), `0x4961d0` (font palettes), `0x493100` /
+  `0x495840` (glyph draws), `0x493820`, `0x478990`, `0x45d810`, `0x4221d0`.
 
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
