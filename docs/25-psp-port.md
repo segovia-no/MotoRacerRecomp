@@ -641,6 +641,20 @@ to `build/psp/run/game/` (a copy, so test runs never change the real install). T
   function splitting (`-freorder-blocks-and-partition`) fails on MIPS (assembler CFI errors, then
   HI16 / LO16 relocations split across sections): not used. PPSSPP race: plays normally.
 
+### Instruction-count ranking and more natives (2026-11-07; owner: "go ahead with the per-bike native rewrites")
+- Ranking without hardware: the desktop counting build (`build/pspprof`, `MOTORACER_COUNT_INSNS`,
+  float FPU like the PSP) dumps executed x86 instructions per guest function
+  (`MOTORACER_ICOUNT_DUMP`); `tools/icprof.py` ranks a race window. Private game copy with the
+  original best scores (`MOTORACER_GAME_DIR=build/game-prof`), `MOTORACER_PSP_PROFILE=1`.
+- Native clipping path of the polygon setup (`0x49c590` / `0x49ca70` with `0x499460` and
+  `0x423060`, `native_geom.cpp`): translated x86 per race frame 0.202 M → 0.156 M.
+- Group E (`native_race_e.cpp`): `0x495bd0` palette range → display pixels with `0x473a90` (RGB
+  pack, ~1.9 M calls in a check race), `0x4039c0` / `0x403a20` matrix copy, `0x403740` rotation +
+  translation from the sine table, `0x4b32d0` byte swap (the sort). Check mode: 0 mismatches.
+  Translated x86 per race frame 0.156 M → 0.111 M.
+- Next by the ranking: near-plane splitter `0x497e40` / `0x497d60` (12% together), `0x458b80`,
+  `0x45f290`, `0x47ecd0`, `0x49a160`, `0x40ce60`, `0x40d3b0`.
+
 ### CPU: draw distance (2026-11-06)
 - The package copied the desktop config's `DrawDistance=2`. PPSSPP, Speed Bay race with the
   profiler: 11.7 ms per frame at x2, 7.6 at x1 (−35%). The PSP default is now 1 (`settings.h`) and

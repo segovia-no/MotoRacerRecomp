@@ -184,6 +184,12 @@ NATIVE_FUNCS = {
     0x492B10: "native_hot_492b10",   # hot race function, native_race_d.cpp
     0x485E50: "native_hot_485e50",   # hot race function, native_race_d.cpp
     0x4B3400: "native_hot_4b3400",   # hot race function, native_race_d.cpp
+    0x495BD0: "native_hot_495bd0",   # hot race function, native_race_e.cpp
+    0x473A90: "native_hot_473a90",   # hot race function, native_race_e.cpp
+    0x4B32D0: "native_hot_4b32d0",   # hot race function, native_race_e.cpp
+    0x4039C0: "native_hot_4039c0",   # hot race function, native_race_e.cpp
+    0x403A20: "native_hot_403a20",   # hot race function, native_race_e.cpp
+    0x403740: "native_hot_403740",   # hot race function, native_race_e.cpp
 }
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function); with a
