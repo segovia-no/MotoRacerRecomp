@@ -191,6 +191,8 @@ NATIVE_FUNCS = {
     0x403A20: "native_hot_403a20",   # hot race function, native_race_e.cpp
     0x403740: "native_hot_403740",   # hot race function, native_race_e.cpp
     0x458B80: "native_hot_458b80",   # hot race function, native_race_e.cpp
+    0x497E40: "native_hot_497e40",   # near-plane splitter, native_geom.cpp
+    0x497D60: "native_hot_497d60",   # its edge split, native_geom.cpp
 }
 
 # Hooks that can redirect control: `if (hook()) goto target;` (target in the same function); with a

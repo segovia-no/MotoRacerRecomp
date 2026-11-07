@@ -29,6 +29,8 @@ extern "C" void f_00497080_t(void);
 extern "C" void f_0049ca70_t(void);
 extern "C" void f_00422b90_t(void);
 extern "C" void f_00497e40(void);
+extern "C" void f_00497e40_t(void);
+extern "C" void f_00497d60_t(void);
 extern "C" void f_00497080(void);
 extern "C" void f_0040c7e0_t(void);
 
@@ -582,6 +584,196 @@ void clip_triangle() {
 }
 
 
+// ---- the near-plane splitter 0x497e40 and its edge split 0x497d60 ----
+// 0x497e40(a, b, c, verts, face, record, &count), stdcall: the triangle of the face's vertex slots
+// a, b, c (vertices of 28 bytes: x y z, light +0xc, screen x / y +0x10 / +0x14, rhw +0x18) against the
+// near plane z = [0x625774] ("behind": z below it or unordered, as fcomp / test ah, 1). Vertices on the
+// plane are appended to the pool (0x6d20d8, count [0x68b014]; their index = (pointer - verts) / 28,
+// unsigned) by 0x497d60(behind, front, out). Each resulting triangle becomes a 64-byte record
+// (material / texture / flags of the face, the face's 16-bit colour expanded to +0x3c, indexes with
+// the first repeated and 0xffff, uv pairs with the first repeated) unless all its screen points lie
+// beyond one edge (the x86's outcode sums, below); count + 1 per record. Returns the next record.
+// One vertex K behind (F1, F2 the next ones): (F1, F2, P1) and (F2, P2, P1), P1 / P2 on K-F1 / K-F2.
+// Two behind (F in front): (F, P2, P1), P1 on prev(F)-F, P2 on next(F)-F. uv of a split point:
+// ((uF - uK) * (k / (zF - zK))) * (near - zK) + uK. Registers at the end as each x86 path leaves them.
+// 0x497d60: the point of the edge behind -> front on the near plane, projected (rhw [0x4d1f4c] / near,
+// screen x / y offsets [0x60d3c4] / [0x624f88]); the light +0xc interpolated with an integer slope
+void split_vertex(uint32_t k, uint32_t f, uint32_t out) {
+    MEM_LOCAL();
+    auto ld = [&](uint32_t a) { return static_cast<fpu_t>(RDF32(a)); };
+    const fpu_t dz = ld(f + 8) - ld(k + 8);
+    const fpu_t ry = (ld(f + 4) - ld(k + 4)) / dz, rx = (ld(f) - ld(k)) / dz;
+    WRF32(out, static_cast<float>((ld(NEAR_Z) - ld(k + 8)) * rx + ld(k)));
+    WRF32(out + 4, static_cast<float>((ld(NEAR_Z) - ld(k + 8)) * ry + ld(k + 4)));
+    WR32(out + 8, RD32A(NEAR_Z));
+    const fpu_t w = ld(0x4d1f4c) / ld(NEAR_Z);
+    WRF32(out + 0x18, static_cast<float>(w));
+    const uint32_t sx = static_cast<uint32_t>(FTOL(w * ld(out)));
+    const uint32_t sy = static_cast<uint32_t>(FTOL(ld(out + 4) * ld(out + 0x18)));
+    WR32(out + 0x10, RD32A(0x60d3c4) + sx);
+    WR32(out + 0x14, RD32A(0x624f88) - sy);
+    const int32_t steps = static_cast<int32_t>(FTOL(ld(f + 8) - ld(k + 8)));
+    const int32_t lk = static_cast<int32_t>(RD32(k + 0xc)), lf = static_cast<int32_t>(RD32(f + 0xc));
+    int32_t q = static_cast<int32_t>(static_cast<uint32_t>(lf) - static_cast<uint32_t>(lk));
+    if (steps) q = static_cast<int32_t>(static_cast<int64_t>(q) / steps);
+    WR32(out + 0xc, static_cast<uint32_t>(FTOL(static_cast<fpu_t>(lk) + (ld(NEAR_Z) - ld(k + 8)) * static_cast<fpu_t>(q))));
+}
+
+// the x86's screen test of a triangle: per axis a sum over its three points (the first: 2 at or below
+// [lo] (unsigned), 3 at or beyond [hi] (signed), 1 between; the others +0 / +1 / -1); >= 6 (unsigned)
+// culls. `lim` = [lo] or [hi] (the last one loaded, as some paths leave it in a register).
+struct Outcode { uint32_t acc, lim; };
+Outcode outcode(uint32_t p, uint32_t q, uint32_t r, uint32_t off, uint32_t lo_at, uint32_t hi_at) {
+    MEM_LOCAL();
+    const uint32_t lo = RD32A(lo_at), hi = RD32A(hi_at);
+    uint32_t acc = 2, lim = lo;
+    const uint32_t v0 = RD32(p + off);
+    if (v0 > lo) acc = static_cast<int32_t>(v0) >= static_cast<int32_t>(hi) ? 3 : 1;
+    for (uint32_t v : {RD32(q + off), RD32(r + off)}) {
+        lim = lo;
+        if (v > lo) {
+            acc += static_cast<int32_t>(v) >= static_cast<int32_t>(hi) ? 1u : 0xffffffffu;
+            lim = hi;
+        }
+    }
+    return {acc, lim};
+}
+
+void near_split() {
+    MEM_LOCAL();
+    const uint32_t sp = R.esp, sa = RD32A(sp + 4), sb = RD32A(sp + 8), sc = RD32A(sp + 12), verts = RD32A(sp + 16),
+                   face = RD32A(sp + 20), rec0 = RD32A(sp + 24), pcount = RD32A(sp + 28);
+    R.esp = sp + 32;
+    uint32_t fsw = F.sw;
+    const uint16_t slot[3] = {static_cast<uint16_t>(sa), static_cast<uint16_t>(sb), static_cast<uint16_t>(sc)};
+    uint32_t idx[3], v[3], uv[3][2];
+    for (int i = 0; i < 3; i++) {
+        const uint32_t sl = i == 0 ? sa : i == 1 ? sb : sc;
+        idx[i] = RD16(face + 0x2c + 2 * sl);
+        v[i] = verts + idx[i] * 28;
+        uv[i][0] = RD32(face + 4 + 8 * sl);
+        uv[i][1] = RD32(face + 8 + 8 * sl);
+    }
+    (void)slot;
+    const fpu_t nearz = static_cast<fpu_t>(RDF32A(NEAR_Z));
+    bool behind[3];
+    for (int i = 0; i < 3; i++) {
+        const fpu_t z = static_cast<fpu_t>(RDF32(v[i] + 8));
+        FCOM_L(fsw, z, nearz);
+        behind[i] = (fsw & 0x100u) != 0;
+    }
+    F.sw = static_cast<uint16_t>(fsw);
+    const uint16_t c16 = RD16(face + 2);
+    const uint32_t colour = ((((static_cast<uint32_t>(c16 & 0x7c0) >> 6) << 8) | (static_cast<uint32_t>(c16 >> 11) << 16) | (c16 & 0x1fu)) << 3);
+    uint32_t rec = rec0;
+    // a record: vertex indexes i0 i1 i2 (i0 repeated, 0xffff), uv pairs likewise
+    auto emit = [&](uint32_t i0, uint32_t i1, uint32_t i2, const uint32_t *t0, const uint32_t *t1, const uint32_t *t2) {
+        const uint16_t mat = RD16(face + 0x3a);
+        WR16(rec, mat);
+        WR16(rec + 0x3a, mat);
+        WR16(rec + 0x36, RD16(face + 0x36));
+        WR32(rec + 0x3c, colour);
+        WR16(rec + 2, c16);
+        WR16(rec + 0x2c, static_cast<uint16_t>(i0));
+        WR16(rec + 0x2e, static_cast<uint16_t>(i1));
+        WR16(rec + 0x30, static_cast<uint16_t>(i2));
+        WR16(rec + 0x32, static_cast<uint16_t>(i0));
+        WR16(rec + 0x34, 0xffff);
+        WR32(rec + 4, t0[0]);
+        WR32(rec + 8, t0[1]);
+        WR32(rec + 0xc, t1[0]);
+        WR32(rec + 0x10, t1[1]);
+        WR32(rec + 0x14, t2[0]);
+        WR32(rec + 0x18, t2[1]);
+        WR32(rec + 0x1c, t0[0]);
+        WR32(rec + 0x20, t0[1]);
+        WR16(rec + 0x38, RD16(face + 0x38));
+        rec += 0x40;
+        const uint32_t n = RD32(pcount) + 1;
+        WR32(pcount, n);
+        return n;
+    };
+    const int nb = behind[0] + behind[1] + behind[2];
+    if (nb == 0) {
+        const uint32_t n = emit(idx[0], idx[1], idx[2], uv[0], uv[1], uv[2]);
+        R.eax = rec;
+        R.ecx = n;
+        R.edx = pcount;
+        return;
+    }
+    if (nb == 3) {
+        R.eax = rec0;
+        R.ecx = verts;
+        R.edx = uv[2][1];
+        return;
+    }
+    // two new pool vertices
+    const uint32_t used = RD32A(0x68b014u);
+    const uint32_t P1 = 0x6d20d8u + used * 28u, P2 = 0x6d20d8u + (used + 1) * 28u;
+    const uint32_t i1 = (P1 - verts) / 28u, i2 = (P2 - verts) / 28u;
+    WR32A(0x68b014u, used + 2);
+    auto interp = [&](int f, int k, uint32_t out[2]) {
+        const fpu_t zk = static_cast<fpu_t>(RDF32(v[k] + 8));
+        const fpu_t i = static_cast<fpu_t>(RDF32A(0x4d1f4c)) / (static_cast<fpu_t>(RDF32(v[f] + 8)) - zk);
+        const fpu_t n = nearz - zk;
+        float uf, vf, uk, vk;
+        memcpy(&uf, &uv[f][0], 4);
+        memcpy(&vf, &uv[f][1], 4);
+        memcpy(&uk, &uv[k][0], 4);
+        memcpy(&vk, &uv[k][1], 4);
+        const float u = static_cast<float>(((static_cast<fpu_t>(uf) - uk) * i) * n + uk);
+        const float w = static_cast<float>(((static_cast<fpu_t>(vf) - vk) * i) * n + vk);
+        memcpy(&out[0], &u, 4);
+        memcpy(&out[1], &w, 4);
+    };
+    uint32_t t1[2], t2[2];
+    if (nb == 1) {
+        const int K = behind[0] ? 0 : behind[1] ? 1 : 2, F1 = (K + 1) % 3, F2 = (K + 2) % 3;
+        split_vertex(v[K], v[F1], P1);
+        split_vertex(v[K], v[F2], P2);
+        interp(F1, K, t1);
+        interp(F2, K, t2);
+        const Outcode x1 = outcode(v[F1], v[F2], P1, 0x10, 0x62e448, 0x624374);
+        if (x1.acc < 6 && outcode(v[F1], v[F2], P1, 0x14, 0x625784, 0x6d1040).acc < 6)
+            emit(idx[F1], idx[F2], i1, uv[F1], uv[F2], t1);
+        R.eax = rec;
+        R.ecx = pcount;
+        if (outcode(v[F2], P2, P1, 0x10, 0x62e448, 0x624374).acc >= 6) {
+            R.edx = RD32(P1 + 0x10);
+        } else if (outcode(v[F2], P2, P1, 0x14, 0x625784, 0x6d1040).acc >= 6) {
+            R.edx = RD32(P1 + 0x14);
+        } else {
+            R.edx = emit(idx[F2], i2, i1, uv[F2], t2, t1);
+            R.eax = rec;
+        }
+        return;
+    }
+    // two behind: F in front; P1 on prev(F) - F, P2 on next(F) - F
+    const int Fi = !behind[0] ? 0 : !behind[1] ? 1 : 2, Pv = (Fi + 2) % 3, Nx = (Fi + 1) % 3;
+    split_vertex(v[Pv], v[Fi], P1);
+    split_vertex(v[Nx], v[Fi], P2);
+    interp(Fi, Pv, t1);
+    interp(Fi, Nx, t2);
+    const bool case_d = Fi == 0;   // the x86's register use differs on this path (x test)
+    const Outcode x = outcode(v[Fi], P2, P1, 0x10, 0x62e448, 0x624374);
+    if (x.acc >= 6) {
+        R.eax = rec0;
+        R.ecx = case_d ? x.lim : x.acc;
+        R.edx = case_d ? x.acc : x.lim;
+        return;
+    }
+    const Outcode y = outcode(v[Fi], P2, P1, 0x14, 0x625784, 0x6d1040);
+    if (y.acc >= 6) {
+        R.eax = rec0;
+        R.ecx = y.acc;
+        R.edx = y.lim;
+        return;
+    }
+    R.ecx = emit(idx[Fi], i2, i1, uv[Fi], t2, t1);
+    R.eax = rec;
+    R.edx = pcount;
+}
+
 // ---- the clipping path of 0x49c590 / 0x49ca70 (faces crossing the screen's edges) ----
 // The face is split into up to four triangle records on the stack (0x422b90 initialises them): by the
 // near-plane splitter 0x497e40 (flags bit 0) or 0x499460 (copy of three vertex slots), triangles
@@ -649,6 +841,23 @@ uint32_t slot_triangle(uint32_t a, uint32_t b, uint32_t c, uint32_t face, uint32
     return rec + 0x40;
 }
 
+// 0x497e40 called from the clipping path: its arguments and return address on the guest stack below
+// `esp` as the x86 pushes them, then the native splitter (MOTORACER_NATIVE=check: the hooked call)
+uint32_t split_call(uint32_t esp, uint32_t ret, std::initializer_list<uint32_t> args, uint32_t &fsw) {
+    MEM_LOCAL();
+    const uint32_t at = esp - 4 * static_cast<uint32_t>(args.size()) - 4;
+    WR32A(at, ret);
+    uint32_t a = at + 4;
+    for (uint32_t v : args) { WR32A(a, v); a += 4; }
+    R.esp = at;
+    F.sw = static_cast<uint16_t>(fsw);
+    if (mode() == CHECK) f_00497e40();
+    else near_split();
+    fsw = F.sw;
+    R.esp = esp;
+    return R.eax;
+}
+
 void clip_path(bool special, uint32_t sp, uint32_t face, uint32_t depth, uint32_t verts, uint32_t flags, uint32_t var,
                uint32_t bucket) {
     MEM_LOCAL();
@@ -670,8 +879,8 @@ void clip_path(bool special, uint32_t sp, uint32_t face, uint32_t depth, uint32_
     const bool quad = RD16(face + 0x34) != 0xffff;
     uint32_t r;
     if (flags & 1) {
-        r = gcall_geom(f_00497e40, B, special ? 0x49cb9bu : 0x49c766u, recs, {0, 1, 2, verts, face, recs, pcount}, fsw);
-        if (quad) r = gcall_geom(f_00497e40, B, special ? 0x49cbcbu : 0x49c788u, R.ecx, {0, 2, 3, verts, face, r, pcount}, fsw);
+        r = split_call(B, special ? 0x49cb9bu : 0x49c766u, {0, 1, 2, verts, face, recs, pcount}, fsw);
+        if (quad) r = split_call(B, special ? 0x49cbcbu : 0x49c788u, {0, 2, 3, verts, face, r, pcount}, fsw);
     } else {
         r = slot_triangle(0, 1, 2, face, recs, pcount);
         if (quad) r = slot_triangle(0, 2, 3, face, r, pcount);
@@ -821,6 +1030,32 @@ bool poly_special() {
 }
 
 }  // namespace
+
+extern "C" int native_hot_497d60(void) {   // edge split (stdcall behind, front, out; ret 0xc)
+    MEM_LOCAL();
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    const uint32_t sp = R.esp, k = RD32A(sp + 4), f = RD32A(sp + 8), out = RD32A(sp + 12);
+    auto run = [&] { split_vertex(k, f, out); R.esp = sp + 16; };
+    if (md == ON) { run(); return 1; }
+    check_abi("edge split 0x497d60", run, f_00497d60_t, {{out, 28}});
+    static uint32_t n = 0;
+    if (++n == 1 || n % 20000 == 0) rt::log("native: edge split 0x497d60 checked %u times\n", n);
+    return 1;
+}
+
+extern "C" int native_hot_497e40(void) {   // near-plane splitter
+    MEM_LOCAL();
+    const Mode md = mode();
+    if (md == OFF) return 0;
+    if (md == ON) { near_split(); return 1; }
+    const uint32_t rec = RD32A(R.esp + 24), pcount = RD32A(R.esp + 28), used = RD32A(0x68b014u);
+    check("near split 0x497e40", near_split, f_00497e40_t,
+          {{rec, 0x80}, {pcount, 4}, {0x68b014u, 4}, {0x6d20d8u + used * 28u, 56}});
+    static uint32_t n = 0;
+    if (++n == 1 || n % 20000 == 0) rt::log("native: near split 0x497e40 checked %u times\n", n);
+    return 1;
+}
 
 extern "C" int native_poly_setup(void) {   // 0x49c590
     MEM_LOCAL();
