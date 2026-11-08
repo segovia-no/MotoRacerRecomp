@@ -283,5 +283,5 @@ locally and tried on each device first.
   runtime sources. Checked: the Mac zip in a sandbox HOME (`MOTORACER_SETUP` skips the choice screen →
   installer unpacked, module built by the bundled zig, race) and the Linux tarball headless in Docker
   (Debian + Xvfb + lavapipe, `build/linux-x64/Dockerfile.test`; the image has no `xz`: unpack on the host).
-  Windows: built, not run. Programs: `build/pkg-macos`, `build/win-rel` (fresh: the toolchain file moved),
+  Windows: owner-tested on the PC (fresh install → race), "flawlessly". Programs: `build/pkg-macos`, `build/win-rel` (fresh: the toolchain file moved),
   `build/linux-mod` (sniper SDK); tools from `fetch_tools.py` in `build/release-tools/<platform>`.
