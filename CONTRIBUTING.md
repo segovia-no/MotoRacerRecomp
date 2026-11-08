@@ -3,13 +3,7 @@
 Thanks for helping. Bug reports, ideas and pull requests are all welcome.
 
 ## Reporting a problem or an idea
-Open an [issue](https://github.com/segovia-no/MotoRacerRecomp/issues/new/choose) and pick **Bug report** or **Feature request**. The bug form asks for:
-- the version (the release, e.g. `v0.1.2`, or the commit for source builds)
-- the platform, OS version and hardware
-- how you installed it
-- what happened and how to reproduce it
-- screenshots or a short video if you can
-- the log file (`motoracer.log`; where to find it: [troubleshooting](docs/guides/troubleshooting.md))
+Open an [issue](https://github.com/segovia-no/MotoRacerRecomp/issues/new/choose) and pick **Bug report** or **Feature request**. For bugs: the version, your platform and what happened; screenshots and, for crashes, the log file (`motoracer.log`, see [troubleshooting](docs/guides/troubleshooting.md)) help a lot.
 
 Please check the [open issues](https://github.com/segovia-no/MotoRacerRecomp/issues) first, and never attach game files (`game.EXE`, `data/`, the CD tracks) or anything built from them.
 

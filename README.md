@@ -34,7 +34,7 @@ Details for each platform, updating and uninstalling: **[Install guide](docs/gui
 | [Technical notes](docs/README.md) | reverse engineering, translator, runtime and port notes |
 
 ## Contributing
-Found a bug or have an idea? [Open an issue](https://github.com/segovia-no/MotoRacerRecomp/issues/new/choose): the bug form asks for the version, your platform and OS, screenshots and the log. Pull requests are welcome from forks: see **[CONTRIBUTING.md](CONTRIBUTING.md)** for building, testing and the few rules (above all: no game files in the repository).
+Found a bug or have an idea? [Open an issue](https://github.com/segovia-no/MotoRacerRecomp/issues/new/choose): say which version and platform, and what happened. Pull requests are welcome from forks: see **[CONTRIBUTING.md](CONTRIBUTING.md)** for building, testing and the few rules (above all: no game files in the repository).
 
 ## Distribution and legal
 The downloads on the Releases page contain only the runtime and the build tools — no game code, no game assets and nothing translated from `game.EXE`. The game code is made on each player's computer from their own GOG copy. What that produces — the game files and the compiled game code in the data folder (`gamecode`), and for source builds the generated C in `build/cmake/gen/`, the `motoracer` binary, `MotoRacer.app` and the PSP package — contains code translated from your `game.EXE` and must **not** be redistributed.
