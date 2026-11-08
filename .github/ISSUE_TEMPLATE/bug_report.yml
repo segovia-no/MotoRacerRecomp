@@ -33,11 +33,6 @@ body:
       description: e.g. macOS 15.5 on an M2; Windows 11 with an RTX 3060; Fedora 44 with Intel UHD 620; Steam Deck OLED, SteamOS 3.7; PSP-1000 with ARK-4
     validations:
       required: true
-  - type: textarea
-    id: steamdeck
-    attributes:
-      label: Steam Deck only
-      description: "Game Mode or Desktop Mode; the Steam controller layout chosen for the game (e.g. Gamepad with Joystick Trackpad); docked to a screen or handheld."
   - type: dropdown
     id: install
     attributes:
