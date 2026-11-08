@@ -276,3 +276,12 @@ locally and tried on each device first.
 - 2026-11-05: draft release **0.1.1** (BUILD_ID `0.1.1-9c13071`, target `9c13071`): the cockpit
   windscreen glare fix (#1). Linux tarball checked headless (fresh install → race). Same build
   commands as above (zsh note: run the three `package.py` calls separately, not from a word-split loop).
+- 2026-11-07: draft release **v0.1.2** (tag `v0.1.2` at `8e7a662`, BUILD_ID `0.1.2-8e7a662`): the native
+  rewrites, the PSP version (built from source, not a release asset), docs reorganized. The release
+  programs no longer linked: the natives added since 0.1.1 call translated functions that a module build
+  only reaches through forwarders, and that list was hand-written — CMake now generates it from the
+  runtime sources. Checked: the Mac zip in a sandbox HOME (`MOTORACER_SETUP` skips the choice screen →
+  installer unpacked, module built by the bundled zig, race) and the Linux tarball headless in Docker
+  (Debian + Xvfb + lavapipe, `build/linux-x64/Dockerfile.test`; the image has no `xz`: unpack on the host).
+  Windows: built, not run. Programs: `build/pkg-macos`, `build/win-rel` (fresh: the toolchain file moved),
+  `build/linux-mod` (sniper SDK); tools from `fetch_tools.py` in `build/release-tools/<platform>`.
