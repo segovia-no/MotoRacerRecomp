@@ -81,11 +81,11 @@ void out(const char *fmt, ...) {
 }
 }  // namespace
 
-// <log dir>/motoracer.log (previous run kept as .log.1); on macOS the log dir is
-// ~/Library/Logs/MotoRacerRecomp (plat::HostPaths).
+// <log dir>/motoracer.log (previous run kept as .log.1): app_log_dir() (core/app_dirs.cpp), e.g.
+// ~/Library/Logs/MotoRacerRecomp on macOS, <program folder>/logs for a Linux / Windows package.
 void open_log_file() {
     auto &h = plat::host();
-    std::string dir = h.paths.log_dir();
+    std::string dir = app_log_dir();
     if (dir.empty()) return;
     for (size_t i = dir.find('/', 1); i != std::string::npos; i = dir.find('/', i + 1))
         h.fs.make_dir(dir.substr(0, i));   // parents, e.g. ~/.local/state on a fresh Linux account

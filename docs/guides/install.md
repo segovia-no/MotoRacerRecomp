@@ -57,17 +57,24 @@ Runs on every PSP model (PSP-1000 included) with custom firmware (e.g. ARK-4). T
 Requirements per system, what the script installs, controls: [psp-build.md](psp-build.md).
 
 ## Updating
-Download the new package and replace the old one (the app, or the MotoRacer folder). On the next start it rebuilds the game code once ("UPDATING"); your saves, best times and settings stay where they are (see [Settings](playing.md#settings)).
+- **Mac**: replace MotoRacer.app with the new one.
+- **Windows, Linux, Steam Deck**: extract the new package over the old MotoRacer folder, replacing its files. Do not delete the folder first: it also holds your game files, saves and settings (`game/`, `gamecode/`, `logs/`).
+
+On the next start it rebuilds the game code once ("UPDATING"); saves, best times and settings are kept (see [Settings](playing.md#settings)). Coming from 0.1.2 or earlier on Windows / Linux: the first start moves your game files from the old per-user folder into the MotoRacer folder.
 
 PSP: `git pull`, run `./setup.sh --psp` (or `setup.cmd --psp`) again and copy `build/psp-hw/PSP/GAME/MOTORACER/EBOOT.PBP` over the one on the memory stick (keeping the stick's `game` folder keeps your best times and settings).
 
 ## Where things are
-| | macOS | Linux | Windows | PSP (memory stick) |
-|---|---|---|---|---|
-| Data folder (game files, compiled game code, saves, settings) | `~/Library/Application Support/MotoRacerRecomp` | `~/.local/share/MotoRacerRecomp` | `%LOCALAPPDATA%\MotoRacerRecomp` | `PSP/GAME/MOTORACER` (game files in `game/`) |
-| Log | `~/Library/Logs/MotoRacerRecomp/motoracer.log` | `~/.local/state/MotoRacerRecomp/motoracer.log` | `%LOCALAPPDATA%\MotoRacerRecomp\logs\motoracer.log` | `PSP/GAME/MOTORACER/motoracer.log` |
+Windows, Linux and Steam Deck packages keep everything in their own MotoRacer folder (next to `motoracer` and `kit/`):
+
+| | macOS | Windows / Linux / Steam Deck | PSP (memory stick) |
+|---|---|---|---|
+| Data folder (game files, compiled game code, saves, settings) | `~/Library/Application Support/MotoRacerRecomp` | the MotoRacer folder: `game/`, `gamecode/` | `PSP/GAME/MOTORACER` (game files in `game/`) |
+| Log | `~/Library/Logs/MotoRacerRecomp/motoracer.log` | `MotoRacer/logs/motoracer.log` | `PSP/GAME/MOTORACER/motoracer.log` |
+
+If the MotoRacer folder is somewhere you cannot write to (e.g. under Program Files), and for source builds, the per-user folders are used instead: `~/.local/share/MotoRacerRecomp` (log: `~/.local/state/MotoRacerRecomp`) on Linux, `%LOCALAPPDATA%\MotoRacerRecomp` (log: `logs\` in it) on Windows.
 
 ## Uninstall
-Delete the app (or the MotoRacer folder) and the data folder above (PSP: the `PSP/GAME/MOTORACER` folder). Source builds also made `~/Applications/MotoRacer.app` (macOS), `~/.local/share/applications/motoracer-recomp.desktop` (Linux) or a Start menu shortcut (Windows).
+Delete the MotoRacer folder (Windows / Linux / Steam Deck: that is everything), or MotoRacer.app and the data folder above (Mac), or the `PSP/GAME/MOTORACER` folder (PSP). Source builds also made `~/Applications/MotoRacer.app` (macOS), `~/.local/share/applications/motoracer-recomp.desktop` (Linux) or a Start menu shortcut (Windows).
 
 Problems? See [troubleshooting.md](troubleshooting.md).

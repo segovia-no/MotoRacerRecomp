@@ -26,7 +26,7 @@
 | Speedometer style (dials › digital › hidden), in a race | **Back** / **View** |
 | Menus | d-pad or left stick, **A** select, **B** back |
 
-A gamepad connected on first start sets the game's CONTROLLER option to JOYSTICK with this layout. Plugged in later? Choose Options › CONTROLLER › JOYSTICK and the layout is applied (it never overwrites bindings you made yourself).
+A gamepad connected when the game starts sets the game's CONTROLLER option from KEYBOARD to JOYSTICK (the only analog mode) with this layout; JOYPAD, if you chose it, is left alone. The keyboard keeps working in JOYSTICK mode, so you can use both. Plugged in later? Choose Options › CONTROLLER › JOYSTICK and the layout is applied (it never overwrites bindings you made yourself). Pads SDL has no mapping for (e.g. adapters for old analog joysticks) work too, by their raw axes and buttons: bind them in Options › CONTROLLER › config.
 
 **Window**: **Alt+Enter** (also **Cmd+F** on macOS) toggles fullscreen; **Cmd+Q** quits on macOS.
 
@@ -52,7 +52,7 @@ The port's own settings are in **Options › Recomp** (the button that was Info;
 
 On the PSP the game plays in its 16/9 mode in a 480×360 screen mode whose 16/9 band (480×270) fills the PSP's screen; keep SCREEN MODE, 16/9 MODE and D3D as they start. Its `motoracer.ini` is on the memory stick in `PSP/GAME/MOTORACER/game/`; the package sets `DrawDistance=1` (the original: higher costs about a third of the frame rate) and thins the updates of opponents far out of sight (`AiLod`, on by default on the PSP), so races keep their speed at 25–30 fps.
 
-All port options live in the `[Recomp]` section of `motoracer.ini` in the game folder (`~/Library/Application Support/MotoRacerRecomp/game` on macOS, `~/.local/share/MotoRacerRecomp/game` on Linux, `%LOCALAPPDATA%\MotoRacerRecomp\game` on Windows):
+All port options live in the `[Recomp]` section of `motoracer.ini` in the game folder (`~/Library/Application Support/MotoRacerRecomp/game` on macOS, `MotoRacer/game` in the Windows / Linux / Steam Deck package; [where things are](install.md#where-things-are)):
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -68,7 +68,7 @@ All port options live in the `[Recomp]` section of `motoracer.ini` in the game f
 | `Widescreen` | `auto` | show the game's 16/9 band as a true 16:9 picture; `off` keeps the letterbox |
 | `CustomModes` | `1` | offer the extra resolutions in SCREEN MODE |
 | `RenderScale` | `auto` | Direct3D supersampling: `auto` upscales the game's original modes to the display, larger modes render natively; or `1`…`4` |
-| `ControllerPreset` | `1` | apply the Xbox layout described above |
+| `ControllerPreset` | `1` | a controller connected at start: CONTROLLER KEYBOARD → JOYSTICK (the analog mode; JOYPAD stays) and the Xbox layout described above; `0` leaves the game's controller options alone |
 | `ControllerMenus` | `1` | navigate the menus with a gamepad |
 | `TriggerMode` | `auto` | triggers as analog throttle/brake in JOYSTICK mode, as buttons 9/10 otherwise; or `axis` / `buttons` |
 | `Renderer` | `d3d` | `software` forces the original renderer everywhere (the in-game D3D option is usually enough) |

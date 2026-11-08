@@ -108,6 +108,7 @@ bool state_loaded = false;
 int table_list = -1;      // which List is in the game's table (-1: not built yet)
 bool reselect = false;    // pick the remembered mode on the next tick (after an options load)
 bool defaults_applied = false;
+bool pad_seen = false;    // a controller answered at an earlier start (recomp_state.txt: Gamepad=1)
 bool options_loaded = false;     // the game has read its options (CONFIG.BPT)   // first-run defaults done (recomp_state.txt: Defaults=1)
 uint32_t last_area = 0;
 
@@ -127,6 +128,7 @@ void load_state() {
         if (sscanf(line.c_str(), "ScreenMode43=%ux%u", &m.w, &m.h) == 2) remembered[0] = m;
         if (sscanf(line.c_str(), "ScreenMode169=%ux%u", &m.w, &m.h) == 2) remembered[1] = m;
         if (line == "Defaults=1") defaults_applied = true;
+        if (line == "Gamepad=1") pad_seen = true;
     }
 }
 
@@ -136,6 +138,7 @@ void save_state() {
     if (remembered[0].w) out += "ScreenMode43=" + std::to_string(remembered[0].w) + "x" + std::to_string(remembered[0].h) + "\n";
     if (remembered[1].w) out += "ScreenMode169=" + std::to_string(remembered[1].w) + "x" + std::to_string(remembered[1].h) + "\n";
     if (defaults_applied) out += "Defaults=1\n";
+    if (pad_seen) out += "Gamepad=1\n";
     rt::write_file(kStateFile, out);
 }
 
@@ -278,23 +281,33 @@ void select_for(List which) {
 }  // namespace
 
 // Right after the game read "InputDevice" (0x4dc11c) and before it initialises the input device
-// (0x47310b -> 0x4311c0, which falls back to the keyboard if no joystick answers):
-// - wait for the gamepad when one is expected: Steam Input creates its virtual pad just after the
-//   game started (Steam Deck: seen in the first on-device test, the game fell back to KEYBOARD);
-// - first run with a gamepad, or on a Steam Deck: CONTROLLER = JOYSTICK (analog). The binding
-//   preset follows in frame_tick.
+// (0x47310b -> 0x4311c0, which falls back to the keyboard if no joystick answers, and the game saves
+// that fallback in CONFIG.BPT at exit, so one slow start used to stick):
+// - wait for the controller: SDL finds some only while events are pumped (Steam Input's virtual pad
+//   on the Steam Deck; PlayStation / Switch pads through SDL's HIDAPI drivers on Linux, issue #5:
+//   the pad worked only on the first start, after the installer screen had pumped events for
+//   minutes). Up to 3 s when a pad is expected (CONTROLLER = JOYSTICK / JOYPAD, or one answered at
+//   an earlier start), 5 s on a Steam Deck, else a 300 ms look;
+// - a controller answered (ControllerPreset=1) and CONTROLLER is KEYBOARD (never chosen, or the game's
+//   fallback): CONTROLLER = JOYSTICK, the only analog mode; a player's JOYPAD choice stays. The
+//   binding preset follows in frame_tick. The keyboard keeps working in JOYSTICK mode (the game reads
+//   both), so keyboard and controller can be used together.
 extern "C" void game_hook_input_loaded(void) {
     load_state();
-    bool deck = plat::host().info.is_steam_deck();
-    bool first = !defaults_applied && settings::get().controller_preset;
-    if (deck || RD32(INPUT_DEVICE) == 2) {
-        uint64_t t0 = SDL_GetTicks();
-        bool found = w32::wait_for_gamepad(deck ? 5000 : 1000);
-        log("gamepad: %s after %llu ms\n", found ? "ready" : "none", static_cast<unsigned long long>(SDL_GetTicks() - t0));
+    const bool deck = plat::host().info.is_steam_deck();
+    const uint32_t device = RD32(INPUT_DEVICE);
+    const bool expected = device == 2 || device == 4 || pad_seen;
+    const uint64_t t0 = SDL_GetTicks();
+    const bool found = w32::wait_for_gamepad(deck ? 5000 : expected ? 3000 : 300);
+    log("gamepad: %s after %llu ms (CONTROLLER %u)\n", found ? "ready" : "none",
+        static_cast<unsigned long long>(SDL_GetTicks() - t0), device);
+    if (found && !pad_seen) {
+        pad_seen = true;
+        save_state();
     }
-    if (first && (SDL_HasGamepad() || deck) && RD32(INPUT_DEVICE) != 2) {
+    if (settings::get().controller_preset && (found || deck) && device != 2 && device != 4) {
         WR32(INPUT_DEVICE, 2);
-        log("first run: %s, CONTROLLER set to JOYSTICK\n", deck ? "Steam Deck" : "gamepad found");
+        log("%s: CONTROLLER set to JOYSTICK (analog)\n", deck ? "Steam Deck" : "controller found");
     }
     // Pad-only hosts (PSP) at every start: with CONTROLLER = KEYBOARD (a config copied from a PC, or
     // changed in Options) the game ignores the pad and the menu mapping turns Circle into Escape,

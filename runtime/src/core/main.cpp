@@ -44,7 +44,7 @@ std::string find_game_dir(const std::string &explicit_dir) {
     std::vector<std::string> candidates;
     if (!explicit_dir.empty()) return explicit_dir;
     if (const char *e = getenv("MOTORACER_GAME_DIR")) candidates.push_back(e);
-    if (std::string data = plat::host().paths.data_dir(); !data.empty()) candidates.push_back(data + "/game");
+    if (std::string data = rt::app_data_dir(); !data.empty()) candidates.push_back(data + "/game");
     candidates.push_back("extracted/app");
     for (auto &c : candidates)
         if (has_game(c)) return c;

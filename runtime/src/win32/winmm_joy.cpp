@@ -27,38 +27,88 @@ constexpr uint32_t JOYERR_NOERROR = 0, JOYERR_PARMS = 165, JOYERR_UNPLUGGED = 16
 constexpr int MAX_JOYSTICKS = 16;
 constexpr int DEADZONE = 4000;
 
-std::vector<SDL_Gamepad *> pads;
 constexpr int NUM_BUTTONS = 10;
 constexpr int TRIGGER_PRESSED = 16384;   // half of the 0..32767 trigger range
+
+// A connected controller: an SDL gamepad (a device SDL has a mapping for: Xbox, PlayStation, Switch,
+// most USB pads), or else a plain SDL joystick read by its raw axes, buttons and hat (adapters for old
+// analog sticks and pads without a mapping, which SDL does not list as gamepads).
+struct Device {
+    SDL_Gamepad *g = nullptr;
+    SDL_Joystick *j = nullptr;
+    SDL_JoystickID id = 0;
+};
+std::vector<Device> pads;
 
 void refresh_pads() {
     static bool init = false;
     if (!init) {
         init = true;
         if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) log("gamepad: init failed: %s\n", SDL_GetError());
+#ifndef __PSP__
+        // MOTORACER_VIRTUAL_PAD=1 (dev, E2E tests of the controller handling): an idle virtual gamepad;
+        // =<ms>: unplugged again that many ms after it was attached
+        if (const char *e = getenv("MOTORACER_VIRTUAL_PAD"); e && *e && *e != '0') {
+            SDL_VirtualJoystickDesc desc;
+            SDL_INIT_INTERFACE(&desc);
+            desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+            desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+            desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+            desc.name = "Virtual test pad";
+            static SDL_JoystickID vid = SDL_AttachVirtualJoystick(&desc);
+            static uint64_t unplug_at = atoi(e) > 1 ? SDL_GetTicks() + static_cast<uint64_t>(atoi(e)) : 0;
+            log("gamepad: virtual test pad attached (id %u)%s\n", vid, unplug_at ? ", unplugged later" : "");
+            if (unplug_at)
+                SDL_AddTimer(static_cast<uint32_t>(unplug_at - SDL_GetTicks()), [](void *, SDL_TimerID, uint32_t) -> uint32_t {
+                    SDL_DetachVirtualJoystick(vid);
+                    return 0;
+                }, nullptr);
+        }
+#endif
     }
-    std::erase_if(pads, [](SDL_Gamepad *p) {
-        if (SDL_GamepadConnected(p)) return false;
-        SDL_CloseGamepad(p);
+    std::erase_if(pads, [](Device &d) {
+#ifndef __PSP__
+        if (d.j) {
+            if (SDL_JoystickConnected(d.j)) return false;
+            SDL_CloseJoystick(d.j);
+            return true;
+        }
+#endif
+        if (SDL_GamepadConnected(d.g)) return false;
+        SDL_CloseGamepad(d.g);
         return true;
     });
+    auto have = [](SDL_JoystickID id) {
+        return std::any_of(pads.begin(), pads.end(), [&](const Device &d) { return d.id == id; });
+    };
     int n = 0;
     SDL_JoystickID *ids = SDL_GetGamepads(&n);
     for (int i = 0; ids && i < n; i++) {
-        bool have = std::any_of(pads.begin(), pads.end(), [&](SDL_Gamepad *p) { return SDL_GetGamepadID(p) == ids[i]; });
-        if (!have) {
-            if (SDL_Gamepad *p = SDL_OpenGamepad(ids[i])) {
-                pads.push_back(p);
-                log("gamepad %zu: %s\n", pads.size() - 1, SDL_GetGamepadName(p));
-            }
+        if (have(ids[i])) continue;
+        if (SDL_Gamepad *p = SDL_OpenGamepad(ids[i])) {
+            pads.push_back({p, nullptr, ids[i]});
+            log("gamepad %zu: %s\n", pads.size() - 1, SDL_GetGamepadName(p));
         }
     }
     SDL_free(ids);
+#ifndef __PSP__   // the PSP's SDL subset has gamepads only (its own buttons)
+    ids = SDL_GetJoysticks(&n);
+    for (int i = 0; ids && i < n; i++) {
+        if (have(ids[i]) || SDL_IsGamepad(ids[i])) continue;
+        if (SDL_Joystick *j = SDL_OpenJoystick(ids[i])) {
+            pads.push_back({nullptr, j, ids[i]});
+            log("joystick %zu (no gamepad mapping, raw axes / buttons): %s, %d axes, %d buttons, %d hats\n",
+                pads.size() - 1, SDL_GetJoystickName(j), SDL_GetNumJoystickAxes(j), SDL_GetNumJoystickButtons(j),
+                SDL_GetNumJoystickHats(j));
+        }
+    }
+    SDL_free(ids);
+#endif
 }
 
-SDL_Gamepad *pad(uint32_t id) {
+Device *pad(uint32_t id) {
     refresh_pads();
-    return id < pads.size() ? pads[id] : nullptr;
+    return id < pads.size() ? &pads[id] : nullptr;
 }
 
 // The game's controller mode global (race code 0x411e06: value 2 keeps the axes analog, any other
@@ -113,12 +163,17 @@ STDCALL(WINMM, joyGetNumDevs, 0) { return MAX_JOYSTICKS; }
 STDCALL(WINMM, joyGetDevCapsA, 3) {
     uint32_t id = arg(0), p = arg(1), size = arg(2);
     if (!p || size < 404) return JOYERR_PARMS;
-    SDL_Gamepad *g = pad(id);
-    if (!g) return JOYERR_UNPLUGGED;
+    Device *d = pad(id);
+    if (!d) return JOYERR_UNPLUGGED;
     memset(M + p, 0, 404);
     WR16(p + 0, 0x045E);
     WR16(p + 2, 0x0001);
-    write_cstr(p + 4, SDL_GetGamepadName(g) ? SDL_GetGamepadName(g) : "Gamepad", 32);
+#ifndef __PSP__
+    const char *name = d->g ? SDL_GetGamepadName(d->g) : SDL_GetJoystickName(d->j);
+#else
+    const char *name = SDL_GetGamepadName(d->g);
+#endif
+    write_cstr(p + 4, name ? name : "Gamepad", 32);
     WR32(p + 40, 65535);   // X max
     WR32(p + 48, 65535);   // Y max
     WR32(p + 56, 65535);   // Z max
@@ -133,34 +188,55 @@ STDCALL(WINMM, joyGetDevCapsA, 3) {
 
 STDCALL(WINMM, joyGetPosEx, 2) {
     uint32_t id = arg(0), p = arg(1);
-    SDL_Gamepad *g = pad(id);
-    if (!g) return JOYERR_UNPLUGGED;
+    Device *d = pad(id);
+    if (!d) return JOYERR_UNPLUGGED;
     last_poll_ms = SDL_GetTicks();
-    int x = dz(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTX));
-    int y = dz(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTY));
-    // Triggers go either to the Y axis (analog mode) or to buttons 9/10 (digital mode), never
-    // both: the game's control setup takes whichever input it notices first.
-    bool trig_axis = triggers_as_axis();
-    if (trig_axis)
-        y += SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) - SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
-    if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_LEFT)) x = -32768;
-    if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) x = 32767;
-    if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_UP)) y = -32768;
-    if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_DOWN)) y = 32767;
-    static const SDL_GamepadButton order[8] = {
-        SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH,
-        SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, SDL_GAMEPAD_BUTTON_BACK,
-        SDL_GAMEPAD_BUTTON_START};
+    int x = 0, y = 0;
     uint32_t buttons = 0, count = 0;
-    for (int i = 0; i < 8; i++)
-        if (SDL_GetGamepadButton(g, order[i])) { buttons |= 1u << i; count++; }
-    if (!trig_axis && SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > TRIGGER_PRESSED) { buttons |= 1u << 8; count++; }
-    if (!trig_axis && SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > TRIGGER_PRESSED) { buttons |= 1u << 9; count++; }
+    bool up = false, down = false, left = false, right = false;
+    if (SDL_Gamepad *g = d->g) {
+        x = dz(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTX));
+        y = dz(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTY));
+        // Triggers go either to the Y axis (analog mode) or to buttons 9/10 (digital mode), never
+        // both: the game's control setup takes whichever input it notices first.
+        bool trig_axis = triggers_as_axis();
+        if (trig_axis)
+            y += SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) - SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+        left = SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_LEFT);
+        right = SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
+        up = SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_UP);
+        down = SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_DOWN);
+        static const SDL_GamepadButton order[8] = {
+            SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH,
+            SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, SDL_GAMEPAD_BUTTON_BACK,
+            SDL_GAMEPAD_BUTTON_START};
+        for (int i = 0; i < 8; i++)
+            if (SDL_GetGamepadButton(g, order[i])) { buttons |= 1u << i; count++; }
+        if (!trig_axis && SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > TRIGGER_PRESSED) { buttons |= 1u << 8; count++; }
+        if (!trig_axis && SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > TRIGGER_PRESSED) { buttons |= 1u << 9; count++; }
+    }
+#ifndef __PSP__
+    else if (SDL_Joystick *j = d->j) {   // raw joystick: axes 0 / 1, the first buttons, hat 0
+        if (SDL_GetNumJoystickAxes(j) > 0) x = dz(SDL_GetJoystickAxis(j, 0));
+        if (SDL_GetNumJoystickAxes(j) > 1) y = dz(SDL_GetJoystickAxis(j, 1));
+        const int nb = std::min(SDL_GetNumJoystickButtons(j), NUM_BUTTONS);
+        for (int i = 0; i < nb; i++)
+            if (SDL_GetJoystickButton(j, i)) { buttons |= 1u << i; count++; }
+        if (SDL_GetNumJoystickHats(j) > 0) {
+            const uint8_t h = SDL_GetJoystickHat(j, 0);
+            up = h & SDL_HAT_UP; down = h & SDL_HAT_DOWN; left = h & SDL_HAT_LEFT; right = h & SDL_HAT_RIGHT;
+        }
+    }
+#endif
+    if (left) x = -32768;
+    if (right) x = 32767;
+    if (up) y = -32768;
+    if (down) y = 32767;
     uint32_t pov = 0xFFFF;   // JOY_POVCENTERED
-    if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_UP)) pov = 0;
-    else if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) pov = 9000;
-    else if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_DOWN)) pov = 18000;
-    else if (SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_DPAD_LEFT)) pov = 27000;
+    if (up) pov = 0;
+    else if (right) pov = 9000;
+    else if (down) pov = 18000;
+    else if (left) pov = 27000;
     WR32(p + 8, to_axis(x));
     WR32(p + 12, to_axis(y));
     WR32(p + 16, 0x7FFF);

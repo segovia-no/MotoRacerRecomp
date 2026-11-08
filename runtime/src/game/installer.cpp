@@ -572,7 +572,7 @@ std::string prepare(const std::string &explicit_game_dir) {
     Job job;
     job.kit = kit;
     // MOTORACER_DATA_DIR (tests): another data folder than the player's
-    job.data = getenv("MOTORACER_DATA_DIR") ? getenv("MOTORACER_DATA_DIR") : plat::host().paths.data_dir();
+    job.data = getenv("MOTORACER_DATA_DIR") ? getenv("MOTORACER_DATA_DIR") : rt::app_data_dir();
     job.build_id = read_text(P(kit) / "BUILD_ID");
     job.game_dir = !explicit_game_dir.empty() ? explicit_game_dir
                  : getenv("MOTORACER_GAME_DIR") ? getenv("MOTORACER_GAME_DIR") : job.data + "/game";

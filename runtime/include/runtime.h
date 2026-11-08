@@ -62,6 +62,12 @@ constexpr uint32_t THUNK_LO = 0xFFC00000;     // fake code addresses that map to
 constexpr uint32_t THUNK_HI = 0xFFF00000;
 constexpr uint32_t RETURN_MAGIC = 0xFFFFFFF0; // return address pushed by guest_call
 
+// ---------- the player's data and the log (core/app_dirs.cpp) ----------
+// Release packages on Linux / Windows: the program's own folder (game/, gamecode/, logs/); otherwise the
+// platform's per-user folders (plat::HostPaths).
+std::string app_data_dir();
+std::string app_log_dir();
+
 // ---------- logging ----------
 extern bool trace_imports;
 void log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));

@@ -185,3 +185,25 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
   records: id + 6 languages); its user is not found yet. Next: ask the reporter how the tag appears
   and whether it lands correctly with RECOMP › HUD SCALE = 1.
 - `MOTORACER_AUTOKEYS` now knows `SHIFT` and `CTRL` (`+SHIFT F5 -SHIFT`).
+
+## Linux pads only on the first start; one folder (GitHub issue #5, 2026-11-08)
+- Report: a PS4 pad on Linux worked on the first start after installing (all bindings changeable) and
+  never again; a Gravis analog pad on a USB adapter only moved the mouse.
+- Cause: the startup input init falls back to KEYBOARD when no joystick answers, and the game saves that
+  in CONFIG.BPT, so one slow start sticks. SDL finds PlayStation / Switch pads (HIDAPI drivers) only
+  while events are pumped; the first start had the installer screen pump events for minutes. The wait
+  only ran for CONTROLLER = JOYSTICK, 1 s.
+- Fix (`game_hook_input_loaded`): wait up to 3 s when a pad is expected (CONTROLLER JOYSTICK / JOYPAD,
+  or `Gamepad=1` in recomp_state.txt: one answered at an earlier start), 5 s on a Steam Deck, else a
+  300 ms look; a pad found and CONTROLLER = KEYBOARD (never chosen, or the fallback) → JOYSTICK, the only
+  analog mode (owner: the default; a JOYPAD choice stays).
+- Keyboard and controller together: the game reads the keyboard in JOYSTICK mode too (checked with an
+  idle virtual pad and the keyboard driving), so nothing to add. `MOTORACER_VIRTUAL_PAD=1` (dev) attaches
+  an idle SDL virtual gamepad (`=<ms>`: unplugged after that long) for such tests.
+- Pads without an SDL gamepad mapping (adapters for old analog sticks) are opened as plain SDL joysticks:
+  axes 0 / 1, buttons 0..9, hat 0 (`winmm_joy.cpp`; not on the PSP, whose SDL subset has gamepads only).
+- One folder (owner + reporter): Windows / Linux / Steam Deck release packages keep `game/`, `gamecode/`
+  and `logs/` in the package's own folder (`core/app_dirs.cpp`: a release kit next to the program and the
+  folder writable; otherwise, and on macOS, the per-user folders). An earlier install is moved in on the
+  first start (copied and removed across disks).
+
