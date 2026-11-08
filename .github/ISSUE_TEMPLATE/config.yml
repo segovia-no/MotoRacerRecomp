@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/guides/troubleshooting.md
+    about: Logs, reinstalling the game files, resetting settings — worth a look before opening an issue.
+  - name: PSP guide
+    url: https://github.com/segovia-no/MotoRacerRecomp/blob/main/docs/guides/psp-build.md
+    about: Building and installing the PSP version.

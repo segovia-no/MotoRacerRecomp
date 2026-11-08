@@ -1,0 +1,29 @@
+name: Feature request
+description: An idea or improvement for the port
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: The feature or change, and why it would help.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Which platforms it is about
+      multiple: true
+      options:
+        - All
+        - macOS
+        - Windows
+        - Linux
+        - Steam Deck
+        - PSP
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: How the original game behaves, screenshots, links.

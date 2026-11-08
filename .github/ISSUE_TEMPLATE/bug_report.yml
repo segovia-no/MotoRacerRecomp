@@ -1,0 +1,80 @@
+name: Bug report
+description: Something does not work or looks wrong in the game
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please do not attach game files (game.EXE, data/, the CD tracks) or anything built from them.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "The release you downloaded (e.g. v0.1.2), or the commit if you built from source. The log's first lines show it too (`installer: kit … (0.1.2-…)`)."
+      placeholder: v0.1.2
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS (Apple Silicon)
+        - Windows
+        - Linux
+        - Steam Deck
+        - PSP
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS version and hardware
+      description: e.g. macOS 15.5 on an M2; Windows 11 with an RTX 3060; Fedora 44 with Intel UHD 620; PSP-1000 with ARK-4
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Release package (Releases page)
+        - Built from source (setup.sh / setup.cmd)
+        - PSP package (setup.sh --psp / setup.cmd --psp)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Where in the game (menu, track, view), with which controls (keyboard, gamepad model, mouse), how often it happens.
+      placeholder: |
+        1. Single race on Speed Bay
+        2. Press F6 (cockpit view)
+        3. ...
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or video
+      description: If possible, drag images or a short video here; they help a lot with graphics problems.
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Attach `motoracer.log` (drag the file here), especially for crashes and setup errors:
+        macOS `~/Library/Logs/MotoRacerRecomp/`, Linux `~/.local/state/MotoRacerRecomp/`, Windows `%LOCALAPPDATA%\MotoRacerRecomp\logs\`, PSP `PSP/GAME/MOTORACER/` on the memory stick.
+        The previous run is kept as `motoracer.log.1`.
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings (optional)
+      description: Screen mode, 16/9 mode, D3D option, or anything you changed in Options › Recomp or the `[Recomp]` section of motoracer.ini.
