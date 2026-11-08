@@ -5,7 +5,8 @@
 <!-- Platforms and how: a race, the menus, check mode for native code, PPSSPP or a real PSP, ... -->
 - [ ] macOS
 - [ ] Windows
-- [ ] Linux / Steam Deck
+- [ ] Linux
+- [ ] Steam Deck
 - [ ] PSP
 
 ## Checklist
