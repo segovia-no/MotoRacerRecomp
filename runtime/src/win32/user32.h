@@ -78,5 +78,6 @@ void cd_audio_tick();   // winmm_cd.cpp
 void controller_tick(); // host_window.cpp: menu navigation auto-repeat
 void gamepads_refresh(); // winmm_joy.cpp: open newly connected gamepads (menu events need them open)
 bool wait_for_gamepad(uint32_t ms);   // winmm_joy.cpp: true once one is open, false after ms
+const char *pad_input_label(int32_t input);   // winmm_joy.cpp: "RT", "Cross", ... or nullptr (game's own)
 
 }  // namespace w32

@@ -26,7 +26,7 @@
 | Speedometer style (dials › digital › hidden), in a race | **Back** / **View** |
 | Menus | d-pad or left stick, **A** select, **B** back |
 
-A gamepad connected when the game starts sets the game's CONTROLLER option from KEYBOARD to JOYSTICK (the only analog mode) with this layout; JOYPAD, if you chose it, is left alone. The keyboard keeps working in JOYSTICK mode, so you can use both. Plugged in later? Choose Options › CONTROLLER › JOYSTICK and the layout is applied (it never overwrites bindings you made yourself). Pads SDL has no mapping for (e.g. adapters for old analog joysticks) work too, by their raw axes and buttons: bind them in Options › CONTROLLER › config.
+A gamepad connected when the game starts sets the game's CONTROLLER option from KEYBOARD to JOYSTICK (the only analog mode) with this layout; JOYPAD, if you chose it, is left alone. The layout replaces whatever joystick bindings were stored the first time this happens; bindings you change afterwards in Options › CONTROLLER › config are kept. The keyboard keeps working in JOYSTICK mode, so you can use both. Plugged in later? Choose Options › CONTROLLER › JOYSTICK and the layout is applied over the game's factory joystick bindings. The controller settings screen names the inputs in your pad's own terms (RT / LT / RB / A on Xbox-style pads, R2 / L2 / R1 / Cross on PlayStation, ZR / ZL / R / B on Nintendo), instead of the game's "Button 0" and arrows. Pads SDL has no mapping for (e.g. adapters for old analog joysticks) work too, by their raw axes and buttons: bind them in Options › CONTROLLER › config.
 
 **Window**: **Alt+Enter** (also **Cmd+F** on macOS) toggles fullscreen; **Cmd+Q** quits on macOS.
 

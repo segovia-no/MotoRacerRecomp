@@ -155,6 +155,59 @@ bool wait_for_gamepad(uint32_t ms) {
         SDL_PumpEvents();   // runs device detection; the queued events are handled later as usual
     }
 }
+
+// The name of a joystick input (the game's encoding: 0.. buttons, -2/-3 X left/right, -4/-5 Y up /
+// down) on the first controller, in its family's own terms (Xbox, PlayStation, Nintendo; face buttons
+// by SDL's label for the pad), for the game's controller settings screen; nullptr: keep the game's
+// own text / arrow (steering, a raw joystick without a gamepad mapping, no controller, the PSP).
+const char *pad_input_label(int32_t input) {
+#ifdef __PSP__
+    (void)input;
+    return nullptr;
+#else
+    refresh_pads();
+    if (pads.empty() || !pads[0].g) return nullptr;
+    SDL_Gamepad *g = pads[0].g;
+    enum Family { XBOX, PLAYSTATION, NINTENDO } family = XBOX;
+    switch (SDL_GetGamepadType(g)) {
+    case SDL_GAMEPAD_TYPE_PS3: case SDL_GAMEPAD_TYPE_PS4: case SDL_GAMEPAD_TYPE_PS5: family = PLAYSTATION; break;
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO: case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT: case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
+        family = NINTENDO; break;
+    default: break;
+    }
+    static const char *const shoulders[3][2] = {{"LB", "RB"}, {"L1", "R1"}, {"L", "R"}};
+    static const char *const triggers[3][2] = {{"LT", "RT"}, {"L2", "R2"}, {"ZL", "ZR"}};
+    static const char *const menu[3][2] = {{"Back", "Start"}, {"Share", "Options"}, {"Minus", "Plus"}};
+    const bool trig_axis = triggers_as_axis();
+    switch (input) {
+    case -4: return trig_axis ? triggers[family][1] : nullptr;   // Y up: the right trigger (or the stick)
+    case -5: return trig_axis ? triggers[family][0] : nullptr;
+    case 0: case 1: case 2: case 3: {   // south, east, west, north (joyGetPosEx order)
+        static const SDL_GamepadButton face[4] = {SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST,
+                                                  SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH};
+        switch (SDL_GetGamepadButtonLabel(g, face[input])) {
+        case SDL_GAMEPAD_BUTTON_LABEL_A: return "A";
+        case SDL_GAMEPAD_BUTTON_LABEL_B: return "B";
+        case SDL_GAMEPAD_BUTTON_LABEL_X: return "X";
+        case SDL_GAMEPAD_BUTTON_LABEL_Y: return "Y";
+        case SDL_GAMEPAD_BUTTON_LABEL_CROSS: return "Cross";
+        case SDL_GAMEPAD_BUTTON_LABEL_CIRCLE: return "Circle";
+        case SDL_GAMEPAD_BUTTON_LABEL_SQUARE: return "Square";
+        case SDL_GAMEPAD_BUTTON_LABEL_TRIANGLE: return "Triangle";
+        default: return nullptr;
+        }
+    }
+    case 4: return shoulders[family][0];
+    case 5: return shoulders[family][1];
+    case 6: return menu[family][0];
+    case 7: return menu[family][1];
+    case 8: return trig_axis ? nullptr : triggers[family][1];   // buttons 9/10 in the digital mode
+    case 9: return trig_axis ? nullptr : triggers[family][0];
+    default: return nullptr;
+    }
+#endif
+}
 }
 using w32::last_poll_ms;
 

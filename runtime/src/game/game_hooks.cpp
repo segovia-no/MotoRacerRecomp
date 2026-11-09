@@ -109,6 +109,7 @@ int table_list = -1;      // which List is in the game's table (-1: not built ye
 bool reselect = false;    // pick the remembered mode on the next tick (after an options load)
 bool defaults_applied = false;
 bool pad_seen = false;    // a controller answered at an earlier start (recomp_state.txt: Gamepad=1)
+bool pad_layout = false;  // the documented layout was forced once (recomp_state.txt: PadLayout=1)
 bool options_loaded = false;     // the game has read its options (CONFIG.BPT)   // first-run defaults done (recomp_state.txt: Defaults=1)
 uint32_t last_area = 0;
 
@@ -129,6 +130,7 @@ void load_state() {
         if (sscanf(line.c_str(), "ScreenMode169=%ux%u", &m.w, &m.h) == 2) remembered[1] = m;
         if (line == "Defaults=1") defaults_applied = true;
         if (line == "Gamepad=1") pad_seen = true;
+        if (line == "PadLayout=1") pad_layout = true;
     }
 }
 
@@ -139,6 +141,7 @@ void save_state() {
     if (remembered[1].w) out += "ScreenMode169=" + std::to_string(remembered[1].w) + "x" + std::to_string(remembered[1].h) + "\n";
     if (defaults_applied) out += "Defaults=1\n";
     if (pad_seen) out += "Gamepad=1\n";
+    if (pad_layout) out += "PadLayout=1\n";
     rt::write_file(kStateFile, out);
 }
 
@@ -163,6 +166,14 @@ constexpr int32_t kXboxJoy[7] = {-4, -5, -2, -3, 5, 4, 0};
 // toggles the speedometer (Back, see speedometer_button).
 constexpr int32_t kPspJoy[7] = {0, 2, -2, -3, 5, 4, 1};
 
+// Set when the runtime itself switched a desktop's CONTROLLER from KEYBOARD to JOYSTICK
+// (game_hook_input_loaded): the joystick bindings stored then were never the player's active choice
+// (left from a JOYPAD session or an older preset, so not the factory layout), and the documented
+// layout replaces them, once (PadLayout=1: the switch can repeat at every start, as the game's own
+// startup check may store KEYBOARD again, and later changes are the player's). The PSP (pad only)
+// keeps replacing just the factory / Xbox layouts.
+bool preset_forced = false;
+
 void apply_controller_preset() {
     if (!settings::get().controller_preset || RD32(INPUT_DEVICE) != 2) return;
     auto bound = [](const int32_t *layout) {
@@ -170,19 +181,48 @@ void apply_controller_preset() {
             if (static_cast<int32_t>(RD32(BINDINGS + 8 * i + 4)) != layout[i]) return false;
         return true;
     };
+    const bool forced = preset_forced;
+    preset_forced = false;
 #ifdef __PSP__
-    // also over the desktop's Xbox preset (a config copied from a PC: throttle on triggers the PSP lacks)
-    if (!bound(kFactoryJoy) && !bound(kXboxJoy)) return;   // the player's own bindings
+    const int32_t *target = kPspJoy;   // also over the desktop's Xbox preset (a config copied from a PC)
 #else
-    if (!bound(kFactoryJoy)) return;   // the player's own bindings
+    const int32_t *target = kXboxJoy;
 #endif
+    if (bound(target) && !forced) return;   // applied
+    if (!bound(kFactoryJoy) && !bound(kXboxJoy) && !forced) {   // the player's own bindings: kept
+        static std::string logged;
+        std::string layout;
+        for (uint32_t i = 0; i < 7; i++) layout += " " + std::to_string(static_cast<int32_t>(RD32(BINDINGS + 8 * i + 4)));
+        if (layout != logged) logged = layout, log("controller: own joystick bindings kept:%s\n", layout.c_str());
+        return;
+    }
+    for (uint32_t i = 0; i < 7; i++) WR32(BINDINGS + 8 * i + 4, static_cast<uint32_t>(target[i]));
+    if (forced) {
+        pad_layout = true;
+        save_state();
+    }
 #ifdef __PSP__
-    for (uint32_t i = 0; i < 7; i++) WR32(BINDINGS + 8 * i + 4, static_cast<uint32_t>(kPspJoy[i]));
     log("controller: PSP layout applied (Cross/Square throttle/brake, nub/D-pad steer, R/L gears, Circle stunts)\n");
 #else
-    for (uint32_t i = 0; i < 7; i++) WR32(BINDINGS + 8 * i + 4, static_cast<uint32_t>(kXboxJoy[i]));
     log("controller: Xbox layout preset applied (RT/LT throttle/brake, LB/RB gears, A stunts)\n");
 #endif
+}
+
+// Controller settings screen (0x445380), a row's joystick column: the game prints "<action> Button
+// <n>" for buttons and an arrow icon for the axes (so RT / LT, bound as Y up / down in JOYSTICK mode,
+// showed as up / down arrows). With a controller connected the row reads "<action> RT", "<action> A",
+// "<action> Cross", ... in the pad's own terms (w32::pad_input_label); steering keeps its arrows.
+// eax = the binding {keyboard VK, joystick input}; [esp+0x18] = the action's name; the row text goes
+// to [esp+0x58], which the game draws at 0x44566a.
+extern "C" int game_hook_joy_label(void) {
+    const char *label = w32::pad_input_label(static_cast<int32_t>(RD32(R.eax + 4)));
+    if (!label) return 0;
+    char name[64] = {};
+    for (uint32_t i = 0; i < sizeof name - 1 && RD8(R.esp + 0x18 + i); i++) name[i] = static_cast<char>(RD8(R.esp + 0x18 + i));
+    char text[64];
+    snprintf(text, sizeof text, "%s %s", name, label);
+    for (uint32_t i = 0; i <= strlen(text); i++) WR8(R.esp + 0x58 + i, static_cast<uint8_t>(text[i]));
+    return 1;
 }
 
 void apply_first_run_defaults() {
@@ -307,6 +347,7 @@ extern "C" void game_hook_input_loaded(void) {
     }
     if (settings::get().controller_preset && (found || deck) && device != 2 && device != 4) {
         WR32(INPUT_DEVICE, 2);
+        preset_forced = !pad_layout && !plat::host().info.pad_only();   // the documented layout, once (not the PSP)
         log("%s: CONTROLLER set to JOYSTICK (analog)\n", deck ? "Steam Deck" : "controller found");
     }
     // Pad-only hosts (PSP) at every start: with CONTROLLER = KEYBOARD (a config copied from a PC, or

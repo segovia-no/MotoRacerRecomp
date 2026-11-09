@@ -206,4 +206,22 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
   and `logs/` in the package's own folder (`core/app_dirs.cpp`: a release kit next to the program and the
   folder writable; otherwise, and on macOS, the per-user folders). An earlier install is moved in on the
   first start (copied and removed across disks).
+- Follow-up (owner, 2026-11-09, 8BitDo Ultimate 2C on macOS): after the switch to JOYSTICK the bindings
+  were not the documented Xbox layout. The preset only replaced the game's factory joystick layout, and
+  the stored joystick column was something else (left from a JOYPAD session or an older preset; CONFIG.BPT
+  is encrypted, so not read back). Also seen: CONTROLLER was KEYBOARD again at the next start, so the
+  switch repeats every start. Fix: when the runtime itself switches KEYBOARD -> JOYSTICK, the layout is
+  forced once (`PadLayout=1` in recomp_state.txt); afterwards only the factory layout is replaced, and
+  other bindings are logged as kept ("own joystick bindings kept: ..."). Not on the PSP (pad only: the
+  PSP layout still replaces the factory / Xbox layouts only).
+- Controller settings labels (owner request): the screen's row function `0x445380` prints buttons with
+  message 9 ("%s Button %d", language strings copied to `0x53b5e8[id]` by `0x415a70` from the table at
+  `0x4e2920`, 28 bytes per id: id + 6 languages) and draws arrow icons for the axes (sprites
+  `[0x504bb4]` left, `[0x504bb8]` right, `[0x504bb0]` up, `[0x504bbc]` down at x 0x226), so RT / LT
+  (Y up / down in JOYSTICK mode) showed as up / down arrows. Jump hook `game_hook_joy_label` at
+  `0x44548e` (joystick column; eax = the binding, [esp+0x18] the action name) writes "<action> <input>"
+  to the row text [esp+0x58] and continues at its draw `0x44566a`. Names per pad family from
+  `SDL_GetGamepadType` (Xbox LB/RB/LT/RT/Back/Start, PlayStation L1/R1/L2/R2/Share/Options, Nintendo
+  L/R/ZL/ZR/Minus/Plus), face buttons from `SDL_GetGamepadButtonLabel`; steering keeps the arrows; raw
+  joysticks and the PSP keep the game's text.
 

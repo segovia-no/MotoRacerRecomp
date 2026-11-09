@@ -213,6 +213,10 @@ GAME_JUMP_HOOKS = {
     0x44329A: ("game_hook_options_rows", 0x44448F),
     # dispatch of the activated item (esi) -> the Recomp page handles its items
     0x444504: ("game_hook_options_action", 0x4449A2),
+    # Controller settings rows 0x445380, joystick column (eax = the action's binding): the runtime
+    # writes "<action> RT" / "<action> Cross" ... into the row text [esp+0x58] and continues at its
+    # draw; 0 = the game's "Button %d" / arrow icons (game_hooks.cpp)
+    0x44548E: ("game_hook_joy_label", 0x44566A),
     # Info button (item 21, would open the DIAGNOSTIC page 13) -> opens the Recomp page
     0x444983: ("game_hook_options_info", 0x4449A2),
     # Render-list flush 0x4af570: native per-vertex loops (untextured / textured), continuing after them
