@@ -246,6 +246,19 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   the register spill around a jump hook and crashed the translated code; it is now
   `h = NATIVE_CALL(name);`, one statement for the spill pass.
 
+### Cockpit view (F6) crash in races — GitHub issue #7 (2026-11-09)
+- Report (Linux, v0.1.2): F6 at the start of a single race or championship crashes ("indirect
+  call/jump to unknown guest address 0x832" / "0x93a"); practice works. Reproduced on macOS with an
+  E2E race (F6 after the start), any render scale; not with `MOTORACER_NATIVE=0`.
+- Check mode: `draw bikes 0x458b80` mismatched on the first cockpit frame. The native opponent
+  draw loop (added 2026-11-07, in v0.1.2) took the cockpit branch when `[0x508834] == 1`; the x86
+  compares it with the bike index (`cmp eax, ebx` at `0x458bed`): the cockpit replaces the viewed
+  bike, whose index is 1 only in practice (one bike). In races the player's bike was drawn normally
+  instead, the stack slot the x86 leaves ([esp+0x10]) differed, and the game jumped to a garbage
+  return address.
+- Fix (`native_race_e.cpp`): compare with the index. Verified: check mode 0 mismatches with F6 in a
+  single race (grid position 24); the cockpit shows; no crash at render scale 6.
+
 ### Cockpit windscreen glare drawn black — issue #1 follow-up (2026-11-05, owner-confirmed)
 - Reporter: "the black texture I suspect is a visor reflection that isn't displayed correct".
   Draw dump (`MOTORACER_D3D_DUMP`, now also logging vertex alpha, texture-alpha use and colour key):

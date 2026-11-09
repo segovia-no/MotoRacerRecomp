@@ -300,7 +300,8 @@ stdcall (out, a, b; ret 0xc): out = a - b; eax = out.
 0x458b80: draw the other bikes (stdcall: skip list, its length; ret 8)
 For bikes 1 .. [0x509bac] - 1 (0x3209 bytes each from 0x584421; [bike] = drawn this frame): an
 active bike ([+0x68]) inside the camera's view (0x46e8b0, camera [0x4dc0f8] of the table 0x5161c0,
-radius 512) is drawn by 0x462110 in the replay view ([0x4dc008] and [0x508834] == 1), else — unless
+radius 512) is drawn by 0x462110, the cockpit model, when it is the viewed bike in the cockpit view
+([0x4dc008] and [0x508834] == the bike's index, `cmp eax, ebx` at 0x458bed), else — unless
 the skip list is given and holds none of the bike's sector [+0x31c1] — by 0x45f290 (counter
 [0x4f0dc0]) and 0x461f70. The list scan is per bike (the translated cost: bikes x list length).
 The callers read no register afterwards (eax / ecx / edx are not compared in check mode). The

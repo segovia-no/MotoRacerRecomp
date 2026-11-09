@@ -211,7 +211,8 @@ uint32_t gcall(void (*fn)(void), uint32_t esp, uint32_t ret, uint32_t ecx, std::
 // ---- 0x458b80: draw the other bikes (stdcall: skip list, its length; ret 8) ----
 // For bikes 1 .. [0x509bac] - 1 (0x3209 bytes each from 0x584421; [bike] = drawn this frame): an
 // active bike ([+0x68]) inside the camera's view (0x46e8b0, camera [0x4dc0f8] of the table 0x5161c0,
-// radius 512) is drawn by 0x462110 in the replay view ([0x4dc008] and [0x508834] == 1), else — unless
+// radius 512) is drawn by 0x462110, the cockpit model, when it is the viewed bike in the cockpit view
+// ([0x4dc008] and [0x508834] == its index; GitHub issue #7: not 1, crashes in races), else — unless
 // the skip list is given and holds none of the bike's sector [+0x31c1] — by 0x45f290 (counter
 // [0x4f0dc0]) and 0x461f70. The list scan is per bike (the translated cost: bikes x list length).
 // The callers read no register afterwards (eax / ecx / edx are not compared in check mode). The
@@ -239,7 +240,7 @@ void draw_bikes() {
         R.ebp = ebp;
         auto cam = [&] { return CAMS + RD32A(0x4dc0f8) * 0x238u; };
         if (!gcall(f_0046e8b0, B, 0x458bd7, cam(), {s + 0x30, 0x44000000})) continue;
-        if (RD32A(0x4dc008) && RD32A(0x508834) == 1) {
+        if (RD32A(0x4dc008) && RD32A(0x508834) == i) {   // x86: cmp [0x508834], ebx (the bike index)
             game_hook_cockpit_begin();
             gcall(f_00462110, B, 0x458c1e, s, {RD32A(0x4dc0c0), cam(), RD32(s + 0x307d)});
             game_hook_cockpit_end();
