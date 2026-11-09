@@ -18,6 +18,7 @@
 #include "host/host_gpu.h"
 #include "host/host_video.h"
 #include "runtime.h"
+#include "game/game_hooks.h"
 #include "game/settings.h"
 #include "user32.h"
 
@@ -123,6 +124,12 @@ std::vector<Row> make_rows() {
          [] {
              edit().controller_menus = !settings::get().controller_menus;
              save("ControllerMenus", settings::get().controller_menus ? "1" : "0");
+         }},
+        {"ALL TRACKS", [] { return std::string(settings::get().all_tracks ? "ON   (DATA DISK TRACKS TOO)" : "OFF"); },
+         [] {
+             edit().all_tracks = !settings::get().all_tracks;
+             save("AllTracks", settings::get().all_tracks ? "1" : "0");
+             game::tracks_apply();
          }},
     };
 }

@@ -9,7 +9,12 @@
 | 0x4d1f4c | rhw numerator (rhw = [0x4d1f4c] / z) |
 | 0x4d1f9c | depth -> bucket scale |
 | 0x4dc008 | replay view active |
+| 0x4dc03c | PocketAvailable (track list) |
+| 0x4dc040 | ReverseAvailable (track list) |
+| 0x4dc048 | active data disk (0 = Data\list.spt, n = list%02d) |
 | 0x4dc06c / 0x4dc070 | clipping on / off |
+| 0x4dc088 | track list records (0x130 bytes: name +4, folder +0x24) |
+| 0x4dc08c | selected track (index into 0x4dc088) |
 | 0x4dc098 | detail level (index of the per-detail table 0x51d1b8, 36 bytes each; also track objects on) |
 | 0x4dc0b4 | race paused / frozen (no movement) |
 | 0x4dc0c0 | the renderer object |
@@ -31,13 +36,15 @@
 | 0x4f0dc0 | bikes drawn counter |
 | 0x4f1a20 | back buffer locked this frame |
 | 0x4f9304 | special face texture handles [4 * (id * 206 + variant)] |
+| 0x504eb8 | track list name (ListName) |
 | 0x509398 | per-model dirt-bike flag (0x5092b0 + 0xe8) |
 | 0x509bac | bike count |
+| 0x5161c0 | cameras (0x238 bytes each) |
 | 0x51d1bc | per-detail draw distance (36-byte entries) |
+| 0x51d298 | number of tracks (NumberIslande) |
 | 0x52c108 | the track object (see structs.md) |
 | 0x52c10c | track sector count |
 | 0x52c228..0x52c230 | light vector |
-| 0x5161c0 | cameras (0x238 bytes each) |
 | 0x584421 | bikes (0x3209 bytes each) |
 | 0x5fcb80 | sine table (16384 floats per turn) |
 | 0x60d1a0 | 32-entry gradient palette (0x490b90) |
@@ -45,7 +52,6 @@
 | 0x60d3d0 | span table (8-byte entries, pointers at 0x623bd8, count [0x65e1d4]) |
 | 0x623bd8 | per-row span-list heads, 480 dwords (0x624358 is the next global: taller viewports overflow it; the recomp relocates it to 0x760010) |
 | 0x624374 / 0x62e448 | screen x max / min |
-| 0x6d1040 / 0x625784 | screen y max / min |
 | 0x624afc | execute buffer / back buffer object |
 | 0x624f5c | back buffer pixels at the viewport origin |
 | 0x625774 | near plane z |
@@ -54,5 +60,6 @@
 | 0x655d38 | render lists per depth bucket (0x1f40 buckets) |
 | 0x68b008 | span table size |
 | 0x68b014 | transformed vertex pool count |
+| 0x6d1040 / 0x625784 | screen y max / min |
 | 0x6d20d8 | transformed vertex pool (28 bytes each) |
 | 0x709378 | plane test counter (0x4b10c0, 0x4b0f60) |

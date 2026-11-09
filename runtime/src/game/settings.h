@@ -75,6 +75,7 @@ struct Settings {
     bool ai_lod = false;
 #endif
     bool controller_preset = true;
+    bool all_tracks = true;   // the data disk's two tracks next to the original eight (tracks.cpp)
     TriggerMode trigger_mode = TriggerMode::Auto;
 };
 
