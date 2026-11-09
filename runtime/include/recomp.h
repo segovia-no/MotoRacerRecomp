@@ -396,6 +396,8 @@ int game_hook_joy_label(void);
 void game_hook_tracks_loaded(void);
 void game_hook_tracks_save_begin(void);
 void game_hook_tracks_save_end(void);
+void game_hook_pitch_sim(void);
+void game_hook_pitch_view(void);
 
 /* ---------- control transfer / traps ---------- */
 void call_indirect(uint32_t va);   /* guest VA -> recompiled fn, import shim or COM thunk */

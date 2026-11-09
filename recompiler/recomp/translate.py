@@ -130,6 +130,12 @@ GAME_HOOKS = {
     0x4AFCD3: "native_flush_check",
     0x4AFCD8: "native_flush_check",
     0x4AFD3E: "native_flush_check",
+    # Race frame: before the physics step 0x47df40, before the camera update 0x458620 and at its end
+    # (before the limiter 0x459fd0)
+    # (pitch_smooth.cpp: the player's pitch low-passed for the view only, issue #11)
+    0x47D7C5: "game_hook_pitch_sim",
+    0x47D8BB: "game_hook_pitch_view",
+    0x47DA8F: "game_hook_pitch_sim",
     # The active track list was read (0x428d60) at startup; around the list write-back 0x4291f0
     # (tracks.cpp: the data disk's tracks appended / hidden, issue #9)
     0x472D73: "game_hook_tracks_loaded",

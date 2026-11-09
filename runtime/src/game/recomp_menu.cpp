@@ -125,6 +125,13 @@ std::vector<Row> make_rows() {
              edit().controller_menus = !settings::get().controller_menus;
              save("ControllerMenus", settings::get().controller_menus ? "1" : "0");
          }},
+#ifndef __PSP__
+        {"SMOOTH BIKE PITCH", [] { return std::string(on_off(settings::get().pitch_smoothing)); },
+         [] {
+             edit().pitch_smoothing = !settings::get().pitch_smoothing;
+             save("PitchSmoothing", settings::get().pitch_smoothing ? "1" : "0");
+         }},
+#endif
         {"ALL TRACKS", [] { return std::string(settings::get().all_tracks ? "ON   (DATA DISK TRACKS TOO)" : "OFF"); },
          [] {
              edit().all_tracks = !settings::get().all_tracks;

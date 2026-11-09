@@ -100,3 +100,32 @@ Race at the default (60, vsync): 59.5–60.0 fps, same as with the game's own li
 - Replays store the integer frame time per frame (`0x558aa8`: dt in the top 8 bits, inputs, stick X/Y)
   and are re-simulated from it, so live races must keep integer frame times; sub-millisecond frame
   times would make replays drift.
+
+## Bike pitch steps on slopes (GitHub issue #11, 2026-11-09, owner-confirmed)
+- Owner: bikes on slopes do not pitch smoothly, most visible in the cockpit view; suspected a fixed
+  physics rate. Not the case: the game runs a variable timestep (above).
+- Logged per frame (player bike `0x581218 + 0x3209 · [0x508834]`; `+0xd8` = sin of the pitch, the
+  forward row of the orientation `+0xbc`): on a steady climb at 60 fps the pitch saw-tooths,
+  0.273 0.283 0.320 | 0.292 0.286 0.335 | 0.322 0.287 0.348 …, 2–3.5 degrees every few frames, with the
+  height difference of the front / back wheel points (`+0x1b8` / `+0x33c`). The pitch is the angle between
+  those points, each put on the floor of its own track sector (`0x469c60`, `0x46bf80`, floor `0x40c8b0`),
+  and the sector floors do not join smoothly: a point crossing a seam (~50 units a frame) steps the pitch.
+  Same in the original at 30 fps; the chase camera hides it, the cockpit camera rides on it.
+  (`+0x2db8` reads 1 on the ground in these logs, unlike its note in structs.md.)
+- Fix (`pitch_smooth.cpp`, `PitchSmoothing`, Recomp menu "SMOOTH BIKE PITCH", on; desktop only): race
+  frame GAME_HOOKs before the camera update (`0x47d8bb`; `0x458620` is the camera update), at the frame's
+  end (`0x47da8f`, after the draw `[vtable + 0x20]` = `0x47ff90`, before the limiter) and before the
+  physics step (`0x47d7c5`). For the view the player's orientation `+0xbc`, lean frame `+0x2e55` and
+  forward vector `+0x198` are rotated about their right row to a filtered pitch, then put back, so the
+  simulation never sees it. Filter: alpha-beta tracker (critically damped gains from τ = 120 ms and the
+  frame time, `MOTORACER_PITCH_TAU` dev), the shown pitch held within 0.05 rad (3 degrees) of the game's,
+  jumps above 0.5 rad (respawn) taken at once. Measured (owner's drives, jaggedness = change of the
+  per-frame step, p90): raw 0.0163, shown 0.0015 rad.
+- Wrong turns: a plain low-pass (τ 70 ms; "improved but not enough"); without the 3-degree cap the tracker
+  overshot crests / landings by up to 13 degrees; filtering the height as well gained nothing (its
+  per-frame steps follow the uneven frame times on steep slopes, smooth in time); restoring the saved
+  values unconditionally at the next physics step put the bike back where it had been after a race
+  restart (wrong orientation, once dropped from the sky): a block is now restored only if it still holds
+  the value written for the view, and the restore also runs at the frame's end.
+- Regression (2026-11-09): race with F6 and a crash / respawn, native check mode (0 mismatches),
+  `PitchSmoothing=0`, translator difftest (0 failing), macOS release module and PSP builds.

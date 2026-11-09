@@ -102,6 +102,7 @@ void load(const std::string &game_dir) {
     if (auto v = get("recomp", "hudscale")) s.hud_scale = strcasecmp(v->c_str(), "auto") ? static_cast<float>(atof(v->c_str())) : 0.f;
     if (auto v = get("recomp", "controllerpreset")) s.controller_preset = truthy(*v);
     if (auto v = get("recomp", "alltracks")) s.all_tracks = truthy(*v);
+    if (auto v = get("recomp", "pitchsmoothing")) s.pitch_smoothing = truthy(*v);
     if (auto v = get("recomp", "controllermenus")) s.controller_menus = truthy(*v);
     if (auto v = get("recomp", "triggermode")) {
         if (!strcasecmp(v->c_str(), "axis")) s.trigger_mode = TriggerMode::Axis;
