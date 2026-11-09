@@ -20,6 +20,10 @@
 | 0x4dc140 | aim distance unit (sectors ahead: x 9 / 16 / 2 / 4) |
 | 0x4dc150 | steering scale |
 | 0x4dc170 | unlock the back buffer after locking |
+| 0x4dc19c | -3DFX (only selects the D3D mode, 0x42bc85) |
+| 0x4dc1bc | opaque-white flag read next to 0x4dc1c0, never written |
+| 0x4dc1c0 | -Alpha: 4444 textures (also set with a PowerVR, 0x414e4c) |
+| 0x4dc1cc | PowerVR card (SRCBLEND = SRCALPHA for translucent polygons, 0x41de45) |
 | 0x4e4f10 | render state value (alpha ref) |
 | 0x4e4f2c | blend ops on (0x41e1b0) |
 | 0x4e9834 | input / control mode (1, 2: no lean shaping) |

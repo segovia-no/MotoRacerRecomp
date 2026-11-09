@@ -272,6 +272,44 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   (desktop shader `alpha.z`, PSP alpha test). Also seen on the way: the CONTINUE box behind
   "CONTINUE YES/NO" uses the 6/6 glare blending (vertex alpha 128) and is now 50% see-through.
 
+### Tyre smoke white instead of grey — GitHub issue #6 (2026-11-09, owner-confirmed)
+- Report (Windows, v0.1.2): the rear-wheel smoke of a wheelie is almost white; on a real 3dfx card
+  (Voodoo3, YouTube "3dfx Legacy: Moto Racer") it is darker grey, like burnt rubber.
+- `-3DFX` (`0x4dc19c`) only selects the D3D mode at `0x42bc85`; there is no Glide renderer. What
+  differs is `-Alpha` (`0x4dc1c0`, "Enable texture format 4444"): GOG's `motoracer.ini` ships
+  `Alpha=false`, we always add it (settings.cpp: the name-entry letters vanish without it).
+- With `-Alpha` the texture loader `0x41c050` gives the bike packs' effects page `bnk00_01.raw`
+  (data\SpeedPkt, speed, ktmcross, KTMpkt; names at `0x4e6d38..0x4e6d88`) two rectangles
+  (`0x41c3c5`, by page size): A, the smoke strip (x 0xde..0xff, rows 0..0xff; 0x6f..0x7f / 0..0x7f
+  on 128-wide pages), RGB -> HSV `0x41bb20`, alpha = trunc(V x 16) (`0x4d0640`), V x 5
+  (`0x4d0648`), HSV -> RGB `0x41bd30`; B (x 0..0x3b, rows 0..0x14, the bike shadow) alpha 8. The
+  puffs are dark grey (V 0.13..0.31): they became white with alpha <= 0.27.
+- The smoke polygons blend with SRCBLEND = DESTBLEND = INVSRCALPHA (types 0x2c / 0x3e / 0x44 /
+  0x45: `0x41dde0` "additive", `0x41e000`; SRCALPHA only on a PowerVR), a 50% mix meant for vertex
+  alpha 128. With -Alpha the smoke's vertex alpha is 128 too, but other users of that blend carry
+  opaque vertices (white flag `0x4dc1c0`): texture alpha 1 there gives 0 x src + 0 x dst = black,
+  fainter texel alpha brightens the road.
+- Behind the player's bike ~40 puffs overlap in one frame (U dump below), so the layers converge
+  on the puffs' colour: white with the x86 conversion, near black with the puffs' own grey. The
+  opponents' few distant puffs looked fine either way.
+- Wrong turns on the way (all owner-tested): emptying rectangle A (opaque grey -> black boxes);
+  patching the doubles at `0x4d0640` / `0x4d0648` (the translator folds read-only constants into
+  the generated code, no effect); converting only in the native row loop (128-wide pages that read
+  every other source pixel run the translated loop: no effect on the owner's bike).
+- Fix:
+  - `native_load.cpp`: rectangle A gets alpha = trunc(V x 32) and V x 3 (mid grey, about twice
+    the opacity, soft edges). The native row loop converts it directly; rows of the translated loop
+    are redone at `0x41d08d` from the x86's 4444 result (V from its alpha). Check mode skips the
+    comparison for those rows. `MOTORACER_SMOKE=<alpha>,<gain>` (dev; 16,5 = original); owner-picked
+    32,3 ("worked flawlessly"; 32,1 stacked to black).
+  - `d3d_gpu.cpp` / `d3d.frag`: SRCBLEND = DESTBLEND = INVSRCALPHA is drawn as SRCALPHA /
+    INVSRCALPHA with alpha 0.5 x texture alpha (the PowerVR result at vertex alpha 128), whatever
+    the vertex alpha. The glare and CONTINUE box keep their 50%. PSP (`d3d_ge.cpp`): same, vertex
+    alpha 0.5 modulated by the GE (built, not run).
+- Dev aids: `MOTORACER_TEX_DUMP=<dir>` (every texture upload as TGA); `MOTORACER_DUMP_KEY=1`: U
+  dumps the next frame's draws (now with texture coordinates, vertex green) and writes its textures
+  to `<log dir>/dump/` — how the owner's wheelie was captured without a scripted repro.
+
 ### Intro glitches — GitHub issue #3 (2026-11-04, zoom fixed, owner-confirmed)
 - Report (Linux): the first logo sits in the top-left corner; the picture "zooms" when the
   Delphine Software International logo appears.

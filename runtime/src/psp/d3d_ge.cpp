@@ -498,6 +498,9 @@ void apply_states(const uint32_t *rs, Texture *tex) {
     if (bl) {
         unsigned sfix = 0, dfix = 0;
         int sf = blend_factor(rs[RS_SRCBLEND], true, &sfix), df = blend_factor(rs[RS_DESTBLEND], false, &dfix);
+        // SRCBLEND = DESTBLEND = INVSRCALPHA: the game's 50% mix for alpha 0.5 vertices (glare, tyre
+        // smoke; see d3d_gpu.cpp) -> SRCALPHA / INVSRCALPHA with vertex alpha 0.5 (draw: half_alpha)
+        if (rs[RS_SRCBLEND] == 6 && rs[RS_DESTBLEND] == 6) sf = GU_SRC_ALPHA;
         if (sf != gs.bsrc || df != gs.bdst || sfix != gs.bsfix || dfix != gs.bdfix) {
             sceGuBlendFunc(GU_ADD, sf, df, sfix, dfix);
             gs.bsrc = sf; gs.bdst = df; gs.bsfix = sfix; gs.bdfix = dfix;
@@ -908,7 +911,11 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     // Direct3D MODULATE takes alpha from the texture alone when it has an alpha channel; the GE's
     // modulate multiplies it with the vertex alpha, and the game's HUD vertices carry alpha 0.
     const uint32_t blend = rs[RS_TEXTUREMAPBLEND];
-    const uint32_t force_alpha = (tex && tex->alpha && blend != 3 && blend != 4) ? 0xFF000000u : 0;
+    uint32_t force_alpha = (tex && tex->alpha && blend != 3 && blend != 4) ? 0xFF000000u : 0;
+    // the game's 50% blend (apply_states): vertex alpha 0.5, times the texture's alpha by the GE
+    const bool half_alpha = rs[RS_ALPHABLENDENABLE] && rs[RS_SRCBLEND] == 6 && rs[RS_DESTBLEND] == 6;
+    const uint32_t keep = half_alpha ? 0x00FFFFFFu : 0xFFFFFFFFu;
+    if (half_alpha) force_alpha = 0x80000000u;
     const uint32_t cull = rs[RS_CULLMODE];
     static const int dump_frame = getenv("MOTORACER_GE_DUMP") ? atoi(getenv("MOTORACER_GE_DUMP")) : -1;
     if (tex && ge3d() && dump_frame < 0) {
@@ -964,7 +971,7 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
                     GeVertex g;
                     g.u = (v[j]->g.u * su + 0.0625f) * iu;
                     g.v = (v[j]->g.v * sv + 0.0625f) * iv;
-                    g.color = v[j]->g.color | force_alpha;
+                    g.color = (v[j]->g.color & keep) | force_alpha;
                     g.x = v[j]->g.x * w;
                     g.y = v[j]->g.y * w;
                     g.z = w;
@@ -998,7 +1005,7 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
                 if (lazy) g.z = depth_3d(v[j]->sz);
                 g.u = g.u * su + (tex ? 0.0625f : 0.f);
                 g.v = g.v * sv + (tex ? 0.0625f : 0.f);
-                g.color |= force_alpha;
+                g.color = (g.color & keep) | force_alpha;
                 out[k++] = g;
             }
         }
@@ -1079,7 +1086,7 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
         // boundaries, where Direct3D takes the texel to the right / below; nudge them there.
         g.u = g.u * su + (tex ? 0.0625f : 0.f);
         g.v = g.v * sv + (tex ? 0.0625f : 0.f);
-        g.color |= force_alpha;
+        g.color = (g.color & keep) | force_alpha;
         out[i] = g;
     }
     st.subdivided += static_cast<uint32_t>(tri_out.size() / 3 - ntri);

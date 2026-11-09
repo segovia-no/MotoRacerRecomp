@@ -6,7 +6,9 @@
 // PSP those three translated calls per byte were ~70% of a race load. The native version does the
 // common case — the byte is in the buffer, no seek — with the same memory and registers as the
 // translated chain; refills, seeks and errors run the translated code (decided before any change).
+#include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <string>
@@ -158,8 +160,8 @@ extern "C" int native_cfile_read(void) {
 // 0/255/0 -> black, near-black lifted so it is not keyed), an alpha value (format with alpha bits:
 // 0 for near-black, else 1, or for the format with alpha mode 4: 15, or 8 inside a rectangle; inside
 // another rectangle the translated code converts the colour with double-precision helpers), then
-// each channel rounded to its bit count and shifted into a 16-bit pixel. Rows that touch that
-// conversion rectangle, and 128-wide rows that skip every other source pixel, run the translated
+// each channel rounded to its bit count and shifted into a 16-bit pixel. The conversion rectangle
+// gets other factors (below); 128-wide rows that skip every other source pixel run the translated
 // loop. Exit state as the translated loop leaves it (0x41d08d).
 namespace {
 
@@ -172,18 +174,65 @@ struct RowPending {
 
 inline uint32_t shl32(uint32_t v, uint32_t c) { return v << (c & 31); }
 
+// Tyre smoke (GitHub issue #6). The conversion rectangle is the smoke strip of the bikes' effects
+// page (bnk00_01.raw): the x86 makes alpha = trunc(V x 16) and V x 5 there, so the dark grey puffs
+// (V < 0.32) turned white and faint (alpha <= 0.27); 3dfx cards (no -Alpha) show them grey. Here
+// alpha = trunc(V x 32) and V x 3: mid grey, about twice as opaque, soft edges as before. (V x 1,
+// the puffs' own colour, stacks to black behind the player's bike: ~40 puffs overlap there.)
+// MOTORACER_SMOKE=<alpha factor>,<colour gain> (dev; 16,5 = the original). Owner-tested 32,3.
+struct SmokeFactors { double alpha = 32.0, gain = 3.0; };
+const SmokeFactors &smoke_factors() {
+    static const SmokeFactors f = [] {
+        SmokeFactors r;
+        if (const char *e = getenv("MOTORACER_SMOKE")) sscanf(e, "%lf,%lf", &r.alpha, &r.gain);
+        r.alpha = std::clamp(r.alpha, 0.0, 64.0);
+        r.gain = std::clamp(r.gain, 0.0, 8.0);
+        return r;
+    }();
+    return f;
+}
+
+// the row crosses the conversion rectangle (smoke strip)
+bool row_in_smoke(uint32_t ebp, uint32_t esi) {
+    MEM_LOCAL();
+    if (!RD32A(esi + 0x70) || RD32A(esi + 0x80) != 4) return false;
+    const int32_t x0 = static_cast<int32_t>(RD32A(ebp - 0x5ec)), x1 = static_cast<int32_t>(RD32A(ebp - 0x3c));
+    const int32_t y0 = static_cast<int32_t>(RD32A(ebp - 0x38)), y1 = static_cast<int32_t>(RD32A(ebp - 0x34));
+    const int32_t y = static_cast<int32_t>(RD32A(ebp - 0x18)), xs = static_cast<int32_t>(RD32A(ebp - 0x24));
+    return x0 != -1 && y0 <= y && y1 >= y && x1 >= xs && x0 < static_cast<int32_t>(RD32A(ebp - 0x1e8));
+}
+
+// Smoke rows the translated loop converted (128-wide pages read from every other source pixel, or
+// natives off): the 4444 pixels are redone from the x86's result. Its alpha holds V (trunc(V x 16)),
+// its colour V x 5 (clamped to 1), so the colour is scaled back to V and the alpha set as above.
+struct SmokeRow { bool pending = false; uint32_t dest = 0, x = 0; } smoke_row;
+void smoke_fixup(uint32_t ebp, uint32_t esi) {
+    MEM_LOCAL();
+    const SmokeFactors &smoke = smoke_factors();
+    const int32_t count = static_cast<int32_t>(RD32A(ebp - 0x1e8)), xs = static_cast<int32_t>(smoke_row.x);
+    const int32_t x0 = static_cast<int32_t>(RD32A(ebp - 0x5ec)), x1 = static_cast<int32_t>(RD32A(ebp - 0x3c));
+    const uint32_t bits[3] = {RD8(esi + 0x74), RD8(esi + 0x7c), RD8(esi + 0x78)};
+    const uint32_t shifts[3] = {RD8(esi + 0x88), RD8(esi + 0x8c), RD8(esi + 0x90)}, sa = RD8(esi + 0x94);
+    for (int32_t xi = std::max(xs, x0); xi <= std::min(count - 1, x1); xi++) {
+        const uint32_t at = smoke_row.dest + 2u * static_cast<uint32_t>(xi - xs), p = RD16(at);
+        const uint32_t a4 = (p >> sa) & 15;
+        if (!a4) continue;   // cut out
+        const double v = (a4 + 0.5) / 16.0, shown = std::min(1.0, v * 5.0);
+        uint32_t out = std::min<uint32_t>(15u, static_cast<uint32_t>(v * smoke.alpha)) << sa;
+        for (int k = 0; k < 3; k++) {
+            const uint32_t max = (1u << bits[k]) - 1, n = (p >> shifts[k]) & max;
+            const double c = std::min(1.0, n / static_cast<double>(max) / shown * v * smoke.gain);
+            out |= static_cast<uint32_t>(c * max + 0.5) << shifts[k];
+        }
+        WR16(at, static_cast<uint16_t>(out));
+    }
+}
+
 // false: the translated loop handles this row
-bool rgb_row_supported(uint32_t ebp, uint32_t esi) {
+bool rgb_row_supported(uint32_t ebp) {
     MEM_LOCAL();
     const uint32_t count = RD32A(ebp - 0x1e8);
-    if (count == 0x80 && RD32A(ebp - 0xe8) != 0x80) return false;   // skips source pixels (seek per pixel)
-    if (RD32A(esi + 0x70) && RD32A(esi + 0x80) == 4) {
-        const int32_t x0 = static_cast<int32_t>(RD32A(ebp - 0x5ec)), x1 = static_cast<int32_t>(RD32A(ebp - 0x3c));
-        const int32_t y0 = static_cast<int32_t>(RD32A(ebp - 0x38)), y1 = static_cast<int32_t>(RD32A(ebp - 0x34));
-        const int32_t y = static_cast<int32_t>(RD32A(ebp - 0x18)), xs = static_cast<int32_t>(RD32A(ebp - 0x24));
-        if (x0 != -1 && y0 <= y && y1 >= y && x1 >= xs && x0 < static_cast<int32_t>(count)) return false;
-    }
-    return true;
+    return !(count == 0x80 && RD32A(ebp - 0xe8) != 0x80);   // skips source pixels (seek per pixel)
 }
 
 RowOut rgb_row(uint32_t ebp, uint32_t esi, bool *slow) {
@@ -194,7 +243,9 @@ RowOut rgb_row(uint32_t ebp, uint32_t esi, bool *slow) {
     const uint32_t b1 = RD8(esi + 0x74), b2 = RD8(esi + 0x7c), b3 = RD8(esi + 0x78);
     const uint32_t s1 = RD8(esi + 0x88), s2 = RD8(esi + 0x8c), s3 = RD8(esi + 0x90), sa = RD8(esi + 0x94);
     const uint32_t g1 = RD8(0x4ee9ac), g2 = RD8(0x4ee9b0), g3 = RD8(0x4ee9b4);
-    const int32_t x0 = static_cast<int32_t>(RD32A(ebp - 0x5ec));
+    const int32_t x0 = static_cast<int32_t>(RD32A(ebp - 0x5ec)), x1 = static_cast<int32_t>(RD32A(ebp - 0x3c));
+    const int32_t y0 = static_cast<int32_t>(RD32A(ebp - 0x38)), y1 = static_cast<int32_t>(RD32A(ebp - 0x34));
+    const SmokeFactors &smoke = smoke_factors();
     const int32_t bx0 = static_cast<int32_t>(RD32A(ebp - 0x30)), bx1 = static_cast<int32_t>(RD32A(ebp - 0x2c));
     const int32_t by0 = static_cast<int32_t>(RD32A(ebp - 0x6ec)), by1 = static_cast<int32_t>(RD32A(ebp - 0x7f0));
     uint32_t dest = RD32A(ebp - 0x4ec);
@@ -225,8 +276,12 @@ RowOut rgb_row(uint32_t ebp, uint32_t esi, bool *slow) {
             a = 1;
         } else if (x0 == -1) {
             a = 0xf;
+        } else if (const int32_t xi = static_cast<int32_t>(x); xi >= x0 && xi <= x1 && y0 <= y && y1 >= y) {
+            const int32_t v = std::max(c1, std::max(c2, c3));   // HSV value
+            a = std::min<uint32_t>(15u, static_cast<uint32_t>(v / 255.0 * smoke.alpha));
+            const auto scale = [&](int32_t c) { return std::min<int32_t>(255, static_cast<int32_t>(c * smoke.gain + 0.5)); };
+            c1 = scale(c1), c2 = scale(c2), c3 = scale(c3);
         } else {
-            const int32_t xi = static_cast<int32_t>(x);
             a = (xi >= bx0 && xi <= bx1 && by0 <= y && by1 >= y) ? 8 : 0xf;
         }
         uint32_t v1 = static_cast<uint32_t>(c1) + shl32(1, 7 - b1);
@@ -268,12 +323,19 @@ void apply(const RowOut &o) {
 // jump hook at 0x41cdb6 (row loop entry, count > 0): nonzero = done, continue at 0x41d08d
 extern "C" int native_rgb_row(void) {
     MEM_LOCAL();
+    const uint32_t ebp = R.ebp, esi = R.esi, esp = R.esp;
+    const bool smoke = row_in_smoke(ebp, esi);
+    smoke_row = {smoke, RD32A(ebp - 0x4ec), RD32A(ebp - 0x24)};   // redone at 0x41d08d unless native
     const Mode md = mode();
     if (md == OFF) return 0;
-    const uint32_t ebp = R.ebp, esi = R.esi, esp = R.esp;
-    if (!rgb_row_supported(ebp, esi)) return 0;
+    if (!rgb_row_supported(ebp)) return 0;
     bool slow = false;
-    if (md == ON) {
+    if (md == ON || smoke) {   // smoke rows differ from the x86 on purpose
+        if (smoke && smoke_row.pending) {
+            static bool logged = false;
+            if (!logged) logged = true, rt::log("smoke: rows converted natively\n");
+        }
+        smoke_row.pending = false;
         apply(rgb_row(ebp, esi, &slow));
         R.esp = esp;
         return 1;
@@ -299,8 +361,14 @@ extern "C" int native_rgb_row(void) {
     return 0;
 }
 
-// GAME_HOOK at 0x41d08d (after the row loop)
+// GAME_HOOK at 0x41d08d (after the row loop): smoke rows of the translated loop, check mode
 extern "C" void native_rgb_row_check(void) {
+    if (smoke_row.pending) {
+        static bool logged = false;
+        if (!logged) logged = true, rt::log("smoke: rows converted by the x86 loop, redone\n");
+        smoke_fixup(R.ebp, R.esi);
+        smoke_row.pending = false;
+    }
     if (!row_pending.active) return;
     row_pending.active = false;
     Snapshot translated = take(row_pending.regions);

@@ -222,6 +222,12 @@ another rectangle the translated code converts the colour with double-precision 
 each channel rounded to its bit count and shifted into a 16-bit pixel. Rows that touch that
 conversion rectangle, and 128-wide rows that skip every other source pixel, run the translated
 loop. Exit state as the translated loop leaves it (0x41d08d).
+The rectangles (set at 0x41c3c5 for the bike packs' bnk00_01.raw, by page size 128 / 256):
+A = smoke strip, x [ebp-0x5ec]..[ebp-0x3c] (0x6f..0x7f / 0xde..0xff), rows [ebp-0x38]..[ebp-0x34]:
+RGB -> HSV 0x41bb20 (V = max, S = (max - min) / max, H in degrees), alpha = trunc(V * 16), V * 5,
+HSV -> RGB 0x41bd30. B = bike shadow, x [ebp-0x30]..[ebp-0x2c] (0..0x3b), rows [ebp-0x6ec]..[ebp-0x7f0]
+(0..0x14): alpha 8. [ebp-0x5ec] = -1: neither (alpha 15). The runtime uses other factors for A
+(alpha V x 32, colour V x 3; GitHub issue #6, docs/notes/11-d3d-plan.md).
 
 ## 0x41dde0 rs_alpha_blend
 

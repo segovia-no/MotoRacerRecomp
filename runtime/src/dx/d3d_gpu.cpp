@@ -310,6 +310,17 @@ void surface_to_rgba(const Surface &s, std::vector<uint32_t> &out) {
     }
 }
 
+// RGBA8 pixels of a surface as a 32-bit TGA (debug dumps)
+void write_tga(const char *path, const Surface &s, const std::vector<uint32_t> &px) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    uint8_t hdr[18] = {0, 0, 2};
+    hdr[12] = s.w & 255; hdr[13] = s.w >> 8; hdr[14] = s.h & 255; hdr[15] = s.h >> 8; hdr[16] = 32; hdr[17] = 0x28;
+    fwrite(hdr, 1, 18, f);
+    for (uint32_t p : px) { uint8_t b[4] = {uint8_t(p >> 16), uint8_t(p >> 8), uint8_t(p), uint8_t(p >> 24)}; fwrite(b, 1, 4, f); }
+    fclose(f);
+}
+
 CachedTexture *texture_for(Surface *s, SDL_GPUCopyPass *copy, std::vector<SDL_GPUTransferBuffer *> &garbage,
                            std::vector<uint32_t> &scratch) {
     if (!s->w || !s->h || s->w > 8192 || s->h > 8192 || !s->mem || (s->bpp != 8 && s->bpp != 16)) {
@@ -329,6 +340,14 @@ CachedTexture *texture_for(Surface *s, SDL_GPUCopyPass *copy, std::vector<SDL_GP
         c.h = s->h;
     }
     surface_to_rgba(*s, scratch);
+    // Debug: MOTORACER_TEX_DUMP=<dir> writes every texture upload as a 32-bit TGA (as converted:
+    // RGB plus alpha), named by upload number, size and green / alpha masks (4444 = g00f0 af000).
+    if (static const char *dir = getenv("MOTORACER_TEX_DUMP"); dir) {
+        static int n = 0;
+        char path[512];
+        snprintf(path, sizeof path, "%s/tex_%04d_%ux%u_g%04x_a%04x.tga", dir, n++, s->w, s->h, s->gmask, s->amask);
+        write_tga(path, *s, scratch);
+    }
     upload_rgba(copy, c.tex, scratch.data(), s->w, s->h, garbage);
     c.version = s->version;
     c.pal_version = pal_version;
@@ -415,7 +434,22 @@ const DumpRange dump_range = [] {
     }
     return r;
 }();
+// MOTORACER_DUMP_KEY=1 (dev): U dumps the frame after the key press, with its textures as TGA
+// files in <log dir>/dump/
+int64_t key_dump_frame = -1;
+void poll_dump_key() {
+    static const bool on = getenv("MOTORACER_DUMP_KEY") != nullptr;
+    if (!on) return;
+    static bool was = false;
+    const bool down = SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_U];
+    if (down && !was) {
+        key_dump_frame = static_cast<int64_t>(presented) + 1;
+        log("U: dumping the draws of frame %lld\n", static_cast<long long>(key_dump_frame));
+    }
+    was = down;
+}
 bool dump_now() {
+    if (static_cast<int64_t>(presented) == key_dump_frame) return true;
     const int64_t d = static_cast<int64_t>(presented) - dump_range.first;
     return dump_range.first >= 0 && d >= 0 && d < dump_range.count * dump_range.step && d % dump_range.step == 0;
 }
@@ -426,6 +460,7 @@ void snapshot_rt() {
     static const uint64_t every = getenv("MOTORACER_SNAPSHOT_EVERY") ? std::max(1, atoi(getenv("MOTORACER_SNAPSHOT_EVERY"))) : 120;
     static uint64_t n = 0;
     presented++;
+    poll_dump_key();
     if (!dir || (n++ % every)) return;
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
     SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, rt_w * rt_h * 4, 0};
@@ -924,12 +959,17 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     // D3D MODULATE: alpha comes from the texture when its format has an alpha channel (even if
     // opaque), otherwise from the vertex. The game's vertices often carry alpha 0.
     c.uniforms.alpha[3] = (texture && (texture->amask || texture->gmask == 0x00F0 || texture->ckey_src)) ? 1.f : 0.f;
-    // Translucent effects (the cockpit windscreen glare, GitHub issue #1 follow-up) blend with
-    // SRCBLEND = DESTBLEND = INVSRCALPHA and vertex alpha 128 (0x41de45: SRCALPHA only on a PowerVR
-    // card), i.e. a 50% mix that only works with the vertex alpha. The texture's 1-bit alpha still
-    // cuts out the shape: alpha = vertex x texture. Plain texture alpha drew the opaque texels black.
-    if (c.uniforms.alpha[3] > 0.5f && rs[RS_ALPHABLENDENABLE] && rs[RS_SRCBLEND] == 6 && rs[RS_DESTBLEND] == 6)
-        c.uniforms.alpha[3] = 2.f;
+    // Translucent effects (the cockpit windscreen glare, GitHub issue #1 follow-up; tyre smoke,
+    // issue #6; the CONTINUE box) blend with SRCBLEND = DESTBLEND = INVSRCALPHA (0x41de45: SRCALPHA
+    // only on a PowerVR card), a 50% mix that only works with alpha 0.5, as their vertices carry
+    // without -Alpha. With -Alpha the smoke's vertices are opaque white and the texels too: plain
+    // texture alpha drew black (0 x src + 0 x dst), a fainter texel alpha brightened the road. Drawn
+    // as the 50% mix it stands for: SRCALPHA / INVSRCALPHA with alpha 0.5, times the texture's alpha
+    // (which still cuts out the shape).
+    if (rs[RS_ALPHABLENDENABLE] && rs[RS_SRCBLEND] == 6 && rs[RS_DESTBLEND] == 6) {
+        c.pipe.src = 5;
+        c.uniforms.alpha[3] = c.uniforms.alpha[3] > 0.5f ? 3.f : 4.f;
+    }
     c.first_index = static_cast<uint32_t>(frame_indices.size());
     bool flat = rt_w != g_w;   // only matters when rendering above the original resolution
     float w0 = 0, z0 = 0;
@@ -946,20 +986,37 @@ void draw(const uint32_t *rs, Surface *texture, uint32_t base, uint32_t nverts, 
     }
     if (dump_now()) {
         float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f, z0 = 1e9f, z1 = -1e9f, w0 = 1e9f, w1 = -1e9f;
-        uint32_t a0 = 255, a1 = 0;
+        uint32_t a0 = 255, a1 = 0, g0 = 255, g1 = 0;
+        float u0 = 1e9f, u1 = -1e9f, v0 = 1e9f, v1 = -1e9f;
         for (uint32_t t = 0; t < ntri * 3; t++) {
             const GpuVertex &v = frame_vertices[base + (indices[t] < nverts ? indices[t] : 0)];
+            u0 = std::min(u0, v.u); u1 = std::max(u1, v.u); v0 = std::min(v0, v.v); v1 = std::max(v1, v.v);
             a0 = std::min(a0, v.color >> 24); a1 = std::max(a1, v.color >> 24);
+            g0 = std::min(g0, (v.color >> 8) & 255); g1 = std::max(g1, (v.color >> 8) & 255);
             const float sx = (v.x / v.w + 1.f) * 0.5f * g_w, sy = (1.f - v.y / v.w) * 0.5f * g_h, sz = v.z / v.w;
             x0 = std::min(x0, sx); x1 = std::max(x1, sx); y0 = std::min(y0, sy); y1 = std::max(y1, sy);
             z0 = std::min(z0, sz); z1 = std::max(z1, sz); w0 = std::min(w0, v.w); w1 = std::max(w1, v.w);
         }
         log("dump f%llu %4zu: tri %3u box %4.0f..%4.0f x %4.0f..%4.0f z %.6f..%.6f w %.3f..%.3f ztest %d zwrite %d zfunc %u "
-            "blend %d %u/%u cull %u fog %u atest %d tex %ux%u mapblend %u valpha %u..%u texalpha %d ckey %d/%u\n",
+            "blend %d %u/%u cull %u fog %u atest %d tex %ux%u #%u uv %.0f..%.0f x %.0f..%.0f mapblend %u valpha %u..%u vgreen %u..%u "
+            "alphamode %.0f ckey %d/%u\n",
             static_cast<unsigned long long>(presented), frame_cmds.size(), ntri, x0, x1, y0, y1, z0, z1, w0, w1, c.pipe.ztest, c.pipe.zwrite, c.pipe.zfunc,
             c.pipe.blend, c.pipe.src, c.pipe.dst, c.pipe.cull, rs[RS_FOGENABLE], rs[RS_ALPHATESTENABLE],
-            texture ? texture->w : 0, texture ? texture->h : 0, rs[RS_TEXTUREMAPBLEND], a0, a1,
-            c.uniforms.alpha[3] > 0.5f ? 1 : 0, texture && texture->ckey_src ? 1 : 0, rs[RS_COLORKEYENABLE]);
+            texture ? texture->w : 0, texture ? texture->h : 0, texture ? texture->mem : 0, u0 * (texture ? texture->w : 0),
+            u1 * (texture ? texture->w : 0), v0 * (texture ? texture->h : 0), v1 * (texture ? texture->h : 0), rs[RS_TEXTUREMAPBLEND], a0, a1,
+            g0, g1, c.uniforms.alpha[3], texture && texture->ckey_src ? 1 : 0, rs[RS_COLORKEYENABLE]);
+        static std::map<uint32_t, uint64_t> written;   // texture -> frame
+        if (texture && written[texture->mem] != presented + 1) {
+            written[texture->mem] = presented + 1;
+            const std::string dir = app_log_dir() + "/dump";
+            SDL_CreateDirectory(dir.c_str());
+            std::vector<uint32_t> px;
+            surface_to_rgba(*texture, px);
+            char path[512];
+            snprintf(path, sizeof path, "%s/f%llu_%u_%ux%u.tga", dir.c_str(), static_cast<unsigned long long>(presented),
+                     texture->mem, texture->w, texture->h);
+            write_tga(path, *texture, px);
+        }
     }
     bool hud = hud_factor() > 1.f && hud_record(base, nverts, indices, ntri, frame_cmds.size());
     c.hud = hud;
