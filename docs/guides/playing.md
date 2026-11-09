@@ -7,7 +7,9 @@
 - The game's Direct3D renderer on the GPU (SDL_GPU: Metal, Vulkan or Direct3D 12) — or its original software renderer (Options › D3D: OFF).
 - **True widescreen**: the game's own 16/9 mode at native 1280×720, 1920×1080, 2560×1440 or 3840×2160, or 16:10 at 1280×800 (Steam Deck), 1920×1200 or 2560×1600, chosen in the game's Options › SCREEN MODE.
 - Race HUD scaled to the resolution, longer draw distance and smoother opponent level of detail.
-- **Gamepads** (Xbox, PlayStation, Switch Pro, 8BitDo, …): analog throttle/brake on the triggers, menu navigation with the d-pad/stick, a ready-made layout.
+- **Gamepads** (Xbox, PlayStation, Switch Pro, 8BitDo, …): analog throttle/brake on the triggers, menu navigation with the d-pad/stick, a ready-made layout, button names in the controller settings in your pad's own terms; keyboard and gamepad work together.
+- **All ten tracks**: the data disk's Fun Fair and Sea of Sand next to the original eight in single races (the original only offered them by swapping out two tracks).
+- Smooth bike pitch on slopes, most noticeable in the cockpit view (F6).
 - CD music from the GOG audio tracks, sound effects, working volume sliders.
 - Good defaults on first start: fullscreen, 16/9 mode at a native resolution for your display (16:10 on 16:10 screens), JOYSTICK controls on a Steam Deck.
 

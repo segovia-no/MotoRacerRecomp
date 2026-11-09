@@ -19,6 +19,8 @@ This is a *static recompilation*: the original Windows game executable from your
 | **Mac** (Apple Silicon), **Windows** 10/11, **Steam Deck / Linux** (x86-64) | Download the package for your system from the [Releases page](https://github.com/segovia-no/MotoRacerRecomp/releases), put the GOG installer in your Downloads folder, unpack the download and start Moto Racer. The first start unpacks the game and builds it on your computer (a minute or two, once). |
 | **PSP** (every model, custom firmware) | Build the PSP package on a Mac, Linux or Windows PC from your installer — `./setup.sh --psp` (macOS / Linux) or `setup.cmd --psp` (Windows) in the source folder — then copy `build/psp-hw/PSP` to the memory stick. Races run at about 25–30 fps. |
 
+Where things go: on **Windows, Linux and the Steam Deck** everything stays inside the MotoRacer folder you unpacked — the game files (`game/`), the compiled game code (`gamecode/`), saves, settings and logs — so you can keep it anywhere, and updating means unpacking the new version over it. On the **Mac** the app keeps them in `~/Library/Application Support/MotoRacerRecomp`.
+
 Details for each platform, updating and uninstalling: **[Install guide](docs/guides/install.md)** · PSP: **[PSP guide](docs/guides/psp-build.md)**.
 
 ## Documentation
