@@ -285,10 +285,10 @@ locally and tried on each device first.
   (Debian + Xvfb + lavapipe, `build/linux-x64/Dockerfile.test`; the image has no `xz`: unpack on the host).
   Windows: owner-tested on the PC (fresh install → race), "flawlessly". Programs: `build/pkg-macos`, `build/win-rel` (fresh: the toolchain file moved),
   `build/linux-mod` (sniper SDK); tools from `fetch_tools.py` in `build/release-tools/<platform>`.
-- 2026-11-09: draft release **v0.1.3** (target `e0e1ec5`, BUILD_ID `0.1.3-e0e1ec5`): Linux gamepads after
+- 2026-11-09: release **v0.1.3** (published by the owner the same day; target `e0e1ec5`, BUILD_ID `0.1.3-e0e1ec5`): Linux gamepads after
   the first start and one folder (#5), grey tyre smoke (#6), cockpit crash in races (#7), all ten tracks
   (#9), smooth bike pitch (#11), pad button names in the controller settings. Same programs and tools as
   v0.1.2 (`gh release create` needs the full commit hash as `--target`). Checked: the Mac zip in a sandbox
   HOME (fresh install from the GOG setup, module built, race at 2560×1920; owner: "the app works great")
   and the Linux tarball headless in Docker (fresh install into the MotoRacer folder: `game/`, `gamecode/`,
-  `logs/` next to `kit/`). Windows: built, to be checked on the PC.
+  `logs/` next to `kit/`). Windows: built here, not run here.
