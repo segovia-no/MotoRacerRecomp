@@ -90,7 +90,9 @@ SHEET_GLOB="gpu_00[23]*.bmp" scripts/dev/e2e_race.sh race1024 1 50 MOTORACER_D3D
   a real terminal (the host-key and password prompts need one; compare the host key with
   `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the Deck). Off again:
   `sudo systemctl disable --now sshd`.
-- A release-layout test folder (`~/mr-test12/MotoRacer`: the tarball unpacked, first start with
+- `scripts/dev/deck.sh push <program> [name]`, `run <name> <tag> "<keys>" [secs] [ENV=v ...]`, `log <tag>`
+  (`DECK_HOST`, default `deck@steamdeck.local`; `DECK_DIR`, default `mr-test/MotoRacer`).
+- A release-layout test folder (`~/mr-test/MotoRacer`: the tarball unpacked, first start with
   `MOTORACER_SETUP=$HOME/Downloads/setup_moto_racer_2.1.0.11.exe` installs and builds the module on
   the Deck). Other programs sit next to `motoracer` in the same folder and use its `game/`, `gamecode/`.
 - Runs go to the Desktop session: `DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000
