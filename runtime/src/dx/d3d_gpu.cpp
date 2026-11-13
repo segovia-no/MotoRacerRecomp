@@ -1150,6 +1150,22 @@ bool present_flip(Surface *back) {
 }
 
 void surface_destroyed(Surface *s) {
+    // Queued draws keep the Surface pointer until the flush converts its texture. The game releases
+    // textures between drawing and presenting (the championship podium, GitHub issue #12): the flush
+    // then read the freed Surface: zeros on macOS ("texture surface 0x0 not usable", drawn untextured),
+    // stale data and pointers with glibc / Windows heaps (on a Steam Deck: a segfault in the Vulkan
+    // driver under present_flip, every time; gone with this). Draws that use
+    // it are rendered now, while its pixels are still there (this runs at the start of the Surface
+    // destructor).
+    bool queued = false;
+    for (const Cmd &c : frame_cmds) queued |= c.kind == Cmd::Draw && c.texture == s;
+    if (queued) {
+        static int logged = 0;
+        if (logged++ < 4) log("d3d gpu: texture %ux%u released with draws queued: drawn now\n", s->w, s->h);
+        if (s != target) flush(After::Nothing);
+    }
+    for (Cmd &c : frame_cmds)
+        if (c.texture == s) c.texture = nullptr;   // not flushed (no target): drawn untextured
     if (s == target) target = nullptr;
     auto it = textures.find(s);
     if (it != textures.end()) {

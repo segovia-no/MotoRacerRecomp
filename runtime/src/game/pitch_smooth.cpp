@@ -131,9 +131,12 @@ extern "C" void game_hook_pitch_sim(void) {
 #endif
 }
 
+namespace game { void dev_warp(); }   // dev_warp.cpp
+
 // GAME_HOOK before the camera update (0x47d8bb): the player's pitch low-passed for the view.
 extern "C" void game_hook_pitch_view(void) {
 #ifndef __PSP__
+    game::dev_warp();
     if (saved.on || !settings::get().pitch_smoothing) return;   // paused: still swapped from the last frame
     const uint32_t b = player_bike();
     if (!b) return;

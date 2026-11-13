@@ -15,6 +15,15 @@ test. Each run opens a game window for its duration.
 - `EXTRA_KEYS="5000 +UP"` (scripts/dev/e2e_race.sh) holds the throttle after the start — needs Options >
   CONTROLLER = KEYBOARD (UP accelerates).
 - `MOTORACER_DRAW_DISTANCE=<x>` overrides DrawDistance for A/B runs.
+- Race end (podium, results; GitHub issue #12): `MOTORACER_WARP=<k>` (`game/dev_warp.cpp`) carries the
+  player's bike along the track to k sectors before the line every lap, 10 sectors a frame
+  (`MOTORACER_WARP_STEP`): the lap tracking ignores a bike put at the line in one jump. Only while
+  riding (a carried fallen rider fell from the sky for half a minute) and not in replays. With the
+  throttle held a 4-lap championship race on Speed Bay (788 sectors, k = 12) ends in ~40 s.
+  `MOTORACER_LAPS=<n>` sets every single-race track's lap count (track list record `+0x12c`);
+  championships use their own (4). The game writes the track list back at exit and keeps scores:
+  run both on a copy of the game folder (`cp -cR` clones it on APFS without using space;
+  `MOTORACER_GAME_DIR=<copy>`).
 - `MOTORACER_MODES="1024x600,960x720"` (runtime, `ddraw.cpp`): replaces the 16-bit display modes
   above 640×480 offered to the game — for bisecting resolution bugs.
 - `MOTORACER_D3D_DEBUG=1`: triangle classification / execute-buffer statistics in the log.
@@ -31,6 +40,13 @@ test. Each run opens a game window for its duration.
   `ENTER` does nothing.
 - Main menu: `LEFT ENTER` = Play Solo; `DOWN DOWN ENTER` = Options.
 - Select mode: `UP UP ENTER` = Single Race (`LEFT` lands on Back).
+- Select mode: Practice, Single Race, Championship. The focus starts on the mode played last
+  (Practice in a fresh install: `RIGHT RIGHT ENTER` = Championship; a folder last used for single
+  races: `UP UP RIGHT ENTER`). Then `UP UP UP ENTER` (Continue on the Speed Bay page) and the bike as
+  below. After the finish: `ESC` (answers the replay question) → podium (3D, at 640×480) → TOP 5
+  page; another `ESC` leaves the championship. e.g. `... ENTER 4000 +UP 80000 -UP 2000 ESC 6000 ESC`
+  with `MOTORACER_WARP=12`: hold the throttle long enough — on the Deck the warp restarts more often
+  (laps took longer than on the Mac), and an `ESC` before the finish opens the pause menu.
 - Select race: `UP UP UP ENTER` = Continue (Speed Bay). Choose bike: `DOWN DOWN ENTER` = Start.
   RIGHT / LEFT change the track (Speed Bay, Snow Ride, West Way, Dirt Arena with the original best
   scores) and move the focus to the arrow; plain taps there sometimes move twice. Dirt Arena (dirt
@@ -68,3 +84,20 @@ SHEET_GLOB="gpu_00[23]*.bmp" scripts/dev/e2e_race.sh race1024 1 50 MOTORACER_D3D
   Sheets (`build/e2e/<name>.png`) and logs (`<name>.log`) stay.
 - Runs are windowed: `e2e.sh` sets `MOTORACER_FULLSCREEN=0` (a dev override; motoracer.ini and normal
   launches keep their setting). Do not run E2E while the owner plays: both write the same log file.
+
+## On the owner's Steam Deck over SSH (2026-11-13, issue #12)
+- Set-up (owner, Desktop Mode): `sudo systemctl start sshd`, then `ssh-copy-id deck@<ip>` from the Mac in
+  a real terminal (the host-key and password prompts need one; compare the host key with
+  `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the Deck). Off again:
+  `sudo systemctl disable --now sshd`.
+- A release-layout test folder (`~/mr-test12/MotoRacer`: the tarball unpacked, first start with
+  `MOTORACER_SETUP=$HOME/Downloads/setup_moto_racer_2.1.0.11.exe` installs and builds the module on
+  the Deck). Other programs sit next to `motoracer` in the same folder and use its `game/`, `gamecode/`.
+- Runs go to the Desktop session: `DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000
+  XAUTHORITY=/run/user/1000/xauth_*`, with `MOTORACER_AUTOKEYS` as on the Mac (`timeout` exists there).
+  The log is `logs/motoracer.log` in the folder; a crash leaves `FATAL: host fault` and a backtrace.
+- Do not `pkill -f` a pattern from the ssh command line: it matches the remote shell itself.
+- #12 A/B on the Deck, championship race to the podium (`MOTORACER_WARP=12`): v0.1.3 + the warp
+  without the renderer fix crashed at the podium (`FATAL: host fault at 0x70`, in
+  `libvulkan_radeon` under `dx::gpu::present_flip`); with the fix the log shows "texture 256x256
+  released with draws queued: drawn now" at that point and the game goes on.

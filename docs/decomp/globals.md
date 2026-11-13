@@ -13,7 +13,7 @@
 | 0x4dc040 | ReverseAvailable (track list) |
 | 0x4dc048 | active data disk (0 = Data\list.spt, n = list%02d) |
 | 0x4dc06c / 0x4dc070 | clipping on / off |
-| 0x4dc088 | track list records (0x130 bytes: name +4, folder +0x24) |
+| 0x4dc088 | track list records (0x130 bytes: name +4, folder +0x24, ON / OFF +0x128, laps +0x12c; parse 0x428d60) |
 | 0x4dc08c | selected track (index into 0x4dc088) |
 | 0x4dc098 | detail level (index of the per-detail table 0x51d1b8, 36 bytes each; also track objects on) |
 | 0x4dc0b4 | race paused / frozen (no movement) |

@@ -8,6 +8,7 @@
 // end, so cutting the count back hides them again, also while the game writes the list back to
 // LIST.BPT (unlock flags), which must keep the original eight.
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -148,6 +149,10 @@ void tracks_apply() {
 extern "C" void game_hook_tracks_loaded(void) {
     merge();
     if (RD32(CURRENT) >= RD32(COUNT)) WR32(CURRENT, 0);
+    // MOTORACER_LAPS=<n> (dev, tests of the race end): every track's lap count (record +0x12c, read by
+    // the parse 0x428d60). The game writes the list back at exit: use a copy of the game folder.
+    if (const char *e = getenv("MOTORACER_LAPS"); e && atoi(e) > 0)
+        for (uint32_t i = 0, p = RD32(LIST); p && i < RD32(COUNT); i++) WR32(p + i * RECORD + 0x12c, atoi(e));
 }
 
 // GAME_HOOKs around the list write-back 0x4291f0 (0x433183 / 0x433188): the original tracks only.

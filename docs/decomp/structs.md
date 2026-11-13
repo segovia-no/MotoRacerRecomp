@@ -33,7 +33,7 @@ Offsets in hex. "?" = role not established. Sizes where known.
 | +0x360 | ptr | model entry (0x52c240 + 112 * lod) |
 | +0x638 | int | level of detail (> 1: the simple model path of 0x45f290) |
 | +0x2dac | int | ? (cleared by the step) |
-| +0x2db8 | int | airborne (0 = on the ground) |
+| +0x2db8 | int | 1 while riding normally, also on the ground (earlier read as "airborne, 0 = on the ground": not confirmed) |
 | +0x2dc8 | int | flag set by 0x46b120, restored around 0x466d70 |
 | +0x2dd0 | int | own index |
 | +0x2e1d | float | lean angle (smoothed with +0x2e21) |
@@ -55,9 +55,9 @@ Offsets in hex. "?" = role not established. Sizes where known.
 | +0x3085 | float[...]| object read by 0x490220 for the ground angle |
 | +0x307d | float | crash tumble angle (> 0 while tumbling) |
 | +0x30b5 | float[3] | centre of four extra ground points (+0x30ed..) |
-| +0x30c1 | int | off the track / crashed |
+| +0x30c1 | int | fallen / crashed: 1 until the rider is put back on the track (with +0x319d) |
 | +0x30dd | float | lean while crashed |
-| +0x319d | int | ? (cleared by the step) |
+| +0x319d | int | fallen: 1 together with +0x30c1 (cleared by the step) |
 | +0x31c1 | int | track sector index |
 | +0x31c5 | ? | out argument of the track collision 0x40ca80 |
 | +0x31d1 | float | blend towards the aim (decays by [0x581014]) |
