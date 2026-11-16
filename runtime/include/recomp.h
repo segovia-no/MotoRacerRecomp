@@ -320,6 +320,9 @@ void game_hook_grip(void);
 void game_hook_dirt_lean_begin(void);
 void game_hook_dirt_lean_end(void);
 int game_hook_ai_lod(void);        /* jump hook: nonzero = skip this bike's update this frame */
+int game_hook_step_gate(void);     /* jump hook: nonzero = draw only (no 30 Hz logic step due) */
+void game_hook_draw_begin(void);
+void game_hook_draw_end(void);
 void game_hook_ai_lod_after(void);
 void game_hook_opponents(void);
 /* native versions (runtime/src/game/natives/native_render.cpp) */

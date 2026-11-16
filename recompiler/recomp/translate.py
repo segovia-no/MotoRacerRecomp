@@ -174,6 +174,10 @@ GAME_HOOKS = {
     # Per-frame bike loop 0x47df40, next opponent (also reached after a skipped update): restores the
     # frame time the AI level of detail changed for one update (game_hooks.cpp)
     0x47E1BB: "game_hook_ai_lod_after",
+    # Race frame: around the draw call [vtable + 0x20](frame time, -2): the draw gets the real frame time
+    # (fixed_step.cpp)
+    0x47DA4E: "game_hook_draw_begin",
+    0x47DA5D: "game_hook_draw_end",
     # Render-list flush 0x4af570: where both per-vertex loops end (check mode of the native loops).
     0x4AF9FE: "native_vertices_check",
     # render-list flush: skip runs of empty depth buckets (native_render.cpp)
@@ -293,6 +297,9 @@ GAME_JUMP_HOOKS = {
     # Per-frame bike loop 0x47df40: an opponent's full update (0x45d540) about to be called -> the AI
     # level of detail may skip it this frame (game_hooks.cpp)
     0x47E189: ("game_hook_ai_lod", 0x47E1BB),
+    # Race frame 0x47d660, the race is on (past the clock and the in-race windows): no 30 Hz logic step
+    # due -> straight to the draw call (fixed_step.cpp)
+    0x47D790: ("game_hook_step_gate", 0x47DA4E),
     # CString::FormatV 0x4c3b8b: the buffer-length estimate loop natively (native_load.cpp)
     0x4C3BB2: ("native_formatv_len", 0x4C3E79),
 }

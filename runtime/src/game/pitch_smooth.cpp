@@ -136,6 +136,23 @@ extern "C" void game_hook_pitch_sim(void) {
 
 namespace game { void dev_warp(); void dev_trace(); }   // dev_warp.cpp, dev_trace.cpp
 
+namespace game {
+// A frame that only draws (fixed_step.cpp: no logic step, so no view hook): the view values of the last
+// logic frame again, if the game's values are still the ones they were made from; the frame's end puts
+// the game's back as usual.
+void pitch_redraw() {
+#ifndef __PSP__
+    if (saved.on || !saved.bike || !settings::get().pitch_smoothing || player_bike() != saved.bike) return;
+    for (const Block &k : saved.blocks)
+        for (uint32_t i = 0; i < k.size; i++)
+            if (RD8(saved.bike + k.offset + i) != k.game[i]) return;
+    for (const Block &k : saved.blocks)
+        for (uint32_t i = 0; i < k.size; i++) WR8(saved.bike + k.offset + i, k.view[i]);
+    saved.on = true;
+#endif
+}
+}  // namespace game
+
 // GAME_HOOK before the camera update (0x47d8bb): the player's pitch low-passed for the view.
 extern "C" void game_hook_pitch_view(void) {
 #ifndef __PSP__

@@ -238,3 +238,30 @@ grip fixed it uses one 60 fps frame. `MOTORACER_FPS_FIX=0` (dev) turns everythin
   record past the bikes, which could have +8 set (taken for a second player: garbage speed in earlier
   traces); bikes are records 1..count, the player is found by its index `[0x508834]`.
 
+### Fixed 30 Hz race logic (2026-11-16, owner's go; step 1 of 3)
+- Owner: with the per-rule fixes the jumps "feel super great", but at 120 fps the motion is "erratic,
+  jerky"; wanted physics that behave as at 30 fps whatever the frame rate. Plan: (1) logic at a fixed
+  30 Hz, drawing every frame; (2) camera and bikes interpolated between logic steps; (3) the rest.
+- Race frame `0x47d660`: clock `0x4120e0`, in-race windows `0x4126a0` (0 = paused / a window up),
+  replay checks `0x4121e0`, `[vtable + 0x10]`; then the logic: `0x47dae0`, the bike loop `0x47df40`
+  (scales the float frame time `0x4e9808` by 0.1 to hundredths, at least 1.0, for the rest of the
+  frame), `[vtable + 0x18](dt)`, sounds, effects (`0x48b7a0`, `0x459000`, `0x457590`, `0x459090`,
+  `0x47e3d0`, `0x47e1e0`), `0x4583e0`, camera `0x458620`, revs `0x467b30`, race end; the race-end gate
+  `0x412a50` (timers, state), the commentator `0x407420`; the draw `[vtable + 0x20](frame time, -2)`
+  (`0x47ff90`), the limiter `0x459fd0`.
+- `game/fixed_step.cpp`: jump hook `0x47d790` (race on, past the clock and the windows): no step due ->
+  `0x47da4e` (the draw call); a step due -> the frame times become the 30 fps tick (33 / 33 / 34 ms
+  int, the float, the smoothed time recomputed with the game's 0.125) and the frame runs unchanged.
+  Hooks `0x47da4e` / `0x47da5d`: the draw gets the real time since the last draw (in hundredths, as
+  the bike loop leaves it), then the game's value back. Replays are paced by their recorded frame
+  times. A host slower than 30 fps gets the game's variable timestep. Pitch smoothing reapplies its
+  view swap on draw-only frames (`game::pitch_redraw`). `MOTORACER_FIXED_STEP=0` turns it off.
+- Verified: E2E Dirt Arena at 120 Hz: 15 logic frames per 500 ms, dt 33..34, smoothed 33.33, pause
+  menu and resume. Owner (3.5 min, 120 Hz): 1801 logic steps per minute of racing, ~3 draw-only frames
+  per step, 20 takeoffs a minute, 26 % in the air; "all works" except the race-end place number.
+- Bug (owner): the race-end place number (`0x47b7a0`, called from the draw `0x4802bd` with its frame
+  time) spun far too fast. Its angle `0x4f0c40` and depth `0x4f0c3c` (16000 -> 2500, `0x47d5f8`) move
+  by the frame time; the draw hook gave milliseconds where the draw has hundredths. Found with
+  `MOTORACER_DRAW_DIFF=1` (dev: what the draw call itself changes in `.data` on draw-only frames,
+  logged every 5 s). Fixed: 1.57 a second, the original's 0.25 turns a second.
+
