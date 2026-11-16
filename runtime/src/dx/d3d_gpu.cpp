@@ -871,6 +871,17 @@ void hud_apply() {
                 break;
             }
     }
+    // An element the game sizes for the screen itself is left alone: the race-end place number (0x47b7a0), a 3D model projected at
+    // the full resolution inside its laurel and flags, which are sprites the game sizes too. Scaled by
+    // k it filled the screen (owner, 2560 x 1440: HudScale=1 showed it as at 640 x 480). Left alone.
+    // Recognized by size: the 640-pixel HUD's elements are at most ~80 guest pixels tall (the
+    // countdown, the "4 LAPS" banner), the number, laurel and flags hundreds. (A first try by the joined
+    // models' vertex count also caught the speedometer: its needles have more than 16 vertices.)
+    std::vector<bool> game_sized(n, false);
+    for (auto &[r, b] : boxes)
+        if (b[3] - b[1] > static_cast<float>(g_h) / 6.f || b[2] - b[0] > static_cast<float>(g_w) / 4.f) game_sized[r] = true;
+    for (size_t i = 0; i < n; i++)
+        if (scaled[i] && game_sized[root(i)]) scaled[i] = false;
     // Placement per element: anchor (ax, ay) the element is scaled about, plus an offset (sx, sy).
     struct Place { float ax, ay, sx, sy; };
     std::map<size_t, Place> places;

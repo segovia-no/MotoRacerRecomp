@@ -222,6 +222,14 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   offset from its last resting frame is frozen and it follows the game's motion 1:1 (no on-screen
   clamp, so it can leave the screen). Verified by E2E trace: on-screen steps equal the game's
   (1, 1, 2, … 20 px), the banner leaves at the bottom; "03"/"GET READY"/countdown are never seen as moving.
+- Bug (owner, 2026-11-16, "broken from the beginning"): the race-end place number (`0x47b7a0`: a 3D
+  "1" / "2" / "3" in a laurel with two checkered flags) filled the screen at 2560 x 1440. The game sizes
+  all of it for the screen (projection factor `[0x709360]` 1577 at 2560 wide, 394 at 640; `HudScale=1`
+  showed it as at 640 x 480), but it is drawn at HUD depth: the laurel and flags as sprites, the
+  number's faces as small draws with rhw 1, so the HUD scaler enlarged it by k. Now an element taller
+  than H/6 or wider than W/4 is left unscaled with everything joined to it (the 640-pixel HUD's
+  elements are at most ~80 guest pixels tall). Owner-confirmed. (A first try also by the joined models'
+  vertex count, > 16, shrank the speedometer: its needles have more.)
 - `MOTORACER_SNAPSHOT_EVERY=<frames>` sets the GPU snapshot interval (default 120) for animations.
 
 ### Options > D3D is the native renderer switch (2026-10-14)
