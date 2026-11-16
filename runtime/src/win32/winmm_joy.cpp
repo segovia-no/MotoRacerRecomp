@@ -69,7 +69,10 @@ void refresh_pads() {
     std::erase_if(pads, [](Device &d) {
 #ifndef __PSP__
         if (d.j) {
-            if (SDL_JoystickConnected(d.j)) return false;
+            // A device opened raw because SDL had no gamepad mapping for it yet, and has one now: reopened
+            // as a gamepad below (GitHub issue #5, a PS4 pad on Linux that only worked when connected after
+            // the start: one opened raw would stay raw, without menu events and with other button numbers)
+            if (SDL_JoystickConnected(d.j) && !SDL_IsGamepad(d.id)) return false;
             SDL_CloseJoystick(d.j);
             return true;
         }
@@ -86,8 +89,16 @@ void refresh_pads() {
     for (int i = 0; ids && i < n; i++) {
         if (have(ids[i])) continue;
         if (SDL_Gamepad *p = SDL_OpenGamepad(ids[i])) {
-            pads.push_back({p, nullptr, ids[i]});
-            log("gamepad %zu: %s\n", pads.size() - 1, SDL_GetGamepadName(p));
+            // gamepads before raw joysticks: the game uses joystick 0
+            auto at = std::find_if(pads.begin(), pads.end(), [](const Device &d) { return !d.g; });
+            const size_t index = static_cast<size_t>(at - pads.begin());
+            pads.insert(at, {p, nullptr, ids[i]});
+#ifndef __PSP__
+            log("gamepad %zu: %s (%04x:%04x)\n", index, SDL_GetGamepadName(p), SDL_GetGamepadVendor(p),
+                SDL_GetGamepadProduct(p));
+#else
+            log("gamepad %zu: %s\n", index, SDL_GetGamepadName(p));
+#endif
         }
     }
     SDL_free(ids);
@@ -95,7 +106,16 @@ void refresh_pads() {
     ids = SDL_GetJoysticks(&n);
     for (int i = 0; ids && i < n; i++) {
         if (have(ids[i]) || SDL_IsGamepad(ids[i])) continue;
+        static std::vector<SDL_JoystickID> skipped;   // ids are never reused
+        if (std::find(skipped.begin(), skipped.end(), ids[i]) != skipped.end()) continue;
         if (SDL_Joystick *j = SDL_OpenJoystick(ids[i])) {
+            // no buttons and no hat: not a controller (a PS4 pad's motion sensors or touchpad device on Linux)
+            if (SDL_GetNumJoystickButtons(j) <= 0 && SDL_GetNumJoystickHats(j) <= 0) {
+                skipped.push_back(ids[i]);
+                log("joystick skipped (no buttons): %s\n", SDL_GetJoystickName(j));
+                SDL_CloseJoystick(j);
+                continue;
+            }
             pads.push_back({nullptr, j, ids[i]});
             log("joystick %zu (no gamepad mapping, raw axes / buttons): %s, %d axes, %d buttons, %d hats\n",
                 pads.size() - 1, SDL_GetJoystickName(j), SDL_GetNumJoystickAxes(j), SDL_GetNumJoystickButtons(j),
@@ -150,7 +170,19 @@ bool wait_for_gamepad(uint32_t ms) {
     for (;;) {
         refresh_pads();
         if (!pads.empty()) return true;
-        if (SDL_GetTicks() >= until) return false;
+        if (SDL_GetTicks() >= until) {
+#ifndef __PSP__
+            int n = 0;   // what SDL sees, for logs of a controller that is not found
+            SDL_JoystickID *ids = SDL_GetJoysticks(&n);
+            for (int i = 0; ids && i < n; i++)
+                log("gamepad: SDL device %d: %s (%04x:%04x)%s\n", i, SDL_GetJoystickNameForID(ids[i]),
+                    SDL_GetJoystickVendorForID(ids[i]), SDL_GetJoystickProductForID(ids[i]),
+                    SDL_IsGamepad(ids[i]) ? " gamepad" : "");
+            if (n == 0) log("gamepad: SDL sees no device\n");
+            SDL_free(ids);
+#endif
+            return false;
+        }
         SDL_Delay(50);
         SDL_PumpEvents();   // runs device detection; the queued events are handled later as usual
     }

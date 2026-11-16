@@ -214,6 +214,18 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
   forced once (`PadLayout=1` in recomp_state.txt); afterwards only the factory layout is replaced, and
   other bindings are logged as kept ("own joystick bindings kept: ..."). Not on the PSP (pad only: the
   PSP layout still replaces the factory / Xbox layouts only).
+- Follow-up (reporter, v0.1.3, 2026-11-10): a Bluetooth PS4 pad on Linux connected before the start
+  still does nothing (menus, races, Ctrl+J); turned on while the game runs it works. No log yet. Cause not
+  confirmed; hardening (2026-11-15, `winmm_joy.cpp`):
+  - a device opened as a raw joystick (no SDL gamepad mapping at that moment) stayed raw when SDL later
+    listed it as a gamepad (`have(id)` skipped it): no menu events (the menu mapping takes gamepad events
+    only) and raw button numbers in races. It is now closed and reopened as a gamepad;
+  - gamepads are kept ahead of raw joysticks (the game uses joystick 0); raw devices without buttons and
+    hats (a PS4 pad's motion sensors / touchpad devices on Linux) are skipped and logged once;
+  - logs: `gamepad N: name (vid:pid)`; when the startup look finds nothing, every device SDL lists
+    (`gamepad: SDL device ...`, or `SDL sees no device`).
+  - Clue from #2: menus came back after the reporter recalibrated the pad in KDE, i.e. SDL read it through
+    evdev, not HIDAPI (hidraw needs the steam-devices udev rules).
 - Controller settings labels (owner request): the screen's row function `0x445380` prints buttons with
   message 9 ("%s Button %d", language strings copied to `0x53b5e8[id]` by `0x415a70` from the table at
   `0x4e2920`, 28 bytes per id: id + 6 languages) and draws arrow icons for the axes (sprites
