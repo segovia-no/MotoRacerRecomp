@@ -474,6 +474,11 @@ bool initials_entry_active() {
 
 int initials_count() { return static_cast<int>(RD32(0x540070)); }
 
+int menu_page() {
+    uint32_t pages = RD32(0x4dc0c4);
+    return pages ? static_cast<int>(RD32(pages + 0x3c)) : -1;
+}
+
 // The live flag: 0 while the 640x480 menus run (0x409f97). The Widescreen crop looks at it so
 // that black-barred 4:3 pictures (the DSI intro logo, GitHub issue #3) are not cropped.
 bool mode_169_live() { return RD32(0x4dc0d4) != 0; }

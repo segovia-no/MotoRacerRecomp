@@ -9,6 +9,7 @@ bool first_run();    // no first-run defaults applied yet (recomp_state.txt has 
 bool speedometer_button();      // a race is on and gamepad Back is free: Back sends F7 (speedometer)
 bool initials_entry_active();   // the end-of-race record page (9) is waiting for initials
 int initials_count();           // initials typed so far (0..3)
+int menu_page();                // the page manager's current page (-1 before it exists)
 int preferred_frame_width();    // width of the remembered SCREEN MODE (0 if none yet)
 bool mode_169_live();           // the live 16/9 flag 0x4dc0d4 (0 in the 640x480 menus)
 }

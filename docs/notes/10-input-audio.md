@@ -47,7 +47,7 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
 - **Fresh GOG install starts muted** (owner, first Steam Deck test, 2026-10-14): the shipped `data/CONFIG.BPT` restores MASTER VOLUME = 0. The first `mixerSetControlDetails(1, 0)` happens at startup; Wave and CD are 0xFFFF. Fix: on the first run only (`game::first_run()`, no `Defaults=1` in recomp_state.txt), the startup master value 0 is replaced by full volume. The slider then shows full and the game saves that on exit. A 0 chosen later is kept. Installs that already ran once keep their saved 0 until the slider is raised once.
 - **Audio drives animation timing:** with the device gain at 0 the 3D menu animations ran much too fast — the game paces some animations from audio progress. Keep this in mind when touching audio.
 - **Triggers:** buttons 9 (RT) / 10 (LT) past half travel; the pad reports 10 buttons. They no longer affect the Y axis. D-pad steers.
-- **Controller menus:** D-pad/left stick → arrow keys (auto-repeat 400/120 ms), A → Enter, B → Escape, Start → Escape always; suppressed while the game polled the joystick in the last 300 ms (races). `ControllerMenus=0` disables it.
+- **Controller menus:** D-pad/left stick → arrow keys (auto-repeat 400/120 ms), A → Enter, B → Escape, Start → Escape always (except on the main menu, page 3 of the page manager `[0x4dc0c4]+0x3c`: Escape there quits the game without asking, which closed the game for players pressing B to go back, GitHub issue #15; the Exit button and the keyboard's Escape still quit); suppressed while the game polled the joystick in the last 300 ms (races). `ControllerMenus=0` disables it.
 
 ### How the game reads the joystick in a race (`0x411b30`)
 - `0x431190(n)` returns the action bound to joystick input `n`: `-2/-3` = X left/right, `-4/-5` = Y up/down (corrected 2026-10-14 from the factory and owner bindings), `0..k` = buttons. Actions set bits in a control mask (1, 2, 4, 8, 0x10, 0x20) and some invert the axis value (`0xFFFF - v`) so the analog strength always points the same way.
@@ -248,3 +248,18 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
   code); a key dropped as a Cmd combo is logged (`keyboard: key ... dropped (Cmd held)`, once per 5 s) in
   case SDL's own Cmd state sticks. Owner's retest: no such log line; YES / NO not reported yet.
 
+
+## Crash after the game quits (GitHub issue #15, Windows, 2026-11-16)
+- Report: Windows (0.1.3, RecompLauncher), B pressed on the main menu: the log ends with `guest exited
+  with code 0`, then the process died with an access violation (-1073741819).
+- Cause: `exit_process` calls `exit()`, which destroys the runtime's static data (the CD player's mutex
+  and open track file in `winmm_cd.cpp`, `sources` in `host_audio.cpp`) and lets the CRT close every
+  `FILE`, while SDL's audio thread can still be inside a source's pull: a use-after-free. Not seen on
+  macOS / Linux (timing), not reproduced on Windows.
+- Fix: `exit_process` flushes every stdio stream and ends with `_Exit` (no static destructors, no CRT
+  teardown; on Windows the other threads end first). The PSP and PGO training builds keep `exit()`.
+  First tried: an `atexit` handler closing the audio device (`SDL_CloseAudioDevice` waits for the audio
+  thread); one of 8 Proton runs then stayed alive after the game quit, so no waiting at exit.
+- Deck under GE-Proton: 0.1.3 and a build with a 20 ms delay in the audio callback without any fix
+  both quit cleanly (Wine does not fault on this use-after-free), so the crash itself was not
+  reproduced; the fix was checked for clean exits there.

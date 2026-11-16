@@ -234,10 +234,20 @@ uint32_t guest_call_cdecl(uint32_t fn, std::initializer_list<uint32_t> args) {
     return r;
 }
 
+// exit() would destroy the runtime's static data (the CD player's mutex and open track file, the audio
+// sources) and let the CRT close every FILE while SDL's audio thread may still be inside a source's
+// pull: a use-after-free (GitHub issue #15: Windows, access violation after "guest exited with code
+// 0"). Nothing needs that teardown (the guest's files are written unbuffered), so the stdio streams are
+// flushed and the process ends at once; on Windows _Exit ends the other threads first. The PSP and
+// PGO training builds keep exit(): the latter writes its counts in exit handlers.
 [[noreturn]] void exit_process(uint32_t code) {
     log("guest exited with code %u\n", code);
-    fflush(stdout);
+    fflush(nullptr);
+#if defined(__PSP__) || defined(RECOMP_PGO_GEN)
     exit(static_cast<int>(code));
+#else
+    _Exit(static_cast<int>(code));
+#endif
 }
 
 }  // namespace rt

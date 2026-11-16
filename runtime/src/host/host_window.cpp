@@ -293,6 +293,18 @@ void send_queued_chars() {
     if (main_window) post_message(main_window, WM_CHAR, static_cast<uint8_t>(char_queue[0]), 1);
     char_queue.erase(0, 1);
 }
+// B / Start send Escape, but Escape on the main menu (page 3) quits the game at once, without asking:
+// players pressing B to go back closed the game (GitHub issue #15). There the pad does nothing; the
+// menu's Exit button and the keyboard's Escape still quit.
+constexpr int kMainMenuPage = 3;
+void back_button(bool down, bool always) {
+    if (down && game::menu_page() == kMainMenuPage) {
+        static bool logged = false;
+        if (!logged) { logged = true; log("controller: B / Start ignored on the main menu (Escape would quit)\n"); }
+        return;
+    }
+    nav(VK_ESCAPE_, down, always);
+}
 }  // namespace
 
 void controller_event(const SDL_Event &e) {
@@ -312,8 +324,8 @@ void controller_event(const SDL_Event &e) {
         case SDL_GAMEPAD_BUTTON_DPAD_UP: nav(VK_UP_, down); break;
         case SDL_GAMEPAD_BUTTON_DPAD_DOWN: nav(VK_DOWN_, down); break;
         case SDL_GAMEPAD_BUTTON_SOUTH: nav(VK_RETURN_, down); break;
-        case SDL_GAMEPAD_BUTTON_EAST: nav(VK_ESCAPE_, down); break;
-        case SDL_GAMEPAD_BUTTON_START: nav(VK_ESCAPE_, down, true); break;
+        case SDL_GAMEPAD_BUTTON_EAST: back_button(down, false); break;
+        case SDL_GAMEPAD_BUTTON_START: back_button(down, true); break;
         default: break;
         }
     } else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION &&
