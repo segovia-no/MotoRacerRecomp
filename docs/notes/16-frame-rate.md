@@ -283,5 +283,18 @@ grip fixed it uses one 60 fps frame. `MOTORACER_FPS_FIX=0` (dev) turns everythin
   steps per draw, 25 of 2319 frames over 12 ms. Owner, fullscreen 2560 x 1922 at 120 Hz: "worked great";
   its log: 9061 draws, mean 8.35 ms, 15 % over 12 ms (as many draw-only as logic frames: presentation
   pacing, not the logic's cost). Possible later: alpha from the display's refresh time, not draw time.
-- Next (step 3): what still steps at 30 Hz (smoke, particles, other moving objects).
+
+### Rider animation blended (2026-11-16, step 3)
+- `MOTORACER_LOGIC_DIFF=1` (dev): snapshot `.data` at the gate of a logic step, compare at that step's
+  draw; reports dwords changed in most steps, leaving out the bike and camera records (blended already),
+  long runs with their share of float-like values, and per offset of the player's record
+  (`bike diff: +off n/m = value`).
+- Found: the bike / rider model's node angles in the bike record, set once per step (0x464190 turns each
+  node by the angles at its `+0xc`): `+0x6b0` (2) and 12 triples at `+0x774` + 0x64·k (k = 0..11). Added to
+  the blended fields as wrapping angles: the rider moves smoothly. E2E normal riding and crashes fine;
+  owner, 120 Hz: "looked great".
+- Other `.data` that changes each step, judged not drawn: a vector near the player at `0x5032b0` (sound
+  listener?), records 0x104 apart from `0x52c49c` inside the track struct (position, unit direction,
+  size box: AI / track navigation).
+- Not found: smoke and dust points (likely heap). Open: alpha from the display's refresh time.
 

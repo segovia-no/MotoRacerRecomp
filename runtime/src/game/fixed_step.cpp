@@ -72,32 +72,74 @@ struct State {
 constexpr uint32_t DATA_LO = 0x4db000, DATA_HI = 0x70c568;
 struct DrawDiff {
     bool on = false;
+    bool logic = false;   // MOTORACER_LOGIC_DIFF=1: what a logic step changes (gate -> its draw) instead
     std::vector<uint8_t> before;
     std::vector<uint32_t> count;   // per dword: draw-only frames that changed it
     uint32_t frames = 0;
     double next_dump = 0;
 } dd;
 
-void draw_diff_begin() {
-    if (!dd.on || !st.this_draw_only) return;
+// logic mode: the player's bike record, by offset (fields the step changes that are not blended)
+std::vector<uint8_t> bike_before;
+std::vector<uint32_t> bike_count;
+uint32_t bike_steps = 0;
+uint32_t player_record() { return 0x581218 + 0x3209 * RD32(0x508834); }
+
+void diff_snapshot_bike();
+void diff_snapshot() {
+    diff_snapshot_bike();
     if (dd.before.empty()) dd.before.resize(DATA_HI - DATA_LO), dd.count.assign((DATA_HI - DATA_LO) / 4, 0);
     for (uint32_t a = DATA_LO; a + 4 <= DATA_HI; a += 4) memcpy(&dd.before[a - DATA_LO], &M[a], 4);
 }
 
+void diff_snapshot_bike() {
+    if (!dd.logic) return;
+    bike_before.resize(0x3209);
+    memcpy(bike_before.data(), &M[player_record()], 0x3209);
+}
+
+void draw_diff_begin() {
+    if (dd.on && !dd.logic && st.this_draw_only) diff_snapshot();
+}
+
+void diff_compare(double now);
 void draw_diff_end(double now) {
-    if (!dd.on || !st.this_draw_only || dd.before.empty()) return;
+    if (dd.on && !dd.logic && st.this_draw_only && !dd.before.empty()) diff_compare(now);
+}
+
+void diff_compare(double now) {
+    if (dd.logic && bike_before.size() == 0x3209) {
+        if (bike_count.empty()) bike_count.assign(0x3209 / 4, 0);
+        const uint32_t b = player_record();
+        for (uint32_t o = 0; o + 4 <= 0x3209; o += 4)
+            if (memcmp(&bike_before[o], &M[b + o], 4)) bike_count[o / 4]++;
+        bike_steps++;
+    }
     dd.frames++;
     for (uint32_t i = 0; i < dd.count.size(); i++)
         if (memcmp(&dd.before[i * 4], &M[DATA_LO + i * 4], 4)) dd.count[i]++;
     if (now < dd.next_dump) return;
     dd.next_dump = now + 5000;
     if (dd.frames >= 20) {
-        log("draw diff: %u draw-only frames\n", dd.frames);
+        log("draw diff: %u %s\n", dd.frames, dd.logic ? "logic steps" : "draw-only frames");
         int lines = 0;
-        for (uint32_t i = 0; i < dd.count.size() && lines < 60;) {
-            if (dd.count[i] * 2 < dd.frames) { i++; continue; }
+        for (uint32_t i = 0; i < dd.count.size() && lines < 120;) {
+            const uint32_t ai = DATA_LO + i * 4;   // logic mode: the bikes and cameras are blended already
+            const bool known = dd.logic && ((ai >= 0x581218 && ai < 0x581218 + 41 * 0x3209) || (ai >= 0x5161c0 && ai < 0x5161c0 + 16 * 0x238));
+            if (known || dd.count[i] * 2 < dd.frames) { i++; continue; }
             uint32_t j = i;
             while (j < dd.count.size() && dd.count[j] * 2 >= dd.frames) j++;
+            if (j - i > 6) {   // long runs: their float share, to tell vertex / particle arrays from tables
+                uint32_t fl = 0;
+                for (uint32_t k = i; k < j; k++) {
+                    const uint32_t v = RD32(DATA_LO + k * 4), e = (v >> 23) & 0xff;
+                    fl += (v & 0x7fffffff) == 0 || (e >= 100 && e <= 170);
+                }
+                log("draw diff:   %08x..%08x  %u dwords, %u float-like\n", DATA_LO + i * 4, DATA_LO + j * 4, j - i, fl);
+                lines++;
+                i = j;
+                continue;
+            }
             const uint32_t a = DATA_LO + i * 4, n = j - i;
             if (n <= 6) {
                 for (uint32_t k = i; k < j; k++) {
@@ -112,6 +154,18 @@ void draw_diff_end(double now) {
             lines++;
             i = j;
         }
+    }
+    if (dd.logic && bike_steps >= 100) {
+        const uint32_t b = player_record();
+        for (uint32_t i = 0; i < bike_count.size(); i++) {
+            if (bike_count[i] * 2 < bike_steps) continue;
+            const uint32_t v = RD32(b + i * 4);
+            float f;
+            memcpy(&f, &v, 4);
+            log("bike diff: +%04x %u/%u = %08x (%g)\n", i * 4, bike_count[i], bike_steps, v, static_cast<double>(f));
+        }
+        bike_steps = 0;
+        std::fill(bike_count.begin(), bike_count.end(), 0);
     }
     dd.frames = 0;
     std::fill(dd.count.begin(), dd.count.end(), 0);
@@ -144,6 +198,11 @@ const Field kBikeFields[] = {
     {0x2ea1, 1, ANGLE},                           // lean angle
     {0x2ea9, 18, FLOAT},                         // contact points
     {0x307d, 1, FLOAT}, {0x30b5, 3, FLOAT}, {0x30dd, 1, FLOAT}, {0x30ed, 12, FLOAT},   // crash
+    // the bike / rider model's node angles (0x464190 turns each node by the angles at its +0xc): the
+    // rider's animation, set once per logic step (found with MOTORACER_LOGIC_DIFF on the player's record)
+    {0x6b0, 2, ANGLE},
+    {0x774, 3, ANGLE}, {0x7d8, 3, ANGLE}, {0x83c, 3, ANGLE}, {0x8a0, 3, ANGLE}, {0x904, 3, ANGLE}, {0x968, 3, ANGLE},
+    {0x9cc, 3, ANGLE}, {0xa30, 3, ANGLE}, {0xa94, 3, ANGLE}, {0xaf8, 3, ANGLE}, {0xb5c, 3, ANGLE}, {0xbc0, 3, ANGLE},
 };
 // camera record (0x238 bytes; dumped at two steps of a race): +0x10..+0x1c four angles in sine-table
 // units, +0x68 the view rows (3 x 3), +0x98 the position, +0xa4 the point looked at, +0xc0 a slowly
@@ -248,6 +307,12 @@ void interp_restore() {
 extern "C" int game_hook_step_gate(void) {
 #ifndef __PSP__
     if (!enabled()) return 0;
+    static const bool diff_init = [] {
+        dd.logic = getenv("MOTORACER_LOGIC_DIFF") != nullptr;
+        dd.on = dd.logic || getenv("MOTORACER_DRAW_DIFF") != nullptr;
+        return true;
+    }();
+    (void)diff_init;
     const double now = now_ms();
     const double elapsed = st.last_call > 0 ? now - st.last_call : 1e9;
     st.last_call = now;
@@ -264,6 +329,7 @@ extern "C" int game_hook_step_gate(void) {
     }
     // a logic step
     st.this_draw_only = false;
+    if (dd.on && dd.logic) diff_snapshot();
     st.acc = std::max(0.0, st.acc - period);
     if (st.acc > period) st.acc = 0;   // more than a step behind: dropped (no burst of steps)
     st.drew = false;
@@ -298,10 +364,9 @@ extern "C" int game_hook_step_gate(void) {
 extern "C" void game_hook_draw_begin(void) {
 #ifndef __PSP__
     if (!enabled()) return;
-    static const bool diff = (dd.on = getenv("MOTORACER_DRAW_DIFF") != nullptr);
-    (void)diff;
-    draw_diff_begin();
     const double now = now_ms();
+    draw_diff_begin();
+    if (dd.on && dd.logic && !st.this_draw_only && !dd.before.empty()) diff_compare(now);
     const double real = st.last_draw > 0 ? std::clamp(now - st.last_draw, 1.0, 200.0) : TICK_MS;
     st.last_draw = now;
     st.drew = true;
