@@ -8,6 +8,15 @@
 #include "recomp_mem_local.h"
 #include "game/natives/native_check.h"
 
+namespace game {   // frame_rate.cpp
+void wall_hit(uint32_t bike);
+float speed_blend(float b);
+float lean_divisor(float div, bool analog);
+float dirt_lean_time();
+extern float dbg_lean_ev, dbg_lean_div, dbg_lean_a, dbg_lean_b;   // dev_trace.cpp
+void lean_smooth(uint32_t bike);
+}
+
 extern "C" void f_0046bf80_t(void);
 extern "C" void f_0046b120_t(void);
 extern "C" void f_00469c60_t(void);
@@ -663,7 +672,7 @@ void bike_drive() {
     }
     const fpu_t kk = LD32(s + 0x31d1) * LD32(0x4d100c);
     FCOM_L(fsw, kk, D(0x4d0ed8));
-    const float blend = (fsw & 0x100u) ? f32(0x3c23d70a) : rnd(kk);
+    const float blend = game::speed_blend((fsw & 0x100u) ? f32(0x3c23d70a) : rnd(kk));   // = game_hook_speed_blend
     if (RD32(s + 0xec) > 0x80000000u) {
         WR32(s + 0x1a4, 0);
     } else if (RD32(s + 0x2db8) || !T) {
@@ -915,7 +924,8 @@ void bike_lean() {
         FCOM_L(fsw, F_(dv), pi);
         if (!(fsw & 0x4100u)) yaw = rnd(F_(dv) - two_pi);
         const float spd = static_cast<int32_t>(RD32(s + 0x124)) > 0x42480000 ? 50.f : f32(RD32(s + 0x124));
-        const fpu_t y = (-F_(yaw) / LD32(0x4dc150)) * F_(spd);
+        const float lt = game::dirt_lean_time();   // = game_hook_dirt_lean_begin / _end (0x46a893)
+        const fpu_t y = (-F_(yaw) / (lt > 0 ? F_(lt) : LD32(0x4dc150))) * F_(spd);
         WRF32(s + 0x2e1d, rnd(FM(atan2)(y * D(0x4d1220), static_cast<fpu_t>(1))));
         FCOM_L(fsw, LD32(s + 0x2e1d), D(0x4d1228));
         if (!(fsw & 0x4100u)) {
@@ -955,6 +965,8 @@ void bike_lean() {
         } else {
             float g = f32(RD32A(0x4dc150));
             if (!RD32(s + 0x2e29) && static_cast<int32_t>(RD32A(0x4dc150)) < 0x41a00000) g = 20.f;
+            g = game::lean_divisor(g, RD32(s + 0x2e29) != 0);   // = game_hook_lean (0x46ac41)
+            game::dbg_lean_ev = ev, game::dbg_lean_div = g, game::dbg_lean_a = A, game::dbg_lean_b = Bv;   // dev trace
             WRF32(s + 0x2e1d, rnd((F_(ev) / F_(g)) * LD32(0x4d1288)));
             const fpu_t v = LD32(s + 0x2e1d);
             FCOM_L(fsw, v, D(0x4d11f8));
@@ -1028,6 +1040,7 @@ void bike_step() {
         WR32(s + 0x31c1, gcall(f_0040c7e0, B, 0x46c05a, TRACK, {RD32(s + 0x31c1), s + 0x30, 0}, fsw));
         WRF32(s + 0x1a4, static_cast<float>(LD32(s + 0x1a4) * LD32(0x4d1018)));
         WRF32(s + 0xec, static_cast<float>(LD32(s + 0xec) * LD32(0x4d1018)));
+        game::wall_hit(s);   // = game_hook_wall_hit (0x46c084)
         WR32(s + 0x31d1, 0x43480000);
         WR32(s + 0x2dac, RD32(s + 0x2dac) | 1);
     }
@@ -1157,6 +1170,7 @@ void bike_step() {
         WR32(lean, 0);
     }
     WRF32(lean, static_cast<float>((LD32(lean) - LD32(s + 0x2e21)) * static_cast<fpu_t>(RDF64(0x4d0f08)) + LD32(s + 0x2e21)));
+    game::lean_smooth(s);   // = game_hook_lean_smooth (0x46c73f)
     WR32(s + 0x2e21, RD32(lean));
     gcall(f_00466940, B, 0x46c752, s, {}, fsw);
     gcall(f_00466a80, B, 0x46c759, s, {}, fsw);

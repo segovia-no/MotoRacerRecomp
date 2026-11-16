@@ -80,6 +80,9 @@ Race at the default (60, vsync): 59.5–60.0 fps, same as with the game's own li
 - Verified (E2E, same held turn, mean lean / mean frame-to-frame change over 350 ms): 60 fps original
   −0.678 / 0.006, fixed −0.677 / 0.006; ~68 fps (paced, no vsync) original −0.577 / 0.007, fixed
   −0.690 / 0.005.
+- Superseded 2026-11-13 ("Same game at any frame rate" below): the lean's input itself depends on the
+  frame rate through the per-frame grip; this divisor restored only the lean's size, and was not applied
+  by the native `0x469c60` (commit 20a6896 on).
 
 ## Open
 1. Even frame pacing; test on a high-refresh display (120/144 Hz).
@@ -129,3 +132,109 @@ Race at the default (60, vsync): 59.5–60.0 fps, same as with the game's own li
   the value written for the view, and the restore also runs at the frame's end.
 - Regression (2026-11-09): race with F6 and a crash / respawn, native check mode (0 mismatches),
   `PitchSmoothing=0`, translator difftest (0 failing), macOS release module and PSP builds.
+
+## Same game at any frame rate (2026-11-13, owner's goal; reference 60 fps, 30 fps since 2026-11-16)
+Owner: "the objective is making the game consistent on any fps value, respecting the original
+developers intention. exclude psp from this"; reference rate chosen by the owner: 60 fps (GOG).
+Found while chasing GitHub issue #14 on the owner's Steam Deck (native Linux build): at 125–250 fps
+animations ran fast, the bike leaned "very very fast", opponents stopped in the middle of the track.
+
+### Method
+- `MOTORACER_DISPLAY_HZ=144` (dev, `host_video.cpp`): the display refresh rate the runtime assumes, so
+  `MOTORACER_FRAMERATE=display MOTORACER_VSYNC=0` paces a steady 144 fps on a 60 Hz screen.
+- `MOTORACER_FRAME_TRACE=1|2` (dev, `game/dev_trace.cpp`): race motion every 500 ms (frame times,
+  player lean, opponents' sectors / speeds, wall hits), opponents that stop ("stall", 1.5 s in one
+  sector) or fall; `=2` adds per-frame lines of the player bike (lean, roll lag, heading, steering, the
+  native lean's inputs).
+- Reference runs need `MOTORACER_VSYNC=0` with an explicit `MOTORACER_FRAMERATE`: on the Deck with its
+  screen idle the compositor throttled vsync'd windows to 20 fps (50 ms frames), which invalidated a
+  first round of "60 fps" runs.
+- Steering test: no opponents (`MOTORACER_OPPONENTS=0`), throttle, a short LEFT tap on Speed Bay's
+  start straight; runs aligned on the steering value crossing −50; compared: facing (forward row of
+  `+0xbc`), travel direction `+0x18c`, lean `+0x2e1d`, the native lean's yaw.
+
+### What depends on the frame rate (the original game)
+- Acceleration does not (speed curves equal at 30 / 60 / 144).
+- The steering input (`0x466240`: rate `+0x10c`, steering `+0x110`) and the turn it applies
+  (`0x46661a`: yaw = factor · turn rate · dt · steering) scale with dt: equal at all rates.
+- Grip (`0x48d620`, physics object at bike `+0x24`, on the ground): the travel direction `+0x168`
+  (= bike `+0x18c`) becomes g · itself + (1 − g) · facing every frame, g = 0.85..0.9 by speed. The lag
+  of the travel direction behind the facing therefore shrinks with the frame rate: 0.51 / 0.43 / 0.31 /
+  0.15 rad 250 ms after the same tap at 20 / 30 / 60 / 144 fps.
+- The player's lean (`0x469c60`, path at `0x46ac1b`) = yaw (twice that lag) / max(smoothed frame time,
+  20 ms) · k (without the floor for analog steering, `+0x2e29`): 0.39 / 0.53 / 0.53 / 0.22 at the same
+  rates. Above 60 fps the lean shrank and died within 0.5 s; the 2026-10-16 fix (divisor 1.2 t) only
+  restored its size, and since commit 20a6896 (native `0x469c60`) it was not even applied (natives run
+  by default and did not call `game_hook_lean`).
+- Roll and bounce (`0x466a80`, every bike): the drawn roll `+0x2ea1` moves 1 / [model − 0x18] of the way
+  to its target every frame (the model is drawn turned by the lag `+0x2e8d`); the landing bounce damps
+  per frame (`+0x2e9d *= [model + 0x24]`), its phase advances per frame (`+0x2e99 += +0x2e9d /
+  [model + 0x2c]`, drawn as `+0x2e91` = sin · amplitude), its speed `+0x2e95` steps by clamp(dt, 3, 5)
+  hundredths per frame.
+- Per frame as well: AI speed blend (`0x46b120`: speed = speed · b + L · (1 − b)); an AI bike behind a
+  slower one it follows (`0x46cd20`, `0x46d13e`: speed = target = 0.95 · (e + (o − e) / 32)); wall hits
+  (AI / second player ×0.5, `0x46bf80` / `0x45e940`; player ×0.75, `0x4692b3`); a crashed rider
+  sliding (×0.9, `0x4683e0`); the AI lean smoothing (×0.5, `0x46c729`); the player's lean target offset
+  `+0x2e39` (±0.01, `0x45d610`) and the dust emitter's offset `+0x188` (+2 / −1, `0x467546`; reset to 1
+  or 5 with random offsets at `0x467237`, `0x466d70`).
+- Opponents: one opponent alone drives identically at 30, 60 and 144 fps (sector and speed equal at every
+  check to 40 s), so the AI's own driving does not depend on the frame rate. Stops in the middle of the
+  track are queues behind crashed opponents, at 60 fps too (first suspected: pairs braking each other in
+  0x46cd20; with falls logged, every stall followed a crash). With 6 opponents, mean progress after
+  42 s: 637 / 641 sectors (two 60 fps runs), 631 (144 original), 638 (144 fixed).
+
+### Fix (`game/frame_rate.cpp`, GAME_HOOKs in translate.py plus the same calls in the natives)
+(As first made, with 60 fps as the reference; since 2026-11-16 the reference is 30 fps, below.)
+Each per-frame step is applied as n 60 fps steps, n = frame time / 16.67 ms, from the game's integer
+frame time `0x4e980c` (replays record and replay it, so they stay deterministic): factors become
+factor^n, affine steps x ← a x + b their n-fold closed form, increments n-fold. Frames of 16 and 17 ms
+keep the game's own arithmetic (60 fps unchanged); slower frame rates are corrected as well. With the
+grip fixed, the lean divisor keeps its 60 fps value (20 ms, or 16.67 ms with analog steering).
+The dirt bikes' lean (`0x46a893`) divides the yaw by the smoothed frame time without a floor: with the
+grip fixed it uses one 60 fps frame. `MOTORACER_FPS_FIX=0` (dev) turns everything off, a mask of the
+`FIX_` bits picks single fixes.
+
+### Verified (Deck, Speed Bay)
+- Steering tap, 150 / 250 ms after the tap, yaw and lean: 60 fps original 0.20 / 0.20, −0.30 / −0.30;
+  144 fixed 0.19 / 0.19, −0.28 / −0.29; 30 fixed 0.20 / 0.22, −0.30 / −0.34; 144 original 0.12 / 0.08,
+  −0.18 / −0.12.
+- 240 fps fixed: 0.18 / 0.18, −0.27 / −0.28 (original 0.08 / 0.04, −0.11 / −0.06). The rest of the
+  difference to 60 fps is the input: a 60 ms tap is held for whole frames (67 ms at 60 fps) and the
+  steering grows with the square of the hold time.
+- Uncapped (~600 fps, frames of 1–2 ms): fixed 0.15 / 0.15, −0.23 / −0.22 (original 0.04 / 0.01,
+  −0.06 / −0.02): still short; not offered by the Recomp menu.
+- Dirt Arena (dirt bikes), lean every 100 ms after the tap: 60 fps −0.21 −0.32 −0.25 −0.15 −0.08;
+  144 fixed −0.16 −0.27 −0.22 −0.13 −0.07; 144 with the grip fix but not the dirt lean −0.36 −0.59 −0.50;
+  144 original −0.26 −0.32 −0.15 −0.04.
+- Translated code only (`MOTORACER_NATIVE=0`) gives the same curves as the natives (both tracks), and
+  native check mode at 200 ms frames (n = 12 in every fix) found 0 mismatches.
+- With no player input the race left for the game's demo after ~44 s (the trace stops: replay).
+
+### Reference 30 fps; takeoffs (2026-11-16, owner)
+- Owner: on Dirt Arena the bikes "jump most of the time on slopes" on the PSP (the PSP port, which runs
+  at 30 fps or less), almost never at 120 fps; the PSP feel is the faithful one. The game's own limiter
+  defaults to 30 fps (N = 30 without `-FrameRateMax`; GOG's ini passes 60). The frame-rate fixes were not
+  the cause: same takeoffs with them on and off.
+- Measured, player's bike on Dirt Arena (`MOTORACER_FRAME_TRACE=1`, owner driving): 120 fps 4.1 takeoffs
+  a minute, 5 % of the time in the air (fixes on or off alike); 30 fps 15.5 a minute, 22 %. Opponents
+  (23, scripted runs, ~45 s): 33 takeoffs at 60 fps, 41 at 120 with or without the fixes.
+- Takeoff (player, `0x468ca0`): the bike keeps contact, and is put back on the road (`pos.y` = floor),
+  while its height is at most a tolerance above the floor (`0x469427`: 32 units, 8 when the function's
+  argument is set); else `+0x2db8` = 0. `0x466660`: without contact the counter `+0xf0` grows by 2.592
+  ([`0x4d0f20`]) every frame, contact resets it to 0; the physics `0x48d620` (physics object = bike
+  `+0x24`, so `+0xcc` = bike `+0xf0`) takes its air branch (gravity, no grip) when it is above 2.592
+  ([`0x4d1c18`]), i.e. on the second frame without contact. A frame's step lifts the bike off a crest or
+  a slope's edge in proportion to its length, so at 120 fps it stays under the tolerance and is put back
+  on the road every 8 ms. On the ground the travel direction's vertical part is the facing's (`0x48da83`).
+- Fix: the reference is 30 fps (`REF_MS` = 33.3; frames of 33 / 34 ms keep the game's arithmetic, the
+  lean divisor is one 30 fps frame, the bounce step's dt clamp uses 3.33); `FIX_GROUND` (GAME_HOOKs
+  `0x46943c`, tolerance × n, rounded, at least 1; `0x466688`, the counter's step × n). Owner, 120 fps:
+  21.3 takeoffs a minute, 23 % in the air; "the jumps feel super great".
+- Open: owner: movement at 120 fps with these fixes is "erratic, jerky" (more small hops: 21 takeoffs a
+  minute against 15.5). Next (owner's go): a fixed 30 Hz logic step with the drawing interpolated, which
+  would make every per-frame rule the original's by construction. Opponents' takeoffs (`+0x2e85`, their
+  own path) are not scaled.
+- `dev_trace.cpp`: the bike loop started one record late (`0x584421`) and its last pass read a stale
+  record past the bikes, which could have +8 set (taken for a second player: garbage speed in earlier
+  traces); bikes are records 1..count, the player is found by its index `[0x508834]`.
+

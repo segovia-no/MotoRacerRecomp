@@ -398,22 +398,16 @@ extern "C" void game_hook_counter(void) {
     else log("speedometer: hidden (F7 / gamepad Back shows it)\n");
 }
 
-// Player bike lean (0x469c60, path at 0x46ac1b; replays take another path). The lean is
-// x / divisor, x = a per-frame change (it scales with the frame time: measured 0.75 at 30 fps, 0.40
-// at 60 fps in the same turn) and divisor = max(smoothed frame time 0x4dc150, 20 ms), or the
-// smoothed time alone when +0x2e29 is set. The 20 ms floor makes the lean shrink with the frame time
-// above 50 fps (measured: ~0.36 at ~85 fps vs 0.68 at 60 fps; 144 fps would give 40% of the 60 fps
-// lean). The floor is scaled as it acts at 60 fps, GOG's default: max(t, min(20, 1.2 t)), t = the
-// smoothed time. 60 fps and below look as before; faster rates lean as at 60 fps.
-// (Dividing by this frame's own time instead jittered: x does not belong to the same frame's time.)
-constexpr uint32_t SMOOTHED_FRAME_MS = 0x4dc150;
+// Player bike lean (0x469c60, path at 0x46ac1b; replays take another path): [esp+0x10] = the divisor
+// of the lean (smoothed frame time 0x4dc150, at least 20 ms with keyboard steering). Made frame-rate
+// independent in frame_rate.cpp (lean_divisor, with the grip fix it depends on).
+namespace game { float lean_divisor(float div, bool analog); }   // frame_rate.cpp (also the native 0x469c60)
+
 extern "C" void game_hook_lean(void) {
-    if (RD32(R.esi + 0x2e29)) return;   // no floor on this path
-    uint32_t bits = RD32(SMOOTHED_FRAME_MS);
-    float t;
-    memcpy(&t, &bits, 4);
-    if (!(t > 0)) return;
-    float div = std::max(t, std::min(20.f, 1.2f * t));
+    uint32_t bits = RD32(R.esp + 0x10);
+    float div;
+    memcpy(&div, &bits, 4);
+    div = game::lean_divisor(div, RD32(R.esi + 0x2e29) != 0);
     memcpy(&bits, &div, 4);
     WR32(R.esp + 0x10, bits);
 }

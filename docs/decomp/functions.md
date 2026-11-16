@@ -319,6 +319,17 @@ Sets are {int count; float xyz[count][3]}; out count = min(a, b). t <= 0 (by its
 t >= 1.0: copy b (rep movsd; nothing when out is that set); else each angle a + (b' - a) * t with b'
 moved by 2 pi to within pi of a, the result wrapped into [0, 2 pi].
 
+## 0x45d540 bike_update / 0x45d580 player_step
+
+0x45d540: one bike's update (thiscall bike; args input bits, stick X, stick Y, dt in 1/100 s; ret 0x10).
+Stores dt in [0x581014]; AI bikes ([+8] == 0) take 0x46bf80(dt), human players 0x45d580: the lean
+target offset +0x2e39 steps 0.01 towards 0 every frame (0x45d610), 0x465da0 (throttle / brake into the
+physics object +0x24, 0x48ef30), 0x466240 (steering), 0x48d620 (physics), 0x45d110, 0x468ca0 (ground,
+walls), 0x466660, 0x4667e0, 0x466940, 0x466a80, 0x461aa0, 0x469c60, 0x4683e0, 0x467b30, 0x466d70,
+0x467930, 0x46d340 (-> +0x31d9). Input: per bike at bike - 0x20 (bits, | bike - 0x1c), - 0x18 (stick X,
+0x8000 = centre), - 0x14 (stick Y), reset every frame at 0x41171f; the race loop 0x47df40 passes them
+for bike [0x4dc0fc].
+
 ## 0x461aa0 bike_contact_frame
 
 0x461aa0: a bike's contact frame (thiscall bike, no args)
@@ -347,6 +358,15 @@ then the children ([+0]). Callers read no register afterwards.
 
 thiscall (bike; arg unused; ret 4): 0x1f without a track ([0x52c10c] == 0), else 0x10 + 0xf * (sector [+0xe0] == 0): the lighting / shadow mode for the bike model.
 
+## 0x466240 player_steering
+
+0x466240: a human player's steering (thiscall bike; args bits, stick X, stick Y, dt; ret 0x10). Analog
+(stick X != 0x8000): steering +0x110 = (X - 0x8000) * [0x5092ac + 292 * model] * k, +0x2e29 = 1.
+Keyboard (bit 8 / 4): rate +0x10c += [0x50929c + 292 model] * dt, +0x110 += +0x10c * dt, clamped to
++-[0x5092ac + 292 * model]; released: +0x10c = 0, +0x110 returns to 0 by a rate * dt. Then the turn: yaw =
+factor * ([model 0x5092c8] - speed term) * dt * 0.01 * +0x110 (factor from 0x48d0f0 when +0x2da0, 1.6
+braking), applied as a rotation (0x40fd20, 0x40fd40, 0x45cb00). All scaled by dt.
+
 ## 0x466a80 bike_lean_update
 
 0x466a80: bike lean (thiscall: ecx = bike; no args; ret)
@@ -354,6 +374,10 @@ Lean speed [+0x2e9d] (scaled by the bike table, its minimum [+0x5092d8]), lean p
 its sine [+0x2e91], the lean angle [+0x2ea1] turning toward the target (0x45ca00 - [+0x2ea5] +
 [+0x2e39]) by the shortest way round, wrapped into [0, 2 pi]; [+0x2e8d] = the change, wrapped by
 0x458da0 and clamped to +-[+0x5092a8]. dt clamped to 3..5 (by its bits).
+Per frame, not scaled by dt (docs/notes/16-frame-rate.md): +0x2e9d *= [model + 0x24]; +0x2e95 +=
+clamp(dt, 3, 5) * 5.184; +0x2e99 += +0x2e9d / [model + 0x2c]; +0x2ea1 += (target - +0x2ea1) /
+[model - 0x18]. [+0x2e8d] is the roll lag (smoothed angle - target), drawn as a rotation of the bike
+model (0x45f6ab); [+0x2e91] the bob (0x45f93f).
 
 ## 0x467930 bike_speed_revs
 
@@ -364,6 +388,29 @@ game_hook_ai_speed, the runtime's fractional carry), then the revs [+0x11c] from
 (0x48e180) or, for the player ([+8] != 0 and [+4] != 0), from the engine table.
 replay: check mode runs this after the translated version; the hook keeps state between calls, so
 the native run replays the value the translated run stored instead of calling it a second time.
+
+## 0x4683e0 crash_slide
+
+0x4683e0: a fallen rider and bike (thiscall bike; runs while +0x30c1): the timer +0x30c5 counts down
+by [0x581014] (0 -> 0x4681d0, back on the track), the rider's points bounce off the track (+0x30d5
+*= 0.5 on a hit); otherwise every frame AI speed +0xec / target +0x1a4 *= 0.9 (0x468bfc) or the
+player's road speed +0x124 and +0x180 *= 0.9 (0x468c22). Sets +0x319d = 1.
+
+## 0x468ca0 player_ground
+
+0x468ca0: a human player's bike against the track (thiscall bike; arg). Floor and orientation from the
+road under the wheels (+0xbc..+0xe8 rebuilt), wall contact: road speed +0x124 *= 0.75 every frame of
+contact (0x4692b3), head-on (travel into the wall) +0x180 = speed / 2 and speed *= 0.3, the travel
+direction reflected (+0x18c, 0x469353); +0x2e31 counts down by dt.
+Ground contact: floor 0x40c8b0 at the position's sector; if floor + tolerance >= pos.y (tolerance 32,
+8 when the arg is set: 0x469427), contact: pos.y = floor, +0x2db8 = 1, +0xf0 = 0 (0x4694d5); else
++0x2db8 = 0 (0x46974b).
+
+## 0x466660 player_air_counter
+
+0x466660 (thiscall bike; arg): without ground contact (+0x2db8 == 0) +0xf0 += 2.592 ([0x4d0f20]) every
+frame; with contact +0xf0 = 0. The physics 0x48d620 reads it as its object's +0xcc and flies the bike
+(air branch) while it is above 2.592 ([0x4d1c18]).
 
 ## 0x469c60 bike_lean_points
 
@@ -494,6 +541,14 @@ The record's max speed k ([+0x5092c0], float) times per-gear thresholds against 
 picks a gear (1..5, or 1..6 when [+0x509398] is 0) and its ratio; returns in st0 the speed / (ratio
 * k), as float, clamped to 0..1 (> 1.0f by its bits, < 0 by compare). eax = the pointer, ecx = the
 unclamped float's bits, edx = gear.
+
+## 0x48d620 physics_motion
+
+0x48d620: the motion of a human player's bike (thiscall: ecx = physics object, bike + 0x24; args dt,
+flag). Forward vector +0x10c.. = facing from the matrix +0x98 (bike +0xbc). In the air: velocity
+direction +0x168 (bike +0x18c) and speed +0x100 under gravity (dt-scaled). On the ground (0x48d906):
+grip g = clamp(speed / max * k, 0.85, 0.9) (0x48d9dd), travel direction = g * itself + (1 - g) *
+facing every frame (0x48da21..), renormalized; position += direction * speed * dt.
 
 ## 0x490220 object_angle
 

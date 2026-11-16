@@ -65,6 +65,7 @@ int display_refresh_rate() {
         SDL_DisplayID d = SDL_GetDisplayForWindow(ensure_window());
         const SDL_DisplayMode *m = d ? SDL_GetCurrentDisplayMode(d) : nullptr;
         rate = m && m->refresh_rate > 0 ? static_cast<int>(m->refresh_rate + 0.5f) : 60;
+        if (const char *e = getenv("MOTORACER_DISPLAY_HZ")) rate = atoi(e) > 0 ? atoi(e) : rate;   // dev: a faster display
         log("frame rate: display refresh rate %d Hz\n", rate);
     }
     return rate;

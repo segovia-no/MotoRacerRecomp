@@ -108,9 +108,12 @@ GAME_HOOKS = {
     # Race HUD, speedometer (0x484810): runs every race frame just before the "ShowCounter" test;
     # the runtime knows a race is on (gamepad Back cycles the speedometer like F7).
     0x484833: "game_hook_counter",
-    # Player bike lean (0x469c60): [esp+0x10] is the frame-time divisor of the lean, max(smoothed
-    # frame time, 20 ms); the runtime uses this frame's time instead (correct at high frame rates).
+    # Player bike lean (0x469c60): [esp+0x10] is the frame-time divisor of the lean (smoothed frame
+    # time, at least 20 ms with keyboard steering); the runtime keeps its 30 fps value (frame_rate.cpp).
     0x46AC41: "game_hook_lean",
+    # Dirt bikes' lean in the same function: the fdiv by the smoothed frame time [0x4dc150].
+    0x46A893: "game_hook_dirt_lean_begin",
+    0x46A899: "game_hook_dirt_lean_end",
     # Options page (11) init: the in-game Recomp settings page starts closed (recomp_menu.cpp).
     0x443000: "game_hook_options_init",
     # Menu button sprite just unpacked (0x43eb00 -> eax = 16-bit pixels, ebx = sprite object): the
@@ -133,6 +136,38 @@ GAME_HOOKS = {
     # AI bike speed integration (0x467930, bikes with +8 = 0): eax = old speed + trunc(accel * dt *
     # 0.01) about to be stored; the runtime carries the fraction so it works above ~40 fps.
     0x467A37: "game_hook_ai_speed",
+    # Wall hit in the bike step (0x46bf80): target speed / speed were just halved, once per frame of
+    # contact; the runtime scales the halving by the frame time (frame_rate.cpp).
+    0x46C084: "game_hook_wall_hit",
+    0x45EA84: "game_hook_wall_hit",   # the same in the second human player's step 0x45e940
+    0x4692D5: "game_hook_player_wall",   # the player's wall contact (0x468ca0): road speed *= 0.75 every frame
+    # The player's ground contact (0x468ca0): eax = the height tolerance (32 / 8) about to be stored; and
+    # the air counter (0x466660) after its per-frame += 2.592 store (frame_rate.cpp: takeoffs as at 30 fps).
+    0x46943C: "game_hook_ground_tolerance",
+    0x466688: "game_hook_air_counter",
+    # Crashed rider sliding (0x4683e0): speeds multiplied by 0.9 every frame (frame_rate.cpp).
+    0x468C20: "game_hook_slide_ai",
+    0x468C39: "game_hook_slide_player",
+    0x468C7D: "game_hook_slide_end",
+    # Lean smoothing in the bike step (0x46bf80): lean = prev + (raw - prev) * 0.5 every frame.
+    0x46C73F: "game_hook_lean_smooth",
+    # Bike roll / landing bounce 0x466a80 (per-frame filter and oscillator; native_race_b.cpp too).
+    0x466AED: "game_hook_bounce_damp",
+    0x466B2F: "game_hook_bounce_phase",
+    0x466CF6: "game_hook_roll_follow",
+    # Player step 0x45d580: the lean target offset +0x2e39 steps 0.01 towards 0 every frame.
+    0x45D610: "game_hook_offset_begin",
+    0x45D676: "game_hook_offset_end",
+    # Dust emitter offset +0x188 in 0x466d70: +2 / -1 every frame.
+    0x467524: "game_hook_counter_begin",
+    0x467562: "game_hook_counter_end",
+    # Player physics 0x48d620 on the ground: [esp+0x10] = the per-frame grip blend of the travel direction.
+    0x48DA21: "game_hook_grip",
+    # AI speed blend in the bike drive (0x46b120): [esp+0x10] = the per-frame blend factor.
+    0x46B82C: "game_hook_speed_blend",
+    # AI bike easing towards the slower bike it follows (0x46cd20): before the ease and after its stores.
+    0x46D13E: "game_hook_follow_begin",
+    0x46D184: "game_hook_follow_end",
     # Race setup (0x47b542): the opponent count 0x542874 has just been chosen (23, 1 with OPPONENTS
     # off, 11 in one mode; -NbComp only applies to another start path); dev override.
     0x47B5AF: "game_hook_opponents",

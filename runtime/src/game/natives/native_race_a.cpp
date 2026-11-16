@@ -10,6 +10,8 @@
 #include "recomp_mem_local.h"
 #include "game/natives/native_check.h"
 
+namespace game { void follow_begin(uint32_t bike, float speed, float other); void follow_end(uint32_t bike); }   // frame_rate.cpp
+
 extern "C" void f_0046b120_t(void);
 extern "C" void f_0046bdc0_t(void);
 extern "C" void f_0046cd20_t(void);
@@ -391,10 +393,12 @@ void pick_target() {
         if (speed_cmp(bike, sel, sw, l14, true) >= 0) goto tail;
         paths[5]++;   // 0x46d13e: ease the speed towards the target's
         const fpu_t e = ldf<false>(bike + 0xec);
+        game::follow_begin(bike, static_cast<float>(e), l14);   // = game_hook_follow_begin
         const float e1 = rnd((static_cast<fpu_t>(l14) - e) * static_cast<fpu_t>(ld(0x4d1158)) + e);
         const float e2 = rnd(static_cast<fpu_t>(e1) * static_cast<fpu_t>(0.95));
         stf<false>(bike + 0xec, e2);
         stf<false>(bike + 0x1a4, e2);
+        game::follow_end(bike);   // = game_hook_follow_end
         const float diff = rnd(e - static_cast<fpu_t>(e1) * static_cast<fpu_t>(0.95));
         float ad;
         const uint32_t adb = fbits(diff) & 0x7fffffffu;

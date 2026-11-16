@@ -14,6 +14,8 @@
 #include "recomp_mem_local.h"
 #include "game/natives/native_check.h"
 
+namespace game { void bounce_damp(uint32_t bike); void bounce_phase(uint32_t bike); void roll_follow(uint32_t bike, float diff); }   // frame_rate.cpp
+
 extern "C" void f_00469c60_t(void);
 extern "C" void f_00467930_t(void);
 extern "C" void f_0048e180_t(void);
@@ -311,12 +313,14 @@ void bike_lean() {
     const fpu_t y = static_cast<fpu_t>(bits_f(dts)) * static_cast<fpu_t>(0x1.4bc6a7ef9db23p+2);
     WRF32(bike + 0x2e9d, static_cast<float>(x));
     WRF32(bike + 0x2e95, static_cast<float>(y + static_cast<fpu_t>(RDF32(bike + 0x2e95))));
+    game::bounce_damp(bike);   // = game_hook_bounce_damp (0x466aed)
     const uint32_t ebx = RD32(bike + 0x2e95);
     if (static_cast<int32_t>(ebx) > 0) WR32(bike + 0x2e95, 0);
     const float lim = static_cast<float>(static_cast<fpu_t>(RDF32(bike + 0x2e95)) / static_cast<fpu_t>(bits_f(dts)));
     x = static_cast<fpu_t>(RDF32(bike + 0x2e9d)) / static_cast<fpu_t>(RDF32(rec + 0x5092dc));
     x = x + static_cast<fpu_t>(RDF32(bike + 0x2e99));
     WRF32(bike + 0x2e99, static_cast<float>(x));
+    game::bounce_phase(bike);   // = game_hook_bounce_phase (0x466b2f)
     FCOM_L(sw, static_cast<fpu_t>(RDF32(bike + 0x2e9d)), static_cast<fpu_t>(lim));
     uint32_t eax = fnstsw_ax(k73, sw);
     if (!(sw & C0C3)) {
@@ -399,6 +403,7 @@ void bike_lean() {
     x = static_cast<fpu_t>(sc) / static_cast<fpu_t>(RDF32(k73b * 4u + 0x509298));
     x = x + static_cast<fpu_t>(RDF32(ang));
     WRF32(ang, static_cast<float>(x));
+    game::roll_follow(bike, sc);   // = game_hook_roll_follow (0x466cf6)
     x = static_cast<fpu_t>(RDF32(ang)) - static_cast<fpu_t>(bits_f(target));
     WRF32(bike + 0x2e8d, static_cast<float>(x));
     const uint32_t change = RD32(bike + 0x2e8d);

@@ -43,7 +43,10 @@ struct Tracker {
     bool init = false;
     double x = 0, v = 0;
     double update(double m, double dt, double reset, double gap) {
-        if (!init || std::fabs(m - x) > reset || dt <= 0) {
+        // Defensive: NaN compares false, so without the isfinite checks one NaN pitch would stay in x for
+        // good and turn the view to a NaN pitch every frame after (a forced NaN did that in a test; the
+        // game's own pitch is clamped and was not seen to be NaN)
+        if (!init || !std::isfinite(x) || !std::isfinite(v) || std::fabs(m - x) > reset || dt <= 0) {
             init = true, x = m, v = 0;
             return x;
         }
@@ -131,18 +134,23 @@ extern "C" void game_hook_pitch_sim(void) {
 #endif
 }
 
-namespace game { void dev_warp(); }   // dev_warp.cpp
+namespace game { void dev_warp(); void dev_trace(); }   // dev_warp.cpp, dev_trace.cpp
 
 // GAME_HOOK before the camera update (0x47d8bb): the player's pitch low-passed for the view.
 extern "C" void game_hook_pitch_view(void) {
 #ifndef __PSP__
     game::dev_warp();
+    game::dev_trace();
     if (saved.on || !settings::get().pitch_smoothing) return;   // paused: still swapped from the last frame
     const uint32_t b = player_bike();
     if (!b) return;
     const double pitch = pitch_of(rd3(b + MATRIX + 0x18));
     const double dt = std::fmin(200.0, std::fmax(0.0, static_cast<double>(RD32(FRAME_MS))));
     if (b != tracked_bike) pitch_track.init = false, tracked_bike = b;
+    if (!std::isfinite(pitch)) {   // the game's own frame this time; the filter starts over
+        pitch_track.init = false;
+        return;
+    }
     const double smoothed = pitch_track.update(pitch, dt, RESET_PITCH, MAX_PITCH_GAP);
     saved.on = true;
     saved.bike = b;
