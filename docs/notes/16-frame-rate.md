@@ -265,3 +265,23 @@ grip fixed it uses one 60 fps frame. `MOTORACER_FPS_FIX=0` (dev) turns everythin
   `MOTORACER_DRAW_DIFF=1` (dev: what the draw call itself changes in `.data` on draw-only frames,
   logged every 5 s). Fixed: 1.57 a second, the original's 0.25 turns a second.
 
+### Interpolation between logic steps (2026-11-16, step 2)
+- `fixed_step.cpp`: at every logic frame's draw the listed fields are copied; before each draw they are
+  blended between the last two copies (alpha = time since the step / 33.3 ms, so the picture is one step
+  behind) and put back after it. Bikes 1..count: position `+0x30` / `+0x3c`, rows `+0xbc`, heading
+  `+0x18c`, forward `+0x198`, front / back points `+0x1b4` / `+0x338`, lean `+0x2e1d..`, rider angles
+  `+0x2e3d` / `+0x2e49` (wrapping), frame `+0x2e55`, roll / bob `+0x2e8d..`, lean angle `+0x2ea1`
+  (wrapping), contact and crash points. Cameras `0x5161c0` (0x238 bytes, 16): angles `+0x10..+0x1c`
+  (ints, sine-table units), view rows `+0x68`, position `+0x98`, point looked at `+0xa4`, `+0xc0`, a
+  point and the view planes `+0xc8..+0x114`. A bike that moved more than 1500 units in a step, or a
+  camera more than 3000, is not blended. `MOTORACER_INTERP=0|bikes|camera` (dev),
+  `MOTORACER_INTERP_LOG=1` (dev: per draw the time, alpha, camera and player position).
+- Wrong turn: blending every dword that looked like a float. The guest heap is at 0x40000000, so heap
+  pointers read as floats of 2..8: a bike's model pointer changed between steps, was blended into
+  garbage and crashed `node_matrices` (`FATAL: guest memory fault at 0x00000ad9`); the camera went wild.
+- Verified: E2E Dirt Arena 120 Hz windowed: alpha 0 / 0.25 / 0.50 / 0.75, the player's position in even
+  steps per draw, 25 of 2319 frames over 12 ms. Owner, fullscreen 2560 x 1922 at 120 Hz: "worked great";
+  its log: 9061 draws, mean 8.35 ms, 15 % over 12 ms (as many draw-only as logic frames: presentation
+  pacing, not the logic's cost). Possible later: alpha from the display's refresh time, not draw time.
+- Next (step 3): what still steps at 30 Hz (smoke, particles, other moving objects).
+

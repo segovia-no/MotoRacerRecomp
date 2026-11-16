@@ -7,7 +7,10 @@ files = sorted(glob.glob(os.path.join(d, pat)))
 W, cols = 320, 4
 ims = []
 for f in files:
-    im = Image.open(f).convert("RGB")
+    try:
+        im = Image.open(f).convert("RGB")
+    except OSError:   # the last snapshot, cut off when the run's timer ended the game
+        continue
     im.thumbnail((W, W))
     ims.append((os.path.basename(f), im))
 rows = (len(ims) + cols - 1) // cols
