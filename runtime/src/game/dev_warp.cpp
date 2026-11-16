@@ -21,7 +21,7 @@ namespace {
 
 #ifndef __PSP__
 constexpr uint32_t PLAYER = 0x508834, BIKES = 0x581218, BIKE_SIZE = 0x3209;   // bike(i) = BIKES + i * size
-constexpr uint32_t FRAME_MS = 0x4e980c, REPLAY = 0x4dc008;
+constexpr uint32_t FRAME_MS = 0x4e980c, REPLAY = 0x4dc008, FROZEN = 0x4dc0b4;   // FROZEN: no movement
 constexpr uint32_t TRACK_SECTORS = 0x52c108, TRACK_COUNT = 0x52c10c, SECTOR = 252;   // sector +0: centre
 constexpr uint32_t MATRIX = 0xbc, LEAN_FRAME = 0x2e55, HEADING = 0x18c, FORWARD = 0x198, POSITION = 0x3c;
 constexpr uint32_t BIKE_SECTOR = 0x31c1;
@@ -66,9 +66,11 @@ void carry(uint32_t b, uint32_t sectors, uint32_t count, uint32_t from, uint32_t
 }
 
 // Riding: not fallen (+0x30c1 and +0x319d are 1 until the rider is put back on the track), not
-// tumbling, not airborne, moving.
-bool riding(uint32_t b) {
-    return RD32(b + 0x30c1) == 0 && RD32(b + 0x319d) == 0 && rdf(b + 0x307d) <= 0 && RD32(b + 0x2e85) == 0 &&
+// tumbling, not airborne, moving. Moving is the bike's position changing, not its speed: during the
+// start countdown the race is frozen ([0x4dc0b4], the move is skipped) while a held throttle builds
+// up +0xec, and the warp carried the bike off the grid before the start (owner, E2E run).
+bool riding(uint32_t b, bool moved) {
+    return moved && !RD32(FROZEN) && RD32(b + 0x30c1) == 0 && RD32(b + 0x319d) == 0 && rdf(b + 0x307d) <= 0 && RD32(b + 0x2e85) == 0 &&
            rdf(b + 0xec) > 2;
 }
 #endif
@@ -84,6 +86,7 @@ void dev_warp() {
     static double ridden = 0;   // ms of riding in the first half of the lap
     static bool carrying = false;
     static uint32_t frames = 0, last_bike = 0;
+    static V3 last_pos{};   // the bike's position after the last frame (and after our carry)
     if (k <= 0 || RD32(REPLAY)) return;
     const uint32_t p = RD32(PLAYER);
     if (p >= 64) return;
@@ -91,8 +94,11 @@ void dev_warp() {
     const uint32_t sectors = RD32(TRACK_SECTORS), count = RD32(TRACK_COUNT), cur = RD32(b + BIKE_SECTOR);
     if (!sectors || count < 8 || static_cast<uint32_t>(k) >= count || cur >= count) return;
     const uint32_t goal = count - k;
-    if (b != last_bike) last_bike = b, ridden = 0, carrying = false;
-    if (!riding(b)) { ridden = 0, carrying = false; return; }
+    if (b != last_bike) last_bike = b, ridden = 0, carrying = false, last_pos = rd3(b + POSITION);
+    const V3 pos = rd3(b + POSITION);
+    const bool moved = dist(pos, last_pos) > 1e-3;
+    last_pos = pos;
+    if (!riding(b, moved)) { ridden = 0, carrying = false; return; }
     if (!carrying) {   // 3 s of riding past the line (or since the start), then carry
         if (cur >= count / 2) { ridden = 0; return; }
         ridden += std::fmin(200.0, static_cast<double>(RD32(FRAME_MS)));
@@ -105,6 +111,7 @@ void dev_warp() {
         return;
     }
     carry(b, sectors, count, cur, std::min(goal, cur + step));
+    last_pos = rd3(b + POSITION);
 #endif
 }
 

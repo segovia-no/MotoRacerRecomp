@@ -18,7 +18,10 @@ test. Each run opens a game window for its duration.
 - Race end (podium, results; GitHub issue #12): `MOTORACER_WARP=<k>` (`game/dev_warp.cpp`) carries the
   player's bike along the track to k sectors before the line every lap, 10 sectors a frame
   (`MOTORACER_WARP_STEP`): the lap tracking ignores a bike put at the line in one jump. Only while
-  riding (a carried fallen rider fell from the sky for half a minute) and not in replays. With the
+  riding (a carried fallen rider fell from the sky for half a minute) and not in replays. Riding means
+  the bike's position changed: during the start countdown the race is frozen (`[0x4dc0b4]`) while a
+  held throttle builds up the speed, and the warp carried the bike off the grid before the start (the
+  countdown then looked stuck for 10+ s; fixed 2026-11-14). With the
   throttle held a 4-lap championship race on Speed Bay (788 sectors, k = 12) ends in ~40 s.
   `MOTORACER_LAPS=<n>` sets every single-race track's lap count (track list record `+0x12c`);
   championships use their own (4). The game writes the track list back at exit and keeps scores:
@@ -103,3 +106,27 @@ SHEET_GLOB="gpu_00[23]*.bmp" scripts/dev/e2e_race.sh race1024 1 50 MOTORACER_D3D
   without the renderer fix crashed at the podium (`FATAL: host fault at 0x70`, in
   `libvulkan_radeon` under `dx::gpu::present_flip`); with the fix the log shows "texture 256x256
   released with draws queued: drawn now" at that point and the game goes on.
+- Windows builds under Proton on the Deck (2026-11-13, issue #14): the release zip unpacked in
+  `~/mr-win/MotoRacer`, run with GE-Proton (`proton run motoracer.exe`, `STEAM_COMPAT_DATA_PATH` = a
+  prefix folder, `STEAM_COMPAT_CLIENT_INSTALL_PATH=~/.local/share/Steam`; `PROTON_LOG=1` needs a
+  `SteamGameId`). The first start installs the game, but building the module fails under Wine (zig.exe:
+  "unable to open global cache directory"): build `gamecode.dll` on the Mac instead
+  (`build_gamecode.py --target windows --arch x86_64 --host-lib <the program's libmotoracer.dll.a>`, full
+  zig from `build/tools`) and put it in `gamecode/` with `build_id.txt` = the kit's BUILD_ID.
+  - A test program must be named `motoracer.exe`: the module imports from that DLL name, and a
+    `motoracer-A.exe` made Windows load the real `motoracer.exe` beside it as a second copy (the module
+    then saw its zeroed registers: "host fault at 0x0" on entering the game).
+  - Start long runs with `systemd-run --user --collect --unit=mr-win ...`: everything started from an
+    SSH session is killed when that session closes (`nohup` / `setsid` do not help).
+  - A program cross-built in `build/win-rel` equals the release one (`llvm-strip --strip-debug`: 14
+    bytes differ).
+- Native Linux runs for game-logic changes (2026-11-13, frame-rate work; the owner prefers these to
+  Proton): the program from the Docker sniper build (`build/linux-mod`, incremental `cmake --build`
+  takes seconds), the module cross-built on the Mac (`build_gamecode.py --target linux --arch x86_64
+  --out build/gc-linux`, ~25 s) and pushed to its own folder, used with
+  `MOTORACER_GAME_MODULE=/home/deck/mr-test/MotoRacer/gamecode-fps/gamecode.so` so the other programs in
+  the folder keep the matching module.
+  - With the Deck's screen idle the compositor throttles vsync'd windows to 20 fps: pass
+    `MOTORACER_VSYNC=0` and an explicit `MOTORACER_FRAMERATE` for any timing comparison, and check the
+    frame times in the log.
+  - `MOTORACER_DISPLAY_HZ=144` makes `MOTORACER_FRAMERATE=display` pace 144 fps on the 60 Hz screen.
