@@ -61,5 +61,5 @@
 | 0x68b008 | span table size |
 | 0x68b014 | transformed vertex pool count |
 | 0x6d1040 / 0x625784 | screen y max / min |
-| 0x6d20d8 | transformed vertex pool (28 bytes each) |
+| 0x6d20d8 | transformed vertex pool (28 bytes each), 8000 entries up to 0x708bd8, no limit check (the recomp relocates it: RECOMP_VERTEX_POOL, GitHub issue #14) |
 | 0x709378 | plane test counter (0x4b10c0, 0x4b0f60) |

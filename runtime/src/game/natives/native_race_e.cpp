@@ -800,7 +800,7 @@ extern "C" int native_hot_458b80(void) {
     // the callees write the bikes, render lists and vertex pools: the whole writable image
     // (.data / .bss) and the stack below the caller are restored between the two runs
     const uint32_t lo = 0x4db000, hi = 0x70c568;
-    check_abi("draw bikes 0x458b80", draw_bikes, f_00458b80_t, {{lo, hi - lo}, {R.esp - 0x2000, 0x2000}});
+    check_abi("draw bikes 0x458b80", draw_bikes, f_00458b80_t, {{lo, hi - lo}, {R.esp - 0x2000, 0x2000}, vertex_pool_tail()});
     counted("draw bikes 0x458b80", n_458b80);
     return 1;
 }
@@ -908,7 +908,7 @@ extern "C" int native_hot_40ce60(void) {
     if (md == ON) { track_draw(); return 1; }
     // the chunk and object draws write the render lists, pools and vertex buffers: the whole writable image
     const uint32_t lo = 0x4db000, hi = 0x70c568;
-    check_abi("track draw 0x40ce60", track_draw, f_0040ce60_t, {{lo, hi - lo}});
+    check_abi("track draw 0x40ce60", track_draw, f_0040ce60_t, {{lo, hi - lo}, vertex_pool_tail()});
     counted("track draw 0x40ce60", n_40ce60);
     return 1;
 }

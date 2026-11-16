@@ -10,6 +10,18 @@
 #include <stdint.h>
 #include <string.h>
 
+/* The game's transformed-vertex pool (28-byte vertices, used count [0x68b014]; VERTEX_POOL in
+ * translate.py, GitHub issue #14). In the image it holds 8000 vertices at 0x6d20d8 with no limit check;
+ * the desktop's longer draw distance overflowed it. Desktop: 65536 vertices in the relocated-table range
+ * (EXT_LO..EXT_HI, runtime.h). The compact (PSP) layout keeps the original (draw distance 1 there). */
+#if defined(RECOMP_COMPACT_GUEST) || defined(__PSP__)
+#define RECOMP_VERTEX_POOL 0x006d20d8u
+#define RECOMP_VERTEX_POOL_SIZE 8000u
+#else
+#define RECOMP_VERTEX_POOL 0x00800000u
+#define RECOMP_VERTEX_POOL_SIZE 65536u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

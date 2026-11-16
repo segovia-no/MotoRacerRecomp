@@ -512,6 +512,15 @@ extern "C" void __gcov_dump(void);
 #endif
 
 void frame_tick() {
+    // The transformed-vertex pool has no limit check in the game (RECOMP_VERTEX_POOL, GitHub issue #14):
+    // say so once if a frame comes near the end of the recomp's larger pool.
+    {
+        static uint32_t peak = 0;
+        const uint32_t used = RD32(0x68b014);
+        if (used > peak && used > RECOMP_VERTEX_POOL_SIZE / 4 * 3 && peak <= RECOMP_VERTEX_POOL_SIZE / 4 * 3)
+            log("vertex pool: %u of %u vertices used in one frame\n", used, RECOMP_VERTEX_POOL_SIZE);
+        peak = std::max(peak, used);
+    }
 #ifdef RECOMP_PGO_GEN
     // profile-guided build, training run (CMake MOTORACER_PGO=gen): write the execution counts once
     // MOTORACER_GCOV_DUMP_MS have passed (GCOV_PREFIX / GCOV_PREFIX_STRIP place the .gcda files)

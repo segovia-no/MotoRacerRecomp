@@ -31,6 +31,18 @@ struct Snapshot {
 
 struct Region { uint32_t addr, size; };
 
+// The transformed-vertex pool from its used count on, `spare` vertices (all the rest when 0), for checks
+// that snapshot the image's data (0x4db000..0x70c568): on the desktop the pool lies outside it
+// (RECOMP_VERTEX_POOL, GitHub issue #14). Empty (address 0) in the compact layout, where it is inside.
+inline Region vertex_pool_tail(uint32_t spare = 0) {
+    if (RECOMP_VERTEX_POOL >= 0x4db000 && RECOMP_VERTEX_POOL < 0x70c568) return {0, 0};
+    uint32_t used = 0;
+    memcpy(&used, M + 0x68b014, 4);
+    if (used >= RECOMP_VERTEX_POOL_SIZE) return {0, 0};
+    const uint32_t left = RECOMP_VERTEX_POOL_SIZE - used;
+    return {RECOMP_VERTEX_POOL + used * 28u, 28u * (spare && spare < left ? spare : left)};
+}
+
 inline Snapshot take(const std::vector<Region> &regions) {
     Snapshot s{R, F, {}};
     // a region read through a pointer that is NULL at the time (e.g. no open TRIANGLE header) is empty

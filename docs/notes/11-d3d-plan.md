@@ -104,6 +104,33 @@ SRCBLEND 5 (345k) / 6 (33k) / 2 (22); DESTBLEND 6 / 3; ALPHABLENDENABLE on for m
   globals (`0x62e460` byte, `0x624358`, `0x62ebe8`...) keep their addresses. Verified by E2E races
   at 1024×768 (16/9), 1600×1200 (16/9) and the software renderer at 640×480.
 
+### Transformed-vertex pool overflow: 3D collapses, crashes (GitHub issue #14, 2026-11-14)
+- Reports: in a race (Snow Ride, also Speed Bay after a wheelie) all 3D except the sky vanished after a
+  while and stayed gone; the screenshots show the 3D world squashed into a 2–3 px line at the horizon.
+  A second player's log (Windows, 4K, DrawDistance 3): `FATAL: heap_realloc of non-heap 0x00000002`
+  in the message loop — MFC's thread data (`_afxThreadData` at `0x70b048`) overwritten.
+- Cause: the transformed-vertex pool `0x6d20d8` (28-byte vertices, used count `[0x68b014]`, filled by
+  `0x49b2c0` and the clipper) has room for exactly 8000 vertices (the next global is `0x708bd8`) and
+  no limit check. After it: values the viewport / projection code writes (`0x708bd8`, `0x709360`..), the
+  polygon colour `0x709370`, then CRT / MFC data and function pointers.
+- The recomp's longer draw distance (docs/notes/14-draw-distance.md) multiplies the vertices per frame:
+  peaks measured on the Mac, Speed Bay start straight: 2833 (DrawDistance 1, original), 5744 (2, the
+  default), 7427 (3); Snow Ride's grid at 3: 7672. A wheelie tilts the camera up (more scenery). Forced
+  with `MOTORACER_DRAW_DISTANCE=4` on Snow Ride: the owner saw the issue reproduced exactly, then
+  `FATAL: indirect call/jump to unknown guest address 0x00000320`.
+- Fix: the translator emits the pool's two absolute operands (`0x6d20d8`, `+0x10`; nothing else refers
+  to it, checked against the PE relocations) as `RECOMP_VERTEX_POOL + offset` (`VERTEX_POOL` in
+  translate.py, `recomp.h`): 65536 vertices at `0x00800000` on the desktop (inside `EXT_LO..EXT_HI`),
+  the original address in the compact (PSP) layout, which keeps DrawDistance 1. The natives use the
+  same constant; check mode snapshots the pool's unused tail (`vertex_pool_tail`, native_check.h)
+  where it snapshotted the image's data. The runtime logs once if a frame uses more than 3/4 of it.
+- Verified: Snow Ride at DrawDistance 4 with 9949 vertices in a frame, 3D intact, no crash; native check
+  mode at DrawDistance 4 (frames of 8900–9100 vertices): 0 mismatches in ~69 million checks.
+- Found by that check: native `0x49ca70` did not reload ecx with the face after the first split call
+  (`0x49cb9b` / `0x49cbd2`), which the x86 leaves when a triangle is clipped away entirely.
+- Related pools: render nodes stop at 0x1d4b (7499; peak ~4400 at 9949 vertices), the span pool is not
+  used with Direct3D (peak = the row count), clipped triangle records peaked at ~280.
+
 ### SCREEN MODE persistence (2026-10-13)
 - The options loader reads `"ScreenMode"` (`0x4e7fb8`, at `0x42af41`) as the **size class** only
   (0/1/2) and maps it to an area (`0x12c00`/`0x30000`/`0x4b000`) at `0x4dc0cc`; the race start

@@ -61,6 +61,23 @@ def relocate(value, indexed=False):
     return value
 
 
+# The transformed-vertex pool (GitHub issue #14): 0x6d20d8, 8000 vertices of 28 bytes up to the next
+# global 0x708bd8, filled with no limit check (0x49b2c0, the clipper). The recomp's longer draw distance
+# went past 8000 in dense views and overwrote the projection values after it (the 3D collapsed into a
+# line), then the CRT / MFC data (crashes). Its two absolute operands (0x6d20d8, +0x10) are emitted as
+# RECOMP_VERTEX_POOL + offset (recomp.h): a larger copy on the desktop, the original address on the PSP.
+VERTEX_POOL = (0x6D20D8, 0x708BD8)
+
+
+def literal(value, indexed=False):
+    """C expression for a 32-bit address / immediate, with the relocations applied."""
+    value &= 0xFFFFFFFF
+    lo, hi = VERTEX_POOL
+    if lo <= value < hi:
+        return f"(RECOMP_VERTEX_POOL + 0x{value - lo:x}u)"
+    return f"0x{relocate(value, indexed):x}u"
+
+
 # Runtime callbacks run just before the instruction at a VA (runtime/src/game/game_hooks.cpp).
 GAME_HOOKS = {
     # Cockpit view (F6) with the Z-buffer (native_render.cpp, GitHub issue #1): the bike loop starts,
@@ -719,7 +736,7 @@ class FunctionTranslator:
                 return f"RD{BITS[isz]}(0x{slot:x}u)"
             return f"(({CTYPE[size]})({STYPE[isz]})RD{BITS[isz]}(0x{slot:x}u))"
         if size == 4:
-            value = relocate(value & 0xFFFFFFFF)
+            return literal(value)
         return f"0x{value & ((1 << (8 * size)) - 1):x}u"
 
     def addr(self, insn, mem):
@@ -735,7 +752,7 @@ class FunctionTranslator:
             self.tr.smc_uses += 1
             parts.append(f"RD32(0x{slot:x}u)" if dsz == 4 else f"(uint32_t)(int8_t)RD8(0x{slot:x}u)")
         elif disp or not parts:
-            parts.append(f"0x{relocate(disp & 0xFFFFFFFF, bool(base or index)):x}u")
+            parts.append(literal(disp, bool(base or index)))
         if seg == "fs":
             parts.insert(0, "R.fs_base")
         elif seg not in (None, "es", "ds", "ss", "cs"):

@@ -93,12 +93,12 @@ struct Timed {   // times one call when MOTORACER_GEOM_TIME is on
 //   matrix: 3x4 floats (x, y, z columns per row; row 3 = translation); x columns are scaled by the
 //     viewport scale [0x6d20c4], y columns by [0x6d104c]
 //   src: count vertices, 3 floats each
-//   out: the next `count` entries of the transformed-vertex pool 0x6d20d8 (28 bytes each; the pool's
-//     used count [0x68b014] grows by count): x, y, z (floats), flags << 13, screen x, screen y (int,
-//     only written when z >= the near plane [0x625774]), 1/z (float)
+//   out: the next `count` entries of the transformed-vertex pool (RECOMP_VERTEX_POOL, 0x6d20d8 in the
+//     image; 28 bytes each; the pool's used count [0x68b014] grows by count): x, y, z (floats),
+//     flags << 13, screen x, screen y (int, only written when z >= the near plane [0x625774]), 1/z (float)
 //   screen x = centre x [0x60d3c4] + x/z, screen y = centre y [0x624f88] - y/z, rounded per the x87
 //   rounding mode (fistp; the function only changes the precision control).
-constexpr uint32_t POOL = 0x6d20d8, POOL_USED = 0x68b014;
+constexpr uint32_t POOL = RECOMP_VERTEX_POOL, POOL_USED = 0x68b014;
 constexpr uint32_t SCALE_X = 0x6d20c4, SCALE_Y = 0x6d104c, CENTRE_X = 0x60d3c4, CENTRE_Y = 0x624f88;
 constexpr uint32_t NEAR_Z = 0x625774;
 
@@ -709,7 +709,7 @@ void near_split() {
     }
     // two new pool vertices
     const uint32_t used = RD32A(0x68b014u);
-    const uint32_t P1 = 0x6d20d8u + used * 28u, P2 = 0x6d20d8u + (used + 1) * 28u;
+    const uint32_t P1 = RECOMP_VERTEX_POOL + used * 28u, P2 = RECOMP_VERTEX_POOL + (used + 1) * 28u;
     const uint32_t i1 = (P1 - verts) / 28u, i2 = (P2 - verts) / 28u;
     WR32A(0x68b014u, used + 2);
     auto interp = [&](int f, int k, uint32_t out[2]) {
@@ -786,7 +786,7 @@ void near_split() {
 // 0x49ca70's nodes carry the face's texture handle [0x4f9304 + 4 (id * 206 + variant)] and the variant.
 // Registers at the end as the x86 leaves them (eax = ecx = record count; edx: the last bucket /
 // texture written, else the last clipped vertex count, else from the split calls).
-constexpr uint32_t CLIP_POOL = 0x6d20d8, CLIP_POOL_USED = 0x68b014, TRI_RECORDS = 0x62ebf0, TRI_COUNT = 0x65e1c8;
+constexpr uint32_t CLIP_POOL = RECOMP_VERTEX_POOL, CLIP_POOL_USED = 0x68b014, TRI_RECORDS = 0x62ebf0, TRI_COUNT = 0x65e1c8;
 
 // a guest stdcall / thiscall: arguments pushed below `esp` (the caller's esp), the return address under
 // them, the callee pops its arguments; the x87 status word through F.sw; returns eax
@@ -878,11 +878,15 @@ void clip_path(bool special, uint32_t sp, uint32_t face, uint32_t depth, uint32_
     WR32A(pcount, 0);
     const bool quad = RD16(face + 0x34) != 0xffff;
     uint32_t r;
+    // 0x49ca70 reloads ecx with the face after the first call (0x49cb9b / 0x49cbd2: mov ecx,
+    // [esp+0x164]); for a triangle that is what it leaves when nothing is left to draw
     if (flags & 1) {
         r = split_call(B, special ? 0x49cb9bu : 0x49c766u, {0, 1, 2, verts, face, recs, pcount}, fsw);
+        if (special) R.ecx = face;
         if (quad) r = split_call(B, special ? 0x49cbcbu : 0x49c788u, {0, 2, 3, verts, face, r, pcount}, fsw);
     } else {
         r = slot_triangle(0, 1, 2, face, recs, pcount);
+        if (special) R.ecx = face;
         if (quad) r = slot_triangle(0, 2, 3, face, r, pcount);
     }
     WR32A(B + 0x18, 0);
@@ -1051,7 +1055,7 @@ extern "C" int native_hot_497e40(void) {   // near-plane splitter
     if (md == ON) { near_split(); return 1; }
     const uint32_t rec = RD32A(R.esp + 24), pcount = RD32A(R.esp + 28), used = RD32A(0x68b014u);
     check("near split 0x497e40", near_split, f_00497e40_t,
-          {{rec, 0x80}, {pcount, 4}, {0x68b014u, 4}, {0x6d20d8u + used * 28u, 56}});
+          {{rec, 0x80}, {pcount, 4}, {0x68b014u, 4}, {RECOMP_VERTEX_POOL + used * 28u, 56}});
     static uint32_t n = 0;
     if (++n == 1 || n % 20000 == 0) rt::log("native: near split 0x497e40 checked %u times\n", n);
     return 1;
@@ -1074,7 +1078,7 @@ extern "C" int native_poly_setup(void) {   // 0x49c590
     const uint32_t face = RD32A(R.esp + 4), n = RD32A(NODE_COUNT), flags = RD32A(R.esp + 16);
     const bool clips = flags && RD32A(CLIP_ON) && !RD32A(CLIP_OFF);
     // the clipping path writes records, pool vertices and nodes: the whole writable image is compared
-    const std::vector<Region> regions = clips ? std::vector<Region>{{0x4db000, 0x70c568 - 0x4db000}}
+    const std::vector<Region> regions = clips ? std::vector<Region>{{0x4db000, 0x70c568 - 0x4db000}, vertex_pool_tail(1024)}
                                               : std::vector<Region>{{BUCKET_MIN, 4}, {BUCKET_MAX, 4}, {NODE_COUNT, 4}, {face + 0x3a, 2},
                                                                     {NODES + n * 24u, 24}, {HEADS + poly_bucket() * 4u, 4}};
     Snapshot before = take(regions);
@@ -1149,7 +1153,7 @@ extern "C" int native_poly_special(void) {   // 0x49ca70
     if (md == ON) return poly_special() ? 1 : 0;
     const uint32_t face = RD32A(R.esp + 4), n = RD32A(NODE_COUNT), flags = RD32A(R.esp + 20);
     const bool clips = flags && RD32A(CLIP_ON) && !RD32A(CLIP_OFF);
-    const std::vector<Region> regions = clips ? std::vector<Region>{{0x4db000, 0x70c568 - 0x4db000}}
+    const std::vector<Region> regions = clips ? std::vector<Region>{{0x4db000, 0x70c568 - 0x4db000}, vertex_pool_tail(1024)}
                                               : std::vector<Region>{{BUCKET_MIN, 4}, {BUCKET_MAX, 4}, {NODE_COUNT, 4}, {face + 0x3a, 2},
                                                                     {NODES + n * 24u, 24}, {HEADS + special_bucket() * 4u, 4}};
     Snapshot before = take(regions);

@@ -251,7 +251,7 @@ void render_list_regions(std::vector<Region> &r) {
     r.push_back({0x68b014, 4});
     r.push_back({0x65e1c8, 4});
     const uint32_t used = RD32A(0x68b014), recs = RD32A(0x65e1c8);
-    if (used < 0x10000) r.push_back({0x6d20d8 + used * 28u, 28 * 64});
+    if (used < 0x10000) r.push_back({RECOMP_VERTEX_POOL + used * 28u, 28 * 64});
     if (recs < 0x10000) r.push_back({0x62ebf0 + recs * 64u, 64 * 16});
     r.push_back({RECORD_NEXT, 4});
     r.push_back({VERT_NEXT, 4});
