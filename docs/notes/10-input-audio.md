@@ -225,3 +225,14 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
   L/R/ZL/ZR/Minus/Plus), face buttons from `SDL_GetGamepadButtonLabel`; steering keeps the arrows; raw
   joysticks and the PSP keep the game's text.
 
+## Keys stuck after a macOS screenshot (owner report, 2026-11-15)
+- Owner: after Cmd+Shift+3 / Cmd+Shift+4 during a race, the arrows did not move the replay question's
+  YES / NO; a scripted run without screenshots: the arrows work.
+- Cause (`host_window.cpp`): key events with Cmd held never reached the game, releases included, so a
+  Shift pressed before Cmd stayed pressed for the game; and the key releases made while the screenshot
+  overlay held the keyboard went to another application.
+- Fix: a release always reaches the game when the game has the key pressed; on
+  `SDL_EVENT_WINDOW_FOCUS_LOST` every key the game holds is released (WM_KEYUP with its last scan
+  code); a key dropped as a Cmd combo is logged (`keyboard: key ... dropped (Cmd held)`, once per 5 s) in
+  case SDL's own Cmd state sticks. Owner's retest: no such log line; YES / NO not reported yet.
+

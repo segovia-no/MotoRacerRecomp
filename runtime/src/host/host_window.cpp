@@ -61,6 +61,7 @@ namespace {
 
 uint8_t vk_down[256];
 uint8_t vk_toggle[256];
+uint32_t vk_scancode[256];   // the scan code of each key's last press (for the releases made up on focus loss)
 
 // SDL scancode -> Windows virtual-key code (US layout).
 uint32_t to_vk(SDL_Scancode sc) {
@@ -132,16 +133,36 @@ void host_window_destroyed() {
     }
 }
 
+// Releases every key the game holds as pressed (WM_KEYUP each). The window lost the keyboard (a
+// macOS screenshot Cmd+Shift+3 / 4, Cmd+Tab): the key-ups go to another application, and the game
+// kept Shift (or an arrow) pressed: the arrows no longer moved the replay question's YES / NO
+// (owner, after two screenshots during a race).
+void release_all_keys() {
+    for (uint32_t vk = 1; vk < 256; vk++)
+        if (vk_down[vk]) inject_key(vk, vk_scancode[vk], false);
+}
+
 void host_event_hook(const SDL_Event &e) {
+    if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+        release_all_keys();
+        return;
+    }
     if (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) {
-        // Host hotkeys: Cmd+F / Alt+Enter fullscreen, Cmd+Q quit. Cmd combos never reach the game.
+        // Host hotkeys: Cmd+F / Alt+Enter fullscreen, Cmd+Q quit. Cmd combos never reach the game,
+        // but a key's release always does when the game has it pressed (Shift down, then Cmd+Shift+4:
+        // the Shift release came with Cmd held and was dropped, and the game kept Shift pressed).
         bool down_evt = e.type == SDL_EVENT_KEY_DOWN;
-        if (e.key.mod & SDL_KMOD_GUI) {
+        if ((e.key.mod & SDL_KMOD_GUI) && (down_evt || !vk_down[to_vk(e.key.scancode)])) {
             if (down_evt && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F) host::toggle_fullscreen();
             if (down_evt && e.key.scancode == SDL_SCANCODE_Q) {
                 SDL_Event q{};
                 q.type = SDL_EVENT_QUIT;
                 SDL_PushEvent(&q);
+            }
+            static uint64_t last_log = 0;   // a Cmd that stays held for the host drops every key: seen in logs
+            if (down_evt && !e.key.repeat && to_vk(e.key.scancode) && SDL_GetTicks() - last_log > 5000) {
+                last_log = SDL_GetTicks();
+                log("keyboard: key %s dropped (Cmd held)\n", SDL_GetScancodeName(e.key.scancode));
             }
             return;
         }
@@ -161,6 +182,7 @@ void host_event_hook(const SDL_Event &e) {
 void inject_key(uint32_t vk, uint32_t scancode, bool down) {
     bool was = vk_down[vk];
     vk_down[vk] = down;
+    if (down) vk_scancode[vk] = scancode;
     if (down && !was) vk_toggle[vk] ^= 1;
     uint32_t lp = 1 | (scancode << 16) | (was ? 1u << 30 : 0) | (down ? 0 : 0xC0000000u);
     bool alt = vk_down[0x12];
