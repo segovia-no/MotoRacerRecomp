@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 
 #include "game/game_hooks.h"
@@ -55,6 +56,9 @@ namespace w32 {
 
 extern uint64_t last_poll_ms;   // winmm_joy.cpp
 void inject_key(uint32_t vk, uint32_t scancode, bool down);
+// One key, two sources: the keyboard and the controller's menu keys (nav below).
+enum KeySource { FROM_KEYBOARD, FROM_PAD };
+void merged_key(KeySource s, uint32_t vk, uint32_t scancode, bool down, bool repeat);
 void controller_event(const SDL_Event &e);
 
 namespace {
@@ -137,7 +141,9 @@ void host_window_destroyed() {
 // macOS screenshot Cmd+Shift+3 / 4, Cmd+Tab): the key-ups go to another application, and the game
 // kept Shift (or an arrow) pressed: the arrows no longer moved the replay question's YES / NO
 // (owner, after two screenshots during a race).
+void forget_key_sources();
 void release_all_keys() {
+    forget_key_sources();
     for (uint32_t vk = 1; vk < 256; vk++)
         if (vk_down[vk]) inject_key(vk, vk_scancode[vk], false);
 }
@@ -172,7 +178,7 @@ void host_event_hook(const SDL_Event &e) {
         }
         uint32_t vk = to_vk(e.key.scancode);
         if (!vk) return;
-        inject_key(vk, pc_scancode(e.key.scancode), e.type == SDL_EVENT_KEY_DOWN);
+        merged_key(FROM_KEYBOARD, vk, pc_scancode(e.key.scancode), down_evt, e.key.repeat);
         return;
     }
     if (e.type == SDL_EVENT_GAMEPAD_ADDED) w32::gamepads_refresh();   // also the pads present at start
@@ -188,6 +194,58 @@ void inject_key(uint32_t vk, uint32_t scancode, bool down) {
     bool alt = vk_down[0x12];
     uint32_t msg = down ? (alt ? WM_SYSKEYDOWN : WM_KEYDOWN) : (alt ? WM_SYSKEYUP : WM_KEYUP);
     if (main_window) post_message(main_window, msg, vk, lp);
+}
+
+// The Steam Deck's controller also types its buttons as keys in Desktop Mode (a keyboard "Steam Deck
+// Controller": D-pad = arrows, A = Enter, B / Start = Escape), so each press came twice: the D-pad
+// moved two rows, Start opened the pause menu and closed it again (owner, Deck). One press for the
+// game: a press while the other source holds the key joins it (released when both let go), and a press
+// within kSamePressMs of the other source's press is the same one, even when that one was already
+// released (after switching windows the keys came later than the controller's events: a short tap
+// no longer overlapped, and the doubles were back).
+namespace {
+constexpr uint64_t kSamePressMs = 150;
+struct SourceKeys {
+    bool held[256], dup[256];
+    uint64_t pressed_at[256];
+} sources[2];
+
+bool counts(KeySource s, uint32_t vk) { return sources[s].held[vk] && !sources[s].dup[vk]; }
+
+void note_same_press(uint32_t vk, uint64_t gap) {
+    static int logged = 0;
+    if (logged < 5) { logged++; log("controller: key %x came from the controller and the keyboard, %llu ms apart: one press\n", vk, static_cast<unsigned long long>(gap)); }
+}
+}  // namespace
+
+void forget_key_sources() { memset(sources, 0, sizeof sources); }
+
+void merged_key(KeySource s, uint32_t vk, uint32_t scancode, bool down, bool repeat) {
+    SourceKeys &me = sources[s], &other = sources[s == FROM_KEYBOARD ? FROM_PAD : FROM_KEYBOARD];
+    const KeySource o = s == FROM_KEYBOARD ? FROM_PAD : FROM_KEYBOARD;
+    const uint64_t now = SDL_GetTicks();
+    if (down && repeat) {
+        if (!me.dup[vk] && !counts(o, vk)) inject_key(vk, scancode, true);
+        return;
+    }
+    if (down) {
+        if (me.held[vk]) return;
+        me.held[vk] = true;
+        me.dup[vk] = false;
+        me.pressed_at[vk] = now;
+        if (counts(o, vk)) { note_same_press(vk, now - other.pressed_at[vk]); return; }
+        if (other.pressed_at[vk] && now - other.pressed_at[vk] < kSamePressMs) {
+            me.dup[vk] = true;
+            note_same_press(vk, now - other.pressed_at[vk]);
+            return;
+        }
+        inject_key(vk, scancode, true);
+        return;
+    }
+    const bool was_dup = me.dup[vk];
+    me.held[vk] = me.dup[vk] = false;
+    if (was_dup || counts(o, vk)) return;
+    if (vk_down[vk]) inject_key(vk, vk_scancode[vk], false);
 }
 
 // ---------- controller -> keyboard for the menus ----------
@@ -227,7 +285,7 @@ void nav(uint32_t vk, bool down, bool always = false) {
     }
     if (down == nav_down[vk]) return;
     nav_down[vk] = down;
-    inject_key(vk, nav_scancode(vk), down);
+    merged_key(FROM_PAD, vk, nav_scancode(vk), down, false);
     bool dir = vk >= VK_LEFT_ && vk <= VK_DOWN_;
     if (dir && down) { held_vk = vk; held_since = last_repeat = SDL_GetTicks(); }
     if (dir && !down && held_vk == vk) held_vk = 0;
@@ -436,7 +494,7 @@ void controller_tick() {
     uint64_t now = SDL_GetTicks();
     if (now - held_since > 400 && now - last_repeat > 120) {
         last_repeat = now;
-        if (!game_reads_pad()) inject_key(held_vk, nav_scancode(held_vk), true);
+        if (!game_reads_pad()) merged_key(FROM_PAD, held_vk, nav_scancode(held_vk), true, true);
     }
 }
 

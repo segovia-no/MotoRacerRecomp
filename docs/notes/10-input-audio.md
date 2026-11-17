@@ -263,3 +263,14 @@ Owner played through menus (mouse + keyboard) and a race (keyboard): sound effec
 - Deck under GE-Proton: 0.1.3 and a build with a 20 ms delay in the audio callback without any fix
   both quit cleanly (Wine does not fault on this use-after-free), so the crash itself was not
   reproduced; the fix was checked for clean exits there.
+
+## Double presses on the Steam Deck in Desktop Mode (2026-11-17, owner)
+- The Deck's controller is also a keyboard ("Valve Software Steam Deck Controller": D-pad = arrows,
+  A = Enter, B / Start = Escape) in Desktop Mode, and Steam's keyboard layout does the same in Game Mode:
+  with our menu mapping every press came twice (D-pad two rows, Start opened and closed the pause menu).
+- `host_window.cpp` `merged_key`: one key, two sources (keyboard, controller menu keys). A press while
+  the other source holds the key joins it; a press within 150 ms of the other source's press is the same
+  one, also when that one was released already. Owner: better, not perfect in Desktop Mode after
+  switching windows (gaps measured 0–134 ms; some evidently longer).
+- Game Mode: the layout is set to a gamepad template automatically (docs/notes/28-easy-install.md), so the
+  controller does not type keys there: no double inputs (owner).
