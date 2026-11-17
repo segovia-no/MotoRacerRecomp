@@ -60,7 +60,7 @@ Requirements per system, what the script installs, controls: [psp-build.md](psp-
 - **Mac**: replace MotoRacer.app with the new one.
 - **Windows, Linux, Steam Deck**: extract the new package over the old MotoRacer folder, replacing its files. Do not delete the folder first: it also holds your game files, saves and settings (`game/`, `gamecode/`, `logs/`).
 
-On the next start it rebuilds the game code once ("UPDATING"); saves, best times and settings are kept (see [Settings](playing.md#settings)). Coming from 0.1.2 or earlier on Windows / Linux: the first start moves your game files from the old per-user folder into the MotoRacer folder.
+On the next start it rebuilds the game code once ("UPDATING"); saves, best times and settings are kept (see [Settings](playing.md#settings)). Coming from 0.1.2 or earlier on Windows / Linux: the first start moves your game files from the old per-user folder into the MotoRacer folder, then removes what is left there (the old build cache and logs) and the folder itself. If the MotoRacer folder already had its own game files, the old ones stay where they are, and your saves from them (championships `data/Champ*.sav`, best times, options, `motoracer.ini`, `recomp_state.txt`) are copied in when they are missing or newer (the replaced file is kept as `.bak`).
 
 PSP: `git pull`, run `./setup.sh --psp` (or `setup.cmd --psp`) again and copy `build/psp-hw/PSP/GAME/MOTORACER/EBOOT.PBP` over the one on the memory stick (keeping the stick's `game` folder keeps your best times and settings).
 
