@@ -196,7 +196,7 @@ elseif(PSP)
        runtime/src/psp/gpu_psp.cpp runtime/src/psp/d3d_ge.cpp runtime/src/psp/sdl_psp.cpp
        runtime/src/psp/malloc_trace.cpp runtime/src/psp/mp3_psp.cpp)
 elseif(UNIX)
-  list(APPEND RUNTIME_SOURCES ${PLAT}/posix.cpp ${PLAT}/paths_xdg.cpp)
+  list(APPEND RUNTIME_SOURCES ${PLAT}/posix.cpp ${PLAT}/paths_xdg.cpp ${PLAT}/launchers_xdg.cpp)
 else()
   message(FATAL_ERROR "no platform adapters for ${CMAKE_SYSTEM_NAME} yet (see docs/notes/15-ports-plan.md)")
 endif()

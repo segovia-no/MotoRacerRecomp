@@ -292,3 +292,24 @@ locally and tried on each device first.
   HOME (fresh install from the GOG setup, module built, race at 2560×1920; owner: "the app works great")
   and the Linux tarball headless in Docker (fresh install into the MotoRacer folder: `game/`, `gamecode/`,
   `logs/` next to `kit/`). Windows: built here, not run here.
+
+## Launchers on Linux: menu, Steam library, controller layout (2026-11-17, owner)
+Owner: "of course i want this to be automatic, dont even ask the player". Every start of a Linux package
+(`platform/launchers_xdg.cpp`, `plat::register_launchers`, no-op elsewhere):
+- Menu entry `$XDG_DATA_HOME/applications/motoracer-recomp.desktop` (the name `setup_linux.sh` used) for
+  this folder's `motoracer`, icon = the PNG inside the installer's `goggame-1207658895.ico`
+  (`<folder>/motoracer.png`); rewritten when its content changes (folder moved).
+- Steam shortcut as SteamOS's `steamos-add-to-steam` (`/usr/bin/holo-add-to-steam`) does it: touch
+  `/tmp/addnonsteamgamefile`, `steam steam://addnonsteamgame/<url-encoded desktop file>`; only with Steam
+  running, not when started by Steam (`SteamGameId`), when no `userdata/*/config/shortcuts.vdf` contains
+  this program's path, and once per folder (`<folder>/.steam-shortcut`: a shortcut the player removed is
+  not added again).
+- Controller layout: Steam keys a non-Steam game's Deck layout by its name in lower case in
+  `steamapps/common/Steam Controller Configs/<account>/config/configset_controller_neptune.vdf`
+  (`"moto racer" { "template" "..." }`). New non-Steam games get `controller_neptune_wasd.vdf` (Keyboard
+  (WASD) and Mouse): the controls then type keys. Set to `controller_neptune_gamepad_joystick.vdf`
+  ("Gamepad with Joystick Trackpad") when the entry is missing or still the keyboard template; the
+  original file is kept once as `.motoracer-bak`.
+- Owner's Deck: first start in Desktop Mode → the three `launchers:` log lines; in Game Mode the new
+  entry with the right path and layout (the change survived the switch to Game Mode), no double inputs.
+- The old source build's shortcut is left alone (two "Moto Racer" entries until the player removes one).

@@ -198,6 +198,14 @@ std::string app_data_dir() {
 #endif
 }
 
+void register_launchers(const std::string &game_dir) {
+#ifdef RECOMP_ONE_FOLDER
+    if (const std::string root = package_dir(); !root.empty()) plat::register_launchers(root, game_dir);
+#else
+    (void)game_dir;
+#endif
+}
+
 std::string app_log_dir() {
 #ifdef RECOMP_ONE_FOLDER
     if (const std::string root = package_dir(); !root.empty()) return root + "/logs";

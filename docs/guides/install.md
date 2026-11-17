@@ -33,10 +33,9 @@ No package for your system, or you want the latest code? [Build from source](../
 ## Steam Deck
 1. In **Desktop Mode**, download the GOG installer and the Linux package with the browser (both land in Downloads).
 2. In Dolphin (the file manager), right-click `MotoRacer-linux-x86_64.tar.xz` › **Extract › Extract archive here**. Move the **MotoRacer** folder wherever you like, e.g. your home folder.
-3. Add it to Steam: in Steam choose **Games › Add a Non-Steam Game to My Library… › Browse…**, pick **MotoRacer/motoracer** and **Add Selected Programs**.
-4. Start it once from Steam in Desktop Mode, so the setup screen can build the game (it finds the installer in Downloads; choose **Install**).
-5. Back in **Game Mode**, start *Moto Racer* from your library (under Non-Steam).
-   - Controls: Steam gives new non-Steam games a keyboard layout. Once, open the game's controller settings (Steam button › Controller settings) and choose **Gamepad with Joystick Trackpad**; Steam remembers it.
+3. Double-click **MotoRacer/motoracer** once in Desktop Mode: the setup screen builds the game (it finds the installer in Downloads; choose **Install**). That start also adds *Moto Racer* to your Steam library and to the applications menu, with the controller layout **Gamepad with Joystick Trackpad** (a layout you choose yourself later is kept).
+4. Back in **Game Mode**, start *Moto Racer* from your library (under Non-Steam).
+   - Moved the MotoRacer folder? Start it once from its new place in Desktop Mode: the menu entry follows and Steam gets a shortcut to the new place (remove the old one in Steam).
    - The game starts in 16/9 MODE at the Deck's native **1280×800**. Docked to a TV? Choose e.g. 1920×1080 in Options › SCREEN MODE.
 
 ## Linux PC

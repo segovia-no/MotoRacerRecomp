@@ -67,6 +67,7 @@ constexpr uint32_t RETURN_MAGIC = 0xFFFFFFF0; // return address pushed by guest_
 // platform's per-user folders (plat::HostPaths).
 std::string app_data_dir();
 std::string app_log_dir();
+void register_launchers(const std::string &game_dir);   // release packages: menu / Steam entries (core/app_dirs.cpp)
 
 // ---------- logging ----------
 extern bool trace_imports;

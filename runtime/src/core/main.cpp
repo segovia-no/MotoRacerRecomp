@@ -134,6 +134,9 @@ int main(int argc, char **argv) {
 #endif
     if (!has_game(game_dir)) no_game();
     settings::load(game_dir);
+#ifdef RECOMP_GAME_MODULE
+    register_launchers(game_dir);
+#endif
     if (!explicit_args) game_args = settings::get().game_args;
     log("game dir: %s\nargs: %s\n", game_dir.c_str(), game_args.c_str());
 

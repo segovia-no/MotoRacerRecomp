@@ -131,4 +131,8 @@ struct Host {
 // The adapters for the OS this binary was built for.
 Host &host();
 
+// Release packages, at every start: the menu entry, the Steam library entry and that entry's controller
+// layout for the program in program_dir (Linux: launchers_xdg.cpp); nothing on the other systems.
+void register_launchers(const std::string &program_dir, const std::string &game_dir);
+
 }  // namespace plat

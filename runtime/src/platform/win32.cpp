@@ -331,4 +331,6 @@ Host &host() {
     return h;
 }
 
+void register_launchers(const std::string &, const std::string &) {}   // Linux only (launchers_xdg.cpp)
+
 }  // namespace plat
